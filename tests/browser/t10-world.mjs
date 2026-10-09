@@ -3,6 +3,8 @@ import { startServer, stopServer, openPage, closePage, assert } from './harness.
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
+await page.evaluate(() => window.__FFM_API.start());
+
 // 1. the world populates with Kenney props + rock clusters ahead of the fish
 const propCount = await page.evaluate(() => window.__FFM_API.debugObstacleCount());
 assert(propCount >= 4, `chunks spawn obstacles ahead (${propCount} props)`);

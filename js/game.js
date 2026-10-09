@@ -342,6 +342,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     onWaterEntry: null,
     debugObstacleCount: () => world.debugCount(),
     debugModelFailures: () => failures,
+    debugTeleportToObstacle: () => world.debugTeleport(player),
+    debugCorridorClear: () => world.debugCorridorClear(),
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugNearestCoin: () => coins.debugNearestCoinPos(),
   };

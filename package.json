@@ -5,8 +5,10 @@
   "type": "module",
   "description": "Flying Fish Momentum - browser endless momentum game (per Master PRD v3.0)",
   "scripts": {
-    "test": "node --test tests/unit/",
-    "serve": "python -m http.server 8123 --bind 127.0.0.1"
+    "test": "node --test tests/unit/*.test.js",
+    "test:browser": "node tests/browser/run-all.mjs",
+    "test:all": "node --test tests/unit/*.test.js && node tests/browser/run-all.mjs",
+    "serve": "node -e \"const http=require('http'),fs=require('fs'),p=require('path');const m={'.html':'text/html','.js':'text/javascript','.glb':'model/gltf-binary','.fbx':'application/octet-stream','.png':'image/png'};http.createServer((q,s)=>{const f=p.join(process.cwd(),q.url==='/'?'index.html':q.url);fs.readFile(f,(e,d)=>{if(e){s.writeHead(404);return s.end()}s.writeHead(200,{'Content-Type':m[p.extname(f)]||'application/octet-stream'});s.end(d)})}).listen(8123)\""
   },
   "devDependencies": {
     "playwright": "^1.64.0"

@@ -3,6 +3,8 @@ import { startServer, stopServer, openPage, closePage, assert, assertEqual } fro
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
+await page.evaluate(() => window.__FFM_API.start());
+
 // 1. fish swims forward on its own
 const z1 = await page.evaluate(() => window.__FFM_API.state().position[2]);
 await page.waitForTimeout(1000);
@@ -15,7 +17,11 @@ await page.waitForTimeout(600);
 await page.keyboard.up('KeyD');
 const afterRight = await page.evaluate(() => window.__FFM_API.state());
 assert(afterRight.position[0] > 1.5, `steering moves fish right (x=${afterRight.position[0].toFixed(2)})`);
-assert(afterRight.speed <= 25 + 1.5, `holding a direction grants no speed (speed=${afterRight.speed.toFixed(2)})`);
+// holding a direction keeps speed at the swim tier cap (boosts come only from timing)
+assert(afterRight.speed <= 28, `holding a direction grants no speed (speed=${afterRight.speed.toFixed(2)})`);
+await page.waitForTimeout(1000);
+const stillCapped = await page.evaluate(() => window.__FFM_API.state());
+assert(stillCapped.speed <= 28, `speed keeps decaying to the swim cap without timing (${stillCapped.speed.toFixed(2)})`);
 
 await page.keyboard.down('KeyA');
 await page.waitForTimeout(600);

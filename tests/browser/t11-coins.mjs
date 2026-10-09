@@ -3,6 +3,8 @@ import { startServer, stopServer, openPage, closePage, assert, assertEqual } fro
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
+await page.evaluate(() => window.__FFM_API.start());
+
 // 1. coin arcs spawn ahead (shrimp model instances)
 await page.waitForFunction(() => window.__FFM_API.debugNearestCoin() !== null, { timeout: 10000 });
 const coinPos = await page.evaluate(() => window.__FFM_API.debugNearestCoin());

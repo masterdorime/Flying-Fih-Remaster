@@ -3,6 +3,8 @@ import { startServer, stopServer, openPage, closePage, assert, assertEqual } fro
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
+await page.evaluate(() => window.__FFM_API.start());
+
 // 1. a prompt spawns on its own during a run
 await page.waitForFunction(() => window.__FFM_API.prompt() !== null, { timeout: 6000 });
 const prompt = await page.evaluate(() => window.__FFM_API.prompt());

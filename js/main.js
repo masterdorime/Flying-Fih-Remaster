@@ -10,6 +10,7 @@ import { createJuice } from './juice.js';
 import { createHud } from './hud.js';
 import { createUi } from './ui.js';
 import { createDebug } from './debug.js';
+import { createAudio } from './audio.js';
 import { currentWindows } from './timing.js';
 import { bus } from './event-bus.js';
 
@@ -47,6 +48,7 @@ scene.add(ring.group);
 const hud = createHud(document.body);
 const ui = createUi(document.body, { storage: globalThis.localStorage ?? undefined });
 const debug = createDebug(document.body);
+const audio = createAudio(settings, bus);
 
 // ---- input ----
 const keys = new Set();
@@ -55,6 +57,7 @@ const input = { x: 0, y: 0 };
 window.addEventListener('keydown', e => {
   if (e.repeat) return;
   keys.add(e.code);
+  audio.resume();
   if (e.code === 'Space') game.queuePress();
   if (e.code === 'Escape') bus.emit('ui:pause', null);
   if (e.code === 'F3') bus.emit('ui:debug', null);
@@ -89,11 +92,17 @@ function readInput() {
 let last = performance.now();
 let frames = 0;
 let fps = 60;
+let timeScale = 1;
+let lowFpsFor = 0;
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.05);
+  const dt = Math.min((now - last) / 1000, 0.05) * timeScale;
   last = now;
   frames++;
-  fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
+  fps = fps * 0.95 + (1 / Math.max(dt, 1e-4) / Math.max(timeScale, 0.001)) * 0.05;
+
+  // adaptive quality: sustained low fps -> drop resolution (PRD §26.3)
+  if (fps < 45) { lowFpsFor += dt; } else { lowFpsFor = Math.max(0, lowFpsFor - dt * 2); }
+  if (lowFpsFor > 3 && renderer.getPixelRatio() > 1) renderer.setPixelRatio(1);
 
   if (game.state.phase === 'run' || game.state.phase === 'tutorial') {
     readInput();
@@ -115,6 +124,11 @@ function loop(now) {
 
   hud.update(game.state);
   debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps));
+
+  // speed lines scale with speed and the post-FX setting (PRD §18.2)
+  const sim = game.state;
+  juice.setSpeedLines(Math.min(1, Math.max(0, (sim.speed - 30) / 80)) * settings.postFx *
+    (sim.phase === 'run' || sim.phase === 'tutorial' ? 1 : 0));
 
   cameraRig.update(dt, game.player.state, game.profile().fov);
   renderer.render(scene, camera);
@@ -154,6 +168,7 @@ ui.commands.onSettingsChange = (s) => {
   Object.assign(settings, s);
   game.state.assist = settings.assist;
   juice.setSpeedLines(settings.postFx);
+  audio.applySettings(s);
 };
 
 function localStorageSafe() {
@@ -196,6 +211,8 @@ bus.on('tier:down', () => {
   juice.popup('POWER DOWN', '#ff9f43');
   cameraRig.shake(0.3);
 });
+bus.on('tier:up', () => audio.setMusicIntensity(game.state.tier));
+bus.on('tier:down', () => audio.setMusicIntensity(game.state.tier));
 bus.on('plane:enter', () => {
   juice.popup('MAX FLIGHT', '#ff4d6d');
   cameraRig.kick(0.6);
@@ -240,6 +257,9 @@ window.__FFM_API = {
   debugShakeOffset: () => cameraRig.shakeOffset(),
   debugBanking: () => game.player.state.banking,
   debugInput: () => ({ ...input, keys: [...keys] }),
+  debugAudioStats: () => audio.stats,
+  debugResumeAudio: () => audio.resume(),
+  setTimeScale: (n) => { timeScale = Math.max(0.25, Math.min(8, n)); },
   setSettingsShake: (v) => { settings.cameraShake = v; },
 };
 
