@@ -1,26 +1,30 @@
 import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8123;
 
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.glb': 'model/gltf-binary', '.fbx': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.json': 'application/json' };
+
 export async function startServer() {
-  const proc = spawn('python', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: root, stdio: 'ignore' });
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${PORT}/index.html`);
-      if (r.ok) return proc;
-    } catch { /* not up yet */ }
-    await new Promise(r => setTimeout(r, 250));
-  }
-  proc.kill();
-  throw new Error('static server did not start');
+  const server = http.createServer((req, res) => {
+    const urlPath = decodeURIComponent(req.url.split('?')[0]);
+    let filePath = path.join(root, urlPath === '/' ? 'index.html' : urlPath);
+    if (!filePath.startsWith(root)) { res.writeHead(403); return res.end(); }
+    fs.readFile(filePath, (err, data) => {
+      if (err) { res.writeHead(404); return res.end('not found'); }
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream' });
+      res.end(data);
+    });
+  });
+  await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
+  return server;
 }
 
-export async function stopServer(proc) { proc.kill(); }
+export async function stopServer(server) { await new Promise(resolve => server.close(resolve)); }
 
 export async function openPage() {
   const browser = await chromium.launch();
