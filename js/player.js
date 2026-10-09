@@ -49,7 +49,7 @@ export function createPlayer(scene, fish) {
     // ---- vertical ----
     const waterY = RECOVERY.waterY;
     if (planeMode) {
-      const climb = -input.y * PLANE.climbRate * damp;
+      const climb = input.y * PLANE.climbRate * damp; // W = +input.y = climb
       state.verticalVel += (climb - state.verticalVel) * Math.min(1, dt * 4);
       state.position.y += state.verticalVel * dt;
       state.position.y = Math.min(PLANE.climbCeiling, Math.max(waterY, state.position.y));

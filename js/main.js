@@ -174,6 +174,8 @@ window.__FFM_API = {
   debugCameraPos: () => camera.position.toArray(),
   debugCameraFov: () => camera.fov,
   debugShakeOffset: () => cameraRig.shakeOffset(),
+  debugBanking: () => game.player.state.banking,
+  debugInput: () => ({ ...input, keys: [...keys] }),
   setSettingsShake: (v) => { settings.cameraShake = v; },
 };
 
