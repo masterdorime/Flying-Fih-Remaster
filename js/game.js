@@ -8,10 +8,17 @@ import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
 import { createFish, animateFish, setTrailColor } from './fish.js';
 
+const PLAYER_RADIUS = 1.1;
+
 // RunManager + wiring of all gameplay systems (PRD §22, §23).
-export function createGame({ scene, camera, renderer, water, settings }) {
+export async function createGame({ scene, camera, renderer, water, settings }) {
   const fish = createFish();
   scene.add(fish.group);
+
+  const { loadModels } = await import('./models.js');
+  const { createWorld } = await import('./world.js');
+  const { templates, failures } = await loadModels();
+  const world = createWorld(scene, templates);
 
   const state = {
     phase: 'run', // 'menu' | 'tutorial' | 'run' | 'paused' | 'results'
@@ -114,6 +121,22 @@ export function createGame({ scene, camera, renderer, water, settings }) {
       }
     }
 
+    // obstacle collisions: minor speed loss / major forced descent (PRD §11.3)
+    world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, (hit) => {
+      if (hit.major) {
+        state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 20);
+        state.gauge = Math.min(state.gauge, 25); // forced descent toward water
+        player.state.speed = state.speed;
+        player.state.squashDip = Math.min(1, player.state.squashDip + 0.6);
+        bus.emit('collision:major', hit);
+      } else {
+        state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 8);
+        player.state.speed = state.speed;
+        bus.emit('collision:minor', hit);
+      }
+      checkTierChange();
+    });
+
     // sustained momentum bonus (PRD §14.2)
     if (TIER_ORDER.indexOf(state.tier) >= TIER_ORDER.indexOf(SCORING.sustainedTier)) {
       state.sustainedTime += dt;
@@ -201,6 +224,7 @@ export function createGame({ scene, camera, renderer, water, settings }) {
     activePrompt = null;
     nextPromptAt = 1.2;
     pressQueued = false;
+    world.reset();
     Object.assign(player.state, {
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
       speed: MOMENTUM.minSpeed, planeExitDamp: 0,
@@ -223,6 +247,10 @@ export function createGame({ scene, camera, renderer, water, settings }) {
     player,
     MOMENTUM,
     onWaterEntry: null,
+    debugObstacleCount: () => world.debugCount(),
+    debugModelFailures: () => failures,
+    debugTeleportToObstacle: () => world.debugTeleport(player),
+    debugCorridorClear: () => world.debugCorridorClear(),
   };
 
   return gameApi;

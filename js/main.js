@@ -35,7 +35,7 @@ const settings = loadSettings(globalThis.localStorage ?? {
   setItem: () => {},
 });
 
-const game = createGame({ scene, camera, renderer, water, settings });
+const game = await createGame({ scene, camera, renderer, water, settings });
 const cameraRig = createCamera(camera, settings);
 const juice = createJuice();
 const ring = createTimingRing();
@@ -116,6 +116,14 @@ function loop(now) {
 requestAnimationFrame(loop);
 
 // ---- juice & camera reactions (PRD §18, §16) ----
+bus.on('collision:minor', () => {
+  juice.popup('CRASH', '#ff9f43', true);
+  cameraRig.shake(0.25);
+});
+bus.on('collision:major', () => {
+  juice.popup('BIG CRASH', '#ff4d4d');
+  cameraRig.shake(0.6);
+});
 bus.on('timing:result', ({ result }) => {
   if (result === 'perfect') {
     juice.popup('PERFECT', '#ffd54a');
@@ -154,6 +162,10 @@ window.__FFM_API = {
     return p ? { spawnTime: p.spawnTime, perfectAt: p.perfectAt, expiresAt: p.expiresAt } : null;
   },
   pressAt: (t) => game.pressAt(t),
+  debugObstacleCount: () => game.debugObstacleCount(),
+  debugModelFailures: () => game.debugModelFailures(),
+  debugTeleportToObstacle: () => game.debugTeleportToObstacle(),
+  debugCorridorClear: () => game.debugCorridorClear(),
   debugCameraFov: () => camera.fov,
   debugCameraPos: () => camera.position.toArray(),
   debugShakeOffset: () => cameraRig.shakeOffset(),
