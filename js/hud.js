@@ -1,0 +1,75 @@
+import { GAUGE } from './config.js';
+
+// In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
+
+export function createHud(root) {
+  root.insertAdjacentHTML('beforeend', `
+    <div id="ffm-hud" class="ffm-hud hidden">
+      <div class="ffm-gauge-wrap">
+        <div class="ffm-tier-label" id="ffm-tier">SWIMMING</div>
+        <div class="ffm-gauge">
+          <div class="ffm-gauge-fill" id="ffm-gauge-fill"></div>
+          <div class="ffm-gauge-tick" style="left:${(GAUGE.lowMax / GAUGE.max) * 100}%"></div>
+          <div class="ffm-gauge-tick" style="left:${(GAUGE.mediumMax / GAUGE.max) * 100}%"></div>
+          <div class="ffm-gauge-tick ffm-gauge-tick-max" style="left:${(GAUGE.maxThreshold / GAUGE.max) * 100}%"></div>
+        </div>
+      </div>
+      <div class="ffm-stats">
+        <div><span id="ffm-speed">0</span> <i>u/s</i></div>
+        <div><span id="ffm-distance">0</span> <i>m</i></div>
+        <div class="ffm-coin-count">🦐 <span id="ffm-coins">0</span></div>
+        <div id="ffm-chain-wrap" class="ffm-chain hidden">CHAIN <span id="ffm-chain">0</span></div>
+      </div>
+    </div>
+  `);
+  const style = document.createElement('style');
+  style.textContent = `
+    .ffm-hud { position: fixed; inset: 0; pointer-events: none; z-index: 25; font-family: "Segoe UI", system-ui, sans-serif; }
+    .ffm-gauge-wrap { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); width: min(560px, 72vw); }
+    .ffm-tier-label { text-align: center; color: #eaf6ff; font-size: 13px; letter-spacing: .28em; text-transform: uppercase; margin-bottom: 6px;
+      text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .ffm-gauge { position: relative; height: 16px; border-radius: 9px; background: rgba(8, 30, 46, .72);
+      border: 1px solid rgba(160, 220, 255, .35); overflow: visible; box-shadow: inset 0 2px 6px rgba(0,0,0,.35); }
+    .ffm-gauge-fill { height: 100%; width: 0%; border-radius: 9px;
+      background: linear-gradient(90deg, #4dd2ff, #7dff9a 35%, #ffd54a 68%, #ff4d6d);
+      transition: width .12s linear; box-shadow: 0 0 12px rgba(120, 220, 255, .55); }
+    .ffm-gauge-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: rgba(230, 245, 255, .55); }
+    .ffm-gauge-tick-max { background: #ff4d6d; box-shadow: 0 0 8px #ff4d6d; }
+    .ffm-stats { position: absolute; top: 18px; left: 22px; display: flex; gap: 26px; color: #eaf6ff;
+      font-size: 26px; font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .ffm-stats i { font-size: 12px; font-style: normal; opacity: .7; }
+    .ffm-coin-count { color: #ffd54a; }
+    .ffm-chain { color: #7dff9a; font-size: 18px; align-self: center; }
+  `;
+  document.head.appendChild(style);
+
+  const el = root.querySelector('#ffm-hud');
+  const fill = root.querySelector('#ffm-gauge-fill');
+  const tierEl = root.querySelector('#ffm-tier');
+  const speedEl = root.querySelector('#ffm-speed');
+  const distEl = root.querySelector('#ffm-distance');
+  const coinsEl = root.querySelector('#ffm-coins');
+  const chainWrap = root.querySelector('#ffm-chain-wrap');
+  const chainEl = root.querySelector('#ffm-chain');
+
+  const TIER_LABEL = { none: 'SWIMMING', low: 'LOW FLIGHT', medium: 'MEDIUM FLIGHT', high: 'HIGH FLIGHT', max: 'MAX FLIGHT' };
+
+  function update(state) {
+    if (state.phase !== 'run' && state.phase !== 'tutorial' && state.phase !== 'paused') {
+      el.classList.add('hidden');
+      return;
+    }
+    el.classList.remove('hidden');
+    const pct = Math.min(100, (state.gauge / GAUGE.max) * 100);
+    fill.style.width = pct.toFixed(1) + '%';
+    tierEl.textContent = TIER_LABEL[state.tier] ?? state.tier;
+    tierEl.style.color = state.tier === 'max' ? '#ff4d6d' : state.tier === 'high' ? '#ff9430' : '#eaf6ff';
+    speedEl.textContent = state.speed.toFixed(0);
+    distEl.textContent = state.distance.toFixed(0);
+    coinsEl.textContent = String(state.coins);
+    if (state.chain > 1) { chainWrap.classList.remove('hidden'); chainEl.textContent = String(state.chain); }
+    else chainWrap.classList.add('hidden');
+  }
+
+  return { update };
+}

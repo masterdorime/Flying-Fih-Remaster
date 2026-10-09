@@ -12,7 +12,7 @@ import { createFish, animateFish, setTrailColor } from './fish.js';
 const PLAYER_RADIUS = 1.1;
 
 // RunManager + wiring of all gameplay systems (PRD §22, §23).
-export async function createGame({ scene, camera, renderer, water, settings }) {
+export async function createGame({ scene, camera, renderer, water, settings, storage = null }) {
   const fish = createFish();
   scene.add(fish.group);
 
@@ -25,7 +25,7 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
   const coins = createCoins(scene, coinTemplate);
 
   const state = {
-    phase: 'run', // 'menu' | 'tutorial' | 'run' | 'paused' | 'results'
+    phase: 'menu', // 'menu' | 'tutorial' | 'run' | 'paused' | 'results'
     prevPhase: null,
     speed: MOMENTUM.minSpeed,
     gauge: 0,
@@ -51,6 +51,73 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
   const player = createPlayer(scene, fish);
   player.state.speed = state.speed;
 
+  // ---- phase flow + tutorial script (PRD §2, §3) ----
+  let tutorialStep = 0;
+  const TUTORIAL_STEPS = [
+    { on: 'prompt:spawn', text: 'Press SPACE when the ring shrinks to the gold core!' },
+    { on: 'timing:result', match: 'perfect', text: 'PERFECT! Speed and gauge jump up.' },
+    { on: 'tier:up', text: 'Gauge fills → LOW FLIGHT! Timing unlocks flight tiers.' },
+    { on: 'prompt:spawn', text: 'Chain the next one for more momentum.' },
+    { on: 'timing:result', match: 'miss', text: 'Missing costs speed and gauge. Rebuild and relaunch!' },
+    { on: 'timeout', seconds: 5, text: 'Now fly. Chase MAX FLIGHT — collect shrimp on the way!' },
+  ];
+
+  function startTutorial() {
+    restart(state.assist);
+    state.phase = 'tutorial';
+    tutorialStep = 0;
+    nextPromptAt = 0.9;
+    bus.emit('tutorial:step', TUTORIAL_STEPS[0]);
+  }
+
+  function startRun() {
+    restart(state.assist);
+    state.phase = 'run';
+  }
+
+  function markTutorialDone() { storageSet('ffm.tutorialDone', '1'); }
+
+  function pause() {
+    if (state.phase !== 'run' && state.phase !== 'tutorial') return;
+    state.prevPhase = state.phase;
+    state.phase = 'paused';
+    bus.emit('ui:paused', null);
+  }
+
+  function resume() {
+    if (state.phase !== 'paused') return;
+    state.phase = state.prevPhase ?? 'run';
+    bus.emit('ui:resumed', null);
+  }
+
+  function toMenu() {
+    state.phase = 'menu';
+    bus.emit('ui:menu', null);
+  }
+
+  function advanceTutorial(type, payload) {
+    if (state.phase !== 'tutorial') return;
+    const step = TUTORIAL_STEPS[tutorialStep];
+    if (!step) return;
+    if (step.on === type && (!step.match || step.match === payload)) {
+      tutorialStep += 1;
+      if (tutorialStep >= TUTORIAL_STEPS.length) {
+        state.phase = 'run';
+        storageSet('ffm.tutorialDone', '1');
+        bus.emit('tutorial:end', null);
+        return;
+      }
+      bus.emit('tutorial:step', TUTORIAL_STEPS[tutorialStep]);
+    }
+  }
+
+  function storageSet(key, value) {
+    try { storage.setItem(key, value); } catch { /* storage disabled */ }
+  }
+  function storageGet(key) {
+    try { return storage.getItem(key); } catch { return null; }
+  }
+
   // ---- precision timing prompt lifecycle (PRD §7.1) ----
   let activePrompt = null;
   let nextPromptAt = 1.2;        // first prompt ~1.2s into the run
@@ -59,6 +126,7 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
   function spawnPrompt() {
     activePrompt = createPrompt(state.runTime, TIMING.promptLifetime);
     bus.emit('prompt:spawn', activePrompt);
+    advanceTutorial('prompt:spawn');
   }
 
   function consumePress(atTime) {
@@ -80,7 +148,7 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
   function profile() { return profileFor(state.tier); }
 
   function update(dt, input) {
-    if (state.phase === 'paused' || state.phase === 'results') return;
+    if (state.phase !== 'run' && state.phase !== 'tutorial') return;
 
     // timing evaluation happens at frame start (buffered press uses current clock)
     if (pressQueued) {
@@ -209,6 +277,7 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
     }
     checkTierChange();
     bus.emit('timing:result', { result, tier: state.tier, speed: state.speed, gauge: state.gauge });
+    advanceTutorial('timing:result', result);
     return result;
   }
 
@@ -258,6 +327,13 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
     applyResult,
     restart,
     endRun,
+    startRun,
+    startTutorial,
+    tutorialDone: () => storageGet('ffm.tutorialDone') === '1',
+    markTutorialDone,
+    pause,
+    resume,
+    toMenu,
     queuePress,
     pressAt,
     getActivePrompt: () => activePrompt,
@@ -268,8 +344,6 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
     debugModelFailures: () => failures,
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugNearestCoin: () => coins.debugNearestCoinPos(),
-    debugTeleportToObstacle: () => world.debugTeleport(player),
-    debugCorridorClear: () => world.debugCorridorClear(),
   };
 
   return gameApi;

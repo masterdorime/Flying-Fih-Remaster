@@ -7,6 +7,10 @@ import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { tierForGauge } from './gauge.js';
 import { createTimingRing } from './timing-view.js';
 import { createJuice } from './juice.js';
+import { createHud } from './hud.js';
+import { createUi } from './ui.js';
+import { createDebug } from './debug.js';
+import { currentWindows } from './timing.js';
 import { bus } from './event-bus.js';
 
 const app = document.getElementById('app');
@@ -35,11 +39,14 @@ const settings = loadSettings(globalThis.localStorage ?? {
   setItem: () => {},
 });
 
-const game = await createGame({ scene, camera, renderer, water, settings });
+const game = await createGame({ scene, camera, renderer, water, settings, storage: globalThis.localStorage ?? null });
 const cameraRig = createCamera(camera, settings);
 const juice = createJuice();
 const ring = createTimingRing();
 scene.add(ring.group);
+const hud = createHud(document.body);
+const ui = createUi(document.body, { storage: globalThis.localStorage ?? undefined });
+const debug = createDebug(document.body);
 
 // ---- input ----
 const keys = new Set();
@@ -88,16 +95,15 @@ function loop(now) {
   frames++;
   fps = fps * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
 
-  if (game.state.phase === 'run') {
+  if (game.state.phase === 'run' || game.state.phase === 'tutorial') {
     readInput();
     game.update(dt, input);
     water.update(game.state.runTime);
-    bus.emit('frame', { dt, now: now / 1000, input, fps, frames });
   }
 
   // timing ring follows the fish and faces the camera
   const prompt = game.getActivePrompt();
-  if (prompt && game.state.phase === 'run') {
+  if (prompt && (game.state.phase === 'run' || game.state.phase === 'tutorial')) {
     ring.group.visible = true;
     const p = game.player.state.position;
     ring.group.position.set(p.x, p.y + 2.2, p.z + 7);
@@ -107,6 +113,9 @@ function loop(now) {
     ring.group.visible = false;
   }
 
+  hud.update(game.state);
+  debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps));
+
   cameraRig.update(dt, game.player.state, game.profile().fov);
   renderer.render(scene, camera);
 
@@ -115,7 +124,49 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
-// ---- juice & camera reactions (PRD §18, §16) ----
+// ---- UI wiring: UI calls commands, never mutates game state directly ----
+ui.commands.onStart = (s) => {
+  Object.assign(settings, s);
+  saveSettings(localStorageSafe(), settings);
+  game.state.assist = settings.assist;
+  ui.hideTutorial();
+  ui.show(null);
+  if (!game.tutorialDone() && !settings.assist) game.startTutorial();
+  else game.startRun();
+};
+ui.commands.onResume = () => { ui.show(null); game.resume(); };
+ui.commands.onPause = () => { game.pause(); };
+ui.commands.onRestart = (s) => {
+  Object.assign(settings, s);
+  saveSettings(localStorageSafe(), settings);
+  game.state.assist = settings.assist;
+  ui.hideTutorial();
+  ui.show(null);
+  game.startRun();
+};
+ui.commands.onMenu = () => { game.toMenu(); };
+ui.commands.onSkipTutorial = () => {
+  ui.hideTutorial();
+  game.markTutorialDone();
+  game.startRun();
+};
+ui.commands.onSettingsChange = (s) => {
+  Object.assign(settings, s);
+  game.state.assist = settings.assist;
+  juice.setSpeedLines(settings.postFx);
+};
+
+function localStorageSafe() {
+  return globalThis.localStorage ?? { getItem: () => null, setItem: () => {} };
+}
+
+bus.on('ui:paused', () => ui.show('pause'));
+bus.on('ui:menu', () => { ui.show('menu'); ui.refreshBest(); });
+bus.on('run:end', () => ui.showResults(game.state));
+bus.on('tutorial:step', (step) => ui.showTutorial(step.text));
+bus.on('tutorial:end', () => ui.hideTutorial());
+bus.on('ui:pause', () => { if (game.state.phase === 'run' || game.state.phase === 'tutorial') game.pause(); });
+bus.on('ui:debug', () => debug.toggle());
 bus.on('collision:minor', () => {
   juice.popup('CRASH', '#ff9f43', true);
   cameraRig.shake(0.25);
@@ -151,9 +202,22 @@ bus.on('plane:enter', () => {
 });
 bus.on('plane:exit', () => juice.popup('POWER DOWN', '#ff9f43'));
 
+// boot state: main menu
+game.state.assist = settings.assist;
+ui.show('menu');
+
 // ---- debug/automation API (headless verification + F3 overlay) ----
 window.__FFM_API = {
-  start: (opts = {}) => game.restart(opts.assist ?? settings.assist),
+  start: (opts = {}) => {
+    game.state.assist = opts.assist ?? settings.assist;
+    ui.show(null); ui.hideTutorial();
+    if (opts.tutorial) game.startTutorial(); else game.startRun();
+  },
+  pause: () => game.pause(),
+  resume: () => { ui.show(null); game.resume(); },
+  menu: () => game.toMenu(),
+  tutorialDone: () => game.tutorialDone(),
+  endRun: () => game.endRun(),
   state: () => ({ ...game.state, position: game.player.state.position.toArray() }),
   setGauge: (v) => {
     game.state.gauge = v;
