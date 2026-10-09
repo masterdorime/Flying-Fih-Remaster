@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flying Fish Momentum</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b2a3f; font-family: "Segoe UI", system-ui, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  #app canvas { display: block; }
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #cfeaff; font-size: 22px; letter-spacing: .12em; text-transform: uppercase; background: #0b2a3f; z-index: 50; }
+  .hidden { display: none !important; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="loading">Loading…</div>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

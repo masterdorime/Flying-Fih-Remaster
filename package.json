@@ -1,0 +1,14 @@
+{
+  "name": "flying-fish-momentum",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Flying Fish Momentum - browser endless momentum game (per Master PRD v3.0)",
+  "scripts": {
+    "test": "node --test tests/unit/",
+    "serve": "python -m http.server 8123 --bind 127.0.0.1"
+  },
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}
