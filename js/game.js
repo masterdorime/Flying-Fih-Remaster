@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER, TIMING } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor, planeModeAllowed } from './flight-state.js';
+import { currentWindows, createPrompt, evaluatePress, expirePrompt, promptInterval } from './timing.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
 import { createFish, animateFish, setTrailColor } from './fish.js';
@@ -39,10 +40,42 @@ export function createGame({ scene, camera, renderer, water, settings }) {
   const player = createPlayer(scene, fish);
   player.state.speed = state.speed;
 
+  // ---- precision timing prompt lifecycle (PRD §7.1) ----
+  let activePrompt = null;
+  let nextPromptAt = 1.2;        // first prompt ~1.2s into the run
+  let pressQueued = false;
+
+  function spawnPrompt() {
+    activePrompt = createPrompt(state.runTime, TIMING.promptLifetime);
+    bus.emit('prompt:spawn', activePrompt);
+  }
+
+  function consumePress(atTime) {
+    if (!activePrompt || activePrompt.state !== 'active') return null;
+    const windows = currentWindows(state.speed, { assist: state.assist });
+    const result = evaluatePress(activePrompt, atTime, windows);
+    activePrompt.result = result;
+    activePrompt.state = 'resolved';
+    if (!result) return null; // grace: press outside prompt lifetime
+    applyResult(result);
+    bus.emit('prompt:resolved', { result, prompt: activePrompt });
+    activePrompt = null;
+    return result;
+  }
+
+  function queuePress() { pressQueued = true; }
+  function pressAt(t) { return consumePress(t); }
+
   function profile() { return profileFor(state.tier); }
 
   function update(dt, input) {
     if (state.phase === 'paused' || state.phase === 'results') return;
+
+    // timing evaluation happens at frame start (buffered press uses current clock)
+    if (pressQueued) {
+      pressQueued = false;
+      consumePress(state.runTime);
+    }
 
     state.runTime += dt;
     state.distance += state.speed * dt;
@@ -67,6 +100,19 @@ export function createGame({ scene, camera, renderer, water, settings }) {
     if (state.planeMode && !planeModeAllowed(state.tier)) exitPlaneMode();
 
     if (player.state.planeExitDamp > 0) player.state.planeExitDamp -= dt;
+
+    // prompt scheduling: cadence tightens with difficulty (PRD §13)
+    if (!activePrompt && state.runTime >= nextPromptAt) {
+      spawnPrompt();
+      nextPromptAt = state.runTime + promptInterval(state.difficulty);
+    }
+    if (activePrompt) {
+      const expired = expirePrompt(activePrompt, state.runTime);
+      if (expired !== activePrompt) {
+        activePrompt = null;
+        bus.emit('prompt:expired', expired);
+      }
+    }
 
     // sustained momentum bonus (PRD §14.2)
     if (TIER_ORDER.indexOf(state.tier) >= TIER_ORDER.indexOf(SCORING.sustainedTier)) {
@@ -152,6 +198,9 @@ export function createGame({ scene, camera, renderer, water, settings }) {
       counts: { perfect: 0, good: 0, miss: 0 }, lastResult: null,
       lastPerfectAt: -99, sustainedTime: 0, assist, ended: false,
     });
+    activePrompt = null;
+    nextPromptAt = 1.2;
+    pressQueued = false;
     Object.assign(player.state, {
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
       speed: MOMENTUM.minSpeed, planeExitDamp: 0,
@@ -168,6 +217,9 @@ export function createGame({ scene, camera, renderer, water, settings }) {
     applyResult,
     restart,
     endRun,
+    queuePress,
+    pressAt,
+    getActivePrompt: () => activePrompt,
     player,
     MOMENTUM,
     onWaterEntry: null,

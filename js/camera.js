@@ -6,6 +6,7 @@ import { CAMERA } from './config.js';
 export function createCamera(camera, settings) {
   const shakeState = { time: 0, strength: 0 };
   const kickState = { time: 0, strength: 0 };
+  const lastShakeOffset = new THREE.Vector3();
 
   function kick(strength = CAMERA.tierUpKick) {
     kickState.strength = strength;
@@ -29,11 +30,12 @@ export function createCamera(camera, settings) {
     camera.position.y += (desiredY - camera.position.y) * lag;
     camera.position.z += (desiredZ - camera.position.z) * lag;
 
+    lastShakeOffset.set(0, 0, 0);
     if (shakeState.time > 0) {
       shakeState.time -= dt;
       const s = shakeState.strength * settings.cameraShake;
-      camera.position.x += (Math.random() - 0.5) * s;
-      camera.position.y += (Math.random() - 0.5) * s;
+      lastShakeOffset.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, 0);
+      camera.position.add(lastShakeOffset);
     }
     if (kickState.time > 0) {
       kickState.time -= dt;
@@ -51,5 +53,5 @@ export function createCamera(camera, settings) {
     camera.rotateZ(playerState.banking * 0.12 * settings.cameraShake + 0);
   }
 
-  return { update, kick, shake };
+  return { update, kick, shake, shakeOffset: () => lastShakeOffset.length() };
 }

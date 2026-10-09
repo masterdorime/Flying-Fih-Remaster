@@ -5,6 +5,8 @@ import { createFish } from './fish.js';
 import { createCamera } from './camera.js';
 import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { tierForGauge } from './gauge.js';
+import { createTimingRing } from './timing-view.js';
+import { createJuice } from './juice.js';
 import { bus } from './event-bus.js';
 
 const app = document.getElementById('app');
@@ -35,16 +37,18 @@ const settings = loadSettings(globalThis.localStorage ?? {
 
 const game = createGame({ scene, camera, renderer, water, settings });
 const cameraRig = createCamera(camera, settings);
+const juice = createJuice();
+const ring = createTimingRing();
+scene.add(ring.group);
 
 // ---- input ----
 const keys = new Set();
 const input = { x: 0, y: 0 };
-let timingPressAt = null; // performance.now timestamp of a press awaiting buffer evaluation
 
 window.addEventListener('keydown', e => {
   if (e.repeat) return;
   keys.add(e.code);
-  if (e.code === 'Space') timingPressAt = performance.now() / 1000;
+  if (e.code === 'Space') game.queuePress();
   if (e.code === 'Escape') bus.emit('ui:pause', null);
   if (e.code === 'F3') bus.emit('ui:debug', null);
 });
@@ -91,6 +95,18 @@ function loop(now) {
     bus.emit('frame', { dt, now: now / 1000, input, fps, frames });
   }
 
+  // timing ring follows the fish and faces the camera
+  const prompt = game.getActivePrompt();
+  if (prompt && game.state.phase === 'run') {
+    ring.group.visible = true;
+    const p = game.player.state.position;
+    ring.group.position.set(p.x, p.y + 2.2, p.z + 7);
+    ring.group.quaternion.copy(camera.quaternion);
+    ring.setProgress((game.state.runTime - prompt.spawnTime) / (prompt.expiresAt - prompt.spawnTime));
+  } else {
+    ring.group.visible = false;
+  }
+
   cameraRig.update(dt, game.player.state, game.profile().fov);
   renderer.render(scene, camera);
 
@@ -98,6 +114,31 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+// ---- juice & camera reactions (PRD §18, §16) ----
+bus.on('timing:result', ({ result }) => {
+  if (result === 'perfect') {
+    juice.popup('PERFECT', '#ffd54a');
+    cameraRig.kick(0.35);
+  } else if (result === 'good') {
+    juice.popup('GOOD', '#7dff9a', true);
+    cameraRig.kick(0.15);
+  } else {
+    juice.popup('MISS', '#ff5e5b');
+    cameraRig.shake(0.4);
+  }
+});
+bus.on('prompt:expired', () => juice.popup('MISSED', '#9fb3c8', true));
+bus.on('tier:up', () => juice.popup('TIER UP', '#9dff7a', true));
+bus.on('tier:down', () => {
+  juice.popup('POWER DOWN', '#ff9f43');
+  cameraRig.shake(0.3);
+});
+bus.on('plane:enter', () => {
+  juice.popup('MAX FLIGHT', '#ff4d6d');
+  cameraRig.kick(0.6);
+});
+bus.on('plane:exit', () => juice.popup('POWER DOWN', '#ff9f43'));
 
 // ---- debug/automation API (headless verification + F3 overlay) ----
 window.__FFM_API = {
@@ -108,6 +149,15 @@ window.__FFM_API = {
     game.state.tier = tierForGauge(v);
   },
   applyResult: (r) => game.applyResult(r),
+  prompt: () => {
+    const p = game.getActivePrompt();
+    return p ? { spawnTime: p.spawnTime, perfectAt: p.perfectAt, expiresAt: p.expiresAt } : null;
+  },
+  pressAt: (t) => game.pressAt(t),
+  debugCameraFov: () => camera.fov,
+  debugCameraPos: () => camera.position.toArray(),
+  debugShakeOffset: () => cameraRig.shakeOffset(),
+  setSettingsShake: (v) => { settings.cameraShake = v; },
 };
 
 document.getElementById('loading').classList.add('hidden');
