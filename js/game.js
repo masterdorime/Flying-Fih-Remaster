@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER, TIMING } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor, planeModeAllowed } from './flight-state.js';
+import { timingScore, coinScore } from './scoring.js';
 import { currentWindows, createPrompt, evaluatePress, expirePrompt, promptInterval } from './timing.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -19,6 +20,9 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
   const { createWorld } = await import('./world.js');
   const { templates, failures } = await loadModels();
   const world = createWorld(scene, templates);
+  const { loadCoinModel, createCoins } = await import('./coins.js');
+  const coinTemplate = await loadCoinModel();
+  const coins = createCoins(scene, coinTemplate);
 
   const state = {
     phase: 'run', // 'menu' | 'tutorial' | 'run' | 'paused' | 'results'
@@ -137,6 +141,13 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
       checkTierChange();
     });
 
+    // shrimp coins: score only, NEVER gauge (PRD §8.2)
+    coins.update(dt, player.state.position, () => {
+      state.coins += 1;
+      state.score += coinValue();
+      bus.emit('coin:collect', { coins: state.coins, x: player.state.position.x });
+    });
+
     // sustained momentum bonus (PRD §14.2)
     if (TIER_ORDER.indexOf(state.tier) >= TIER_ORDER.indexOf(SCORING.sustainedTier)) {
       state.sustainedTime += dt;
@@ -173,6 +184,10 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
     }
   }
 
+  function coinValue() {
+    return coinScore(state.tier);
+  }
+
   // Apply a timing result end-to-end (PRD core event contract).
   function applyResult(result) {
     if (state.phase !== 'run') return null;
@@ -190,6 +205,7 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
       state.chain += 1;
       state.bestChain = Math.max(state.bestChain, state.chain);
       state.counts[result] += 1;
+      state.score += timingScore(result, state.tier, state.chain);
     }
     checkTierChange();
     bus.emit('timing:result', { result, tier: state.tier, speed: state.speed, gauge: state.gauge });
@@ -225,6 +241,7 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
     nextPromptAt = 1.2;
     pressQueued = false;
     world.reset();
+    coins.reset();
     Object.assign(player.state, {
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
       speed: MOMENTUM.minSpeed, planeExitDamp: 0,
@@ -249,6 +266,8 @@ export async function createGame({ scene, camera, renderer, water, settings }) {
     onWaterEntry: null,
     debugObstacleCount: () => world.debugCount(),
     debugModelFailures: () => failures,
+    debugTeleportToCoin: () => coins.debugTeleport(player),
+    debugNearestCoin: () => coins.debugNearestCoinPos(),
     debugTeleportToObstacle: () => world.debugTeleport(player),
     debugCorridorClear: () => world.debugCorridorClear(),
   };

@@ -120,6 +120,9 @@ bus.on('collision:minor', () => {
   juice.popup('CRASH', '#ff9f43', true);
   cameraRig.shake(0.25);
 });
+bus.on('coin:collect', () => {
+  juice.popup('COIN', '#ffd54a', true);
+});
 bus.on('collision:major', () => {
   juice.popup('BIG CRASH', '#ff4d4d');
   cameraRig.shake(0.6);
@@ -166,8 +169,10 @@ window.__FFM_API = {
   debugModelFailures: () => game.debugModelFailures(),
   debugTeleportToObstacle: () => game.debugTeleportToObstacle(),
   debugCorridorClear: () => game.debugCorridorClear(),
-  debugCameraFov: () => camera.fov,
+  debugNearestCoin: () => game.debugNearestCoin(),
+  debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugCameraPos: () => camera.position.toArray(),
+  debugCameraFov: () => camera.fov,
   debugShakeOffset: () => cameraRig.shakeOffset(),
   setSettingsShake: (v) => { settings.cameraShake = v; },
 };
