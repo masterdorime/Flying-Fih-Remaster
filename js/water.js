@@ -20,12 +20,15 @@ export function createWater(scene) {
       varying vec3 vPos;
       void main() {
         vec3 p = position;
-        float w = sin(p.z * 0.09 + uTime * 1.6) * 0.35
-                + sin(p.x * 0.22 + uTime * 2.4) * 0.18
-                + sin((p.x + p.z) * 0.045 - uTime * 1.1) * 0.4;
+        // wave phase from WORLD position so the pattern stays world-locked
+        // and the fish travels over waves instead of dragging them along
+        vec4 world = modelMatrix * vec4(p, 1.0);
+        float w = sin(world.z * 0.09 + uTime * 1.6) * 0.35
+                + sin(world.x * 0.22 + uTime * 2.4) * 0.18
+                + sin((world.x + world.z) * 0.045 - uTime * 1.1) * 0.4;
         p.y += w;
         vH = w;
-        vPos = p;
+        vPos = (modelMatrix * vec4(p, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }`,
     fragmentShader: /* glsl */`
@@ -44,12 +47,6 @@ export function createWater(scene) {
         float crest = smoothstep(0.55, 0.9, vH);
         col = mix(col, uFoam, crest * 0.85);
 
-        // ---- sun glitter on the wave faces ----
-        float g = sin(vPos.x * 1.7 + uTime * 1.4) * sin(vPos.z * 1.3 - uTime * 1.1)
-                + sin(vPos.x * 3.1 - uTime * 2.3) * 0.5;
-        float sparkle = smoothstep(0.72, 0.98, g) * (0.35 + crest * 0.65);
-        col += vec3(1.0, 0.98, 0.82) * sparkle * 0.5;
-
         // ---- foam ring trailing the fish ----
         float d = distance(vPos.xz, uPlayer.xz);
         float ring = smoothstep(0.0, 1.0, 1.0 - abs(d - 3.2) / 1.6) * 0.32;
@@ -61,6 +58,7 @@ export function createWater(scene) {
         gl_FragColor = vec4(col, fade);
       }`,
     transparent: true,
+    depthWrite: false,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = -0.15;
@@ -69,7 +67,12 @@ export function createWater(scene) {
     mesh,
     update(t, playerPos) {
       mat.uniforms.uTime.value = t;
-      if (playerPos) mat.uniforms.uPlayer.value.set(playerPos.x, playerPos.y, playerPos.z);
+      if (playerPos) {
+        mat.uniforms.uPlayer.value.set(playerPos.x, playerPos.y, playerPos.z);
+        // keep the strip centered on the fish so water never runs out ahead
+        mesh.position.x = playerPos.x;
+        mesh.position.z = playerPos.z;
+      }
     },
   };
 }

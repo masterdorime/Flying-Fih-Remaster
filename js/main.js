@@ -117,7 +117,7 @@ function loop(now) {
   if (prompt && (game.state.phase === 'run' || game.state.phase === 'tutorial')) {
     ring.group.visible = true;
     const p = game.player.state.position;
-    ring.group.position.set(p.x, p.y + 2.2, p.z + 7);
+    ring.group.position.set(p.x, p.y + 2.8, p.z + 7);
     ring.group.quaternion.copy(camera.quaternion);
     ring.setProgress((game.state.runTime - prompt.spawnTime) / (prompt.expiresAt - prompt.spawnTime));
   } else {
@@ -255,6 +255,7 @@ window.__FFM_API = {
   debugCorridorClear: () => game.debugCorridorClear(),
   debugNearestCoin: () => game.debugNearestCoin(),
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
+  debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),
   debugCameraFov: () => camera.fov,
   debugScene: () => scene,

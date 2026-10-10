@@ -14,17 +14,22 @@ export function createTimingRing() {
   const group = new THREE.Group();
   group.visible = false;
 
-  const goodMat = new THREE.MeshBasicMaterial({ color: 0x4dd2ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
-  const perfectMat = new THREE.MeshBasicMaterial({ color: 0xffd54a, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+  // Both rings render as an overlay: depthTest off + high renderOrder means the
+  // QTE prompt is never clipped by the waterline, props, or the fish itself
+  // (PRD §17.3: the timing prompt is the highest-priority gameplay UI).
+  const goodMat = new THREE.MeshBasicMaterial({ color: 0x4dd2ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
+  const perfectMat = new THREE.MeshBasicMaterial({ color: 0xffd54a, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
 
   // Blue timer ring: lives in its own pivot so it can shrink independently.
   const goodPivot = new THREE.Group();
   const good = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 48), goodMat);
   goodPivot.add(good);
+  good.renderOrder = 999;
 
   // Gold target ring: constant size, always visible, never shrinks.
   const perfect = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 48), perfectMat);
   perfect.scale.setScalar(TARGET_SCALE);
+  perfect.renderOrder = 999;
 
   group.add(goodPivot, perfect);
 
