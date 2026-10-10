@@ -1,12 +1,35 @@
-// Audio (PRD §19): everything synthesized with WebAudio — no audio assets.
+// Audio system (PRD §19): real audio files when present, synthesized fallback otherwise.
 // Master/music/SFX gains come from settings. Autoplay-safe: nothing is created
 // until the first user gesture, and every call is failure-tolerant.
+
+const SFX_FILES = {
+  perfect: 'sfx/perfect.mp3',
+  good: 'sfx/good.mp3',
+  miss: 'sfx/miss.mp3',
+  tierUp: 'sfx/power-up.mp3',
+  tierDown: 'sfx/power-down.mp3',
+  planeEnter: 'sfx/power-up.mp3',   // no dedicated plane sting in the pack; pitch-lifted power-up
+  planeExit: 'sfx/power-down.mp3',
+  coin: 'sfx/coin.mp3',
+  collision: 'sfx/crash.mp3',
+  collisionMajor: 'sfx/crash-big.mp3',
+  splash: 'sfx/splash.mp3',
+  ui: 'sfx/ui.mp3',
+  runEnd: 'sfx/game-over.mp3',
+};
+
+const AMBIENT_FILES = {
+  waves: 'ambient/waves.mp3',
+  wind: 'ambient/wind.mp3',
+};
+
+const AUDIO_DIR = 'assets/audio/';
 
 export function createAudio(settings, bus) {
   let ctx = null;
   let masterGain = null, musicGain = null, sfxGain = null;
   let musicNodes = null;
-  const stats = { calls: {}, contextState: 'none' };
+  const stats = { calls: {}, contextState: 'none', filesLoaded: 0, filesMissing: [] };
 
   function ensure() {
     if (ctx) return ctx;
@@ -43,7 +66,60 @@ export function createAudio(settings, bus) {
     if (sfxGain) sfxGain.gain.value = settings.sfx;
   }
 
-  // ---- one-shot synth voices ----
+  function getContext() { return ensure(); }
+  function musicBus() { ensure(); return musicGain; }
+
+  // ---- file loading (one-shots + ambient loops) ----
+  const sfxBuffers = new Map();
+  const ambient = { nodes: null, buffers: {}, windGain: null };
+
+  async function loadFiles() {
+    if (!ensure()) return { loaded: 0, missing: [] };
+    const missing = [];
+    const jobs = [];
+    for (const [name, rel] of Object.entries(SFX_FILES)) {
+      jobs.push(loadBuffer(AUDIO_DIR + rel).then(b => {
+        if (b) sfxBuffers.set(name, b); else missing.push(rel);
+      }));
+    }
+    for (const [name, rel] of Object.entries(AMBIENT_FILES)) {
+      jobs.push(loadBuffer(AUDIO_DIR + rel).then(b => {
+        if (b) ambient.buffers[name] = b; else missing.push(rel);
+      }));
+    }
+    await Promise.allSettled(jobs);
+    stats.filesLoaded = sfxBuffers.size + Object.keys(ambient.buffers).length;
+    stats.filesMissing = missing;
+    return { loaded: stats.filesLoaded, missing };
+  }
+
+  async function loadBuffer(url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const raw = await res.arrayBuffer();
+      return await ctx.decodeAudioData(raw);
+    } catch (err) {
+      console.warn('[audio] missing or unreadable:', url, err.message);
+      return null;
+    }
+  }
+
+  function playBuffer(buffer, { gain = 1, rate = 1 } = {}) {
+    if (!ensure() || !buffer) return false;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.value = rate;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      src.connect(g); g.connect(sfxGain);
+      src.start();
+      return true;
+    } catch { return false; }
+  }
+
+  // ---- one-shot synth voices (fallback when a file is missing) ----
   function tone({ freq = 440, dur = 0.15, type = 'sine', gain = 0.5, slideTo = null, delay = 0 }) {
     if (!ensure()) return;
     try {
@@ -81,25 +157,98 @@ export function createAudio(settings, bus) {
     } catch { /* audio is optional */ }
   }
 
-  // ---- event voices ----
-  const sfx = {
-    perfect() { count('perfect'); tone({ freq: 660, slideTo: 990, dur: 0.16, type: 'triangle', gain: 0.5 }); tone({ freq: 990, dur: 0.12, delay: 0.07, gain: 0.35 }); },
-    good() { count('good'); tone({ freq: 520, dur: 0.1, type: 'sine', gain: 0.4 }); },
-    miss() { count('miss'); tone({ freq: 200, slideTo: 90, dur: 0.25, type: 'sawtooth', gain: 0.4 }); },
-    tierUp() { count('tierUp'); tone({ freq: 330, slideTo: 880, dur: 0.3, type: 'square', gain: 0.25 }); },
-    tierDown() { count('tierDown'); tone({ freq: 440, slideTo: 160, dur: 0.35, type: 'square', gain: 0.25 }); },
-    coin() { count('coin'); tone({ freq: 1200, dur: 0.07, type: 'sine', gain: 0.4 }); tone({ freq: 1800, dur: 0.09, delay: 0.06, gain: 0.35 }); },
-    collision() { count('collision'); noise({ dur: 0.25, gain: 0.5, cutoff: 900 }); },
-    collisionMajor() { count('collisionMajor'); noise({ dur: 0.4, gain: 0.7, cutoff: 500 }); tone({ freq: 140, slideTo: 60, dur: 0.3, type: 'sawtooth', gain: 0.4 }); },
-    splash() { count('splash'); noise({ dur: 0.3, gain: 0.35, cutoff: 2400 }); },
-    planeEnter() { count('planeEnter'); tone({ freq: 220, slideTo: 1320, dur: 0.5, type: 'sawtooth', gain: 0.3 }); },
-    planeExit() { count('planeExit'); tone({ freq: 1320, slideTo: 220, dur: 0.5, type: 'sawtooth', gain: 0.3 }); },
-    ui() { count('ui'); tone({ freq: 700, dur: 0.06, type: 'sine', gain: 0.3 }); },
+  // ---- event voices: file first, synth fallback ----
+  const synthFallback = {
+    perfect() { tone({ freq: 660, slideTo: 990, dur: 0.16, type: 'triangle', gain: 0.5 }); tone({ freq: 990, dur: 0.12, delay: 0.07, gain: 0.35 }); },
+    good() { tone({ freq: 520, dur: 0.1, type: 'sine', gain: 0.4 }); },
+    miss() { tone({ freq: 200, slideTo: 90, dur: 0.25, type: 'sawtooth', gain: 0.4 }); },
+    tierUp() { tone({ freq: 330, slideTo: 880, dur: 0.3, type: 'square', gain: 0.25 }); },
+    tierDown() { tone({ freq: 440, slideTo: 160, dur: 0.35, type: 'square', gain: 0.25 }); },
+    planeEnter() { tone({ freq: 220, slideTo: 1320, dur: 0.5, type: 'sawtooth', gain: 0.3 }); },
+    planeExit() { tone({ freq: 1320, slideTo: 220, dur: 0.5, type: 'sawtooth', gain: 0.3 }); },
+    coin() { tone({ freq: 1200, dur: 0.07, type: 'sine', gain: 0.4 }); tone({ freq: 1800, dur: 0.09, delay: 0.06, gain: 0.35 }); },
+    collision() { noise({ dur: 0.25, gain: 0.5, cutoff: 900 }); },
+    collisionMajor() { noise({ dur: 0.4, gain: 0.7, cutoff: 500 }); tone({ freq: 140, slideTo: 60, dur: 0.3, type: 'sawtooth', gain: 0.4 }); },
+    splash() { noise({ dur: 0.3, gain: 0.35, cutoff: 2400 }); },
+    ui() { tone({ freq: 700, dur: 0.06, type: 'sine', gain: 0.3 }); },
+    runEnd() { tone({ freq: 300, slideTo: 120, dur: 0.6, type: 'triangle', gain: 0.4 }); },
   };
 
-  // ---- music bed: intensity follows flight tier (PRD §19.2) ----
+  function fire(name, { rate = 1 } = {}) {
+    count(name);
+    const buffer = sfxBuffers.get(name);
+    if (buffer) playBuffer(buffer, { rate });
+    else synthFallback[name]?.();
+  }
+
+  const sfx = {
+    perfect: () => fire('perfect'),
+    good: () => fire('good'),
+    miss: () => fire('miss'),
+    tierUp: () => fire('tierUp'),
+    tierDown: () => fire('tierDown'),
+    coin: () => fire('coin'),
+    collision: () => fire('collision'),
+    collisionMajor: () => fire('collisionMajor'),
+    splash: () => fire('splash'),
+    ui: () => fire('ui'),
+    runEnd: () => fire('runEnd'),
+    planeEnter: () => fire('planeEnter', { rate: 1.12 }), // no dedicated plane sting; pitch-lifted power-up
+    planeExit: () => fire('planeExit'),
+  };
+
+  // ---- ambient loops: waves (always) + wind (volume follows speed) ----
+  function startAmbient() {
+    if (!ensure() || ambient.nodes) return;
+    try {
+      ambient.nodes = [];
+      if (ambient.buffers.waves) {
+        const src = loopSource(ambient.buffers.waves, 0.05);
+        ambient.nodes.push(src);
+      }
+      if (ambient.buffers.wind) {
+        ambient.windGain = ctx.createGain();
+        ambient.windGain.gain.value = 0;
+        const src = ctx.createBufferSource();
+        src.buffer = ambient.buffers.wind;
+        src.loop = true;
+        src.connect(ambient.windGain);
+        ambient.windGain.connect(musicGain); // wind sits with music, not SFX
+        src.start();
+        ambient.nodes.push(src);
+      }
+    } catch { /* ambient is optional */ }
+  }
+
+  function loopSource(buffer, gainValue) {
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    const g = ctx.createGain();
+    g.gain.value = gainValue;
+    src.connect(g);
+    g.connect(musicGain);
+    src.start();
+    return src;
+  }
+
+  function stopAmbient() {
+    if (!ambient.nodes) return;
+    for (const src of ambient.nodes) { try { src.stop(); } catch { /* already stopped */ } }
+    ambient.nodes = null;
+    ambient.windGain = null;
+  }
+
+  // wind intensity 0..1 rises with speed
+  function setWind(intensity) {
+    if (!ambient.windGain || !ctx) return;
+    try {
+      ambient.windGain.gain.setTargetAtTime(Math.min(0.22, Math.max(0, intensity * 0.22)), ctx.currentTime, 0.3);
+    } catch { /* optional */ }
+  }
+
+  // ---- synth music bed (fallback when adaptive music files are absent) ----
   const TIER_INTENSITY = { none: 0, low: 0.25, medium: 0.5, high: 0.75, max: 1 };
-  let musicTarget = 0;
 
   function startMusic() {
     if (!ensure() || musicNodes) return;
@@ -116,13 +265,21 @@ export function createAudio(settings, bus) {
       filter.connect(musicGain);
       osc1.start(); osc2.start(); pulse.start();
       musicNodes = { filter, osc1, osc2, pulse };
-    } catch { /* audio is optional */ }
+    } catch { /* music is optional */ }
+  }
+
+  function stopMusic() {
+    if (!musicNodes) return;
+    for (const node of Object.values(musicNodes)) {
+      try { node.stop?.(); node.disconnect?.(); } catch { /* ignore */ }
+    }
+    musicNodes = null;
   }
 
   function setMusicIntensity(tier) {
-    musicTarget = TIER_INTENSITY[tier] ?? 0;
+    const target = TIER_INTENSITY[tier] ?? 0;
     if (musicNodes && ctx) {
-      try { musicNodes.filter.frequency.value = 400 + musicTarget * 2600; } catch { /* ignore */ }
+      try { musicNodes.filter.frequency.value = 400 + target * 2600; } catch { /* ignore */ }
     }
   }
 
@@ -134,11 +291,15 @@ export function createAudio(settings, bus) {
     bus.on('coin:collect', sfx.coin);
     bus.on('collision:minor', sfx.collision);
     bus.on('collision:major', sfx.collisionMajor);
-    bus.on('plane:enter', () => { sfx.planeEnter(); setMusicIntensity('max'); });
+    bus.on('plane:enter', sfx.planeEnter);
     bus.on('plane:exit', sfx.planeExit);
-    bus.on('run:start', () => { resume(); startMusic(); });
-    bus.on('run:end', () => setMusicIntensity('none'));
+    bus.on('run:end', sfx.runEnd);
+    bus.on('run:start', () => { resume(); startAmbient(); }); // music: synth vs files decided in main.js
+    bus.on('ui:menu', stopAmbient);
   }
 
-  return { resume, applySettings, setMusicIntensity, startMusic, sfx, stats };
+  return {
+    resume, applySettings, setMusicIntensity, startMusic, stopMusic, stopAmbient, setWind,
+    loadFiles, sfx, stats, getContext, musicBus,
+  };
 }

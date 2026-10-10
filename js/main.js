@@ -11,6 +11,9 @@ import { createHud } from './hud.js';
 import { createUi } from './ui.js';
 import { createDebug } from './debug.js';
 import { createAudio } from './audio.js';
+import { createAdaptiveMusicController } from './adaptive-music.js';
+import { normalizeSpeed } from './momentum.js';
+import { MOMENTUM } from './config.js';
 import { currentWindows } from './timing.js';
 import { bus } from './event-bus.js';
 
@@ -49,6 +52,15 @@ const hud = createHud(document.body);
 const ui = createUi(document.body, { storage: globalThis.localStorage ?? undefined });
 const debug = createDebug(document.body);
 const audio = createAudio(settings, bus);
+
+// adaptive music: ladder tracks crossfaded by normalized momentum (game speed)
+const music = createAdaptiveMusicController({
+  ctx: audio.getContext(),
+  destination: audio.musicBus(),
+});
+const musicLoad = await music.load();
+await audio.loadFiles();
+console.info(`[music] ${musicLoad.loaded} tracks loaded, ${audio.stats.filesLoaded} audio files`, musicLoad.failed.length ? `(missing: ${musicLoad.failed.join(', ')})` : '');
 
 // ---- input ----
 const keys = new Set();
@@ -110,6 +122,10 @@ function loop(now) {
     readInput();
     game.update(dt, input);
     water.update(game.state.runTime, game.player.state.position);
+    // adaptive soundtrack rides the same speed value the game uses (single source of truth)
+    const momentum = normalizeSpeed(game.state.speed, MOMENTUM.minSpeed, 110);
+    music.setMomentum(momentum);
+    audio.setWind(momentum);
   }
 
   // timing ring follows the fish and faces the camera
@@ -179,11 +195,57 @@ function localStorageSafe() {
 
 bus.on('ui:paused', () => ui.show('pause'));
 bus.on('ui:menu', () => { ui.show('menu'); ui.refreshBest(); });
-bus.on('run:end', () => ui.showResults(game.state));
+bus.on('run:end', () => { music.pause(); ui.showResults(game.state); });
+
+// ---- adaptive music + ambience transport ----
+let musicStarted = false;
+function startMusicAfterGesture() {
+  audio.resume(); // safe to call repeatedly; unlocks audio inside the gesture
+  if (musicStarted) return;
+  musicStarted = true;
+  if (!music.debugState().playing) music.play();
+  music.setMenuMode(true);    // menu song until a run begins
+}
+window.addEventListener('keydown', startMusicAfterGesture, { once: false });
+window.addEventListener('pointerdown', startMusicAfterGesture, { once: false });
+
+function enterRunMusic() {
+  startMusicAfterGesture();
+  music.setMenuMode(false);
+  if (music.hasFiles()) audio.stopMusic(); // real soundtrack replaces the synth bed
+  else audio.startMusic();                 // no files -> keep the synth fallback
+  music.setMomentum(0);
+  music.play();
+}
+bus.on('run:start', enterRunMusic);
+
+// UI click sound on every menu/screen button
+document.querySelectorAll('.ffm-buttons button, #ffm-tutorial-skip').forEach(btn => {
+  btn.addEventListener('click', () => audio.sfx.ui());
+});
 bus.on('tutorial:step', (step) => ui.showTutorial(step.text));
 bus.on('tutorial:end', () => ui.hideTutorial());
 bus.on('ui:pause', () => { if (game.state.phase === 'run' || game.state.phase === 'tutorial') game.pause(); });
 bus.on('ui:debug', () => debug.toggle());
+
+// TEMPORARY music test panel: ?musicdebug=1 in the URL or press F4. Remove before release.
+let musicPanel = null;
+async function toggleMusicPanel() {
+  if (musicPanel) {
+    musicPanel.remove();
+    musicPanel = null;
+    music.setMenuMode(true); // back to menu song outside the panel
+    return;
+  }
+  const { createMusicTestPanel } = await import('./music-test-panel.js');
+  startMusicAfterGesture();
+  music.setMenuMode(false); // panel drives the ladder directly
+  musicPanel = createMusicTestPanel(music);
+}
+if (new URLSearchParams(location.search).has('musicdebug')) {
+  toggleMusicPanel(); // starts audio inside the call chain, panel drives the ladder
+}
+window.addEventListener('keydown', e => { if (e.code === 'F4') { e.preventDefault(); toggleMusicPanel(); } });
 bus.on('collision:minor', () => {
   juice.popup('CRASH', '#ff9f43', true);
   cameraRig.shake(0.25);
@@ -264,6 +326,11 @@ window.__FFM_API = {
   debugInput: () => ({ ...input, keys: [...keys] }),
   debugAudioStats: () => audio.stats,
   debugResumeAudio: () => audio.resume(),
+  debugMusic: () => music.debugState(),
+  debugMusicMissing: async () => {
+    await music.load([{ id: '__bogus__', file: 'does-not-exist.mp3', at: 0, rungIndex: -1, volume: 0 }]);
+    return 'ok';
+  },
   setTimeScale: (n) => { timeScale = Math.max(0.25, Math.min(8, n)); },
   setSettingsShake: (v) => { settings.cameraShake = v; },
 };

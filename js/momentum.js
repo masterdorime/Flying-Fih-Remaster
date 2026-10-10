@@ -30,6 +30,13 @@ export function integrateSpeed(speed, tier, dt, flying) {
   return Math.min(max + MOMENTUM.overshootHeadroom, speed + accel * dt);
 }
 
+// Normalized momentum 0..1 for the adaptive music controller (reuses game speed;
+// there is no separate momentum source of truth).
+export function normalizeSpeed(speed, min = MOMENTUM.minSpeed, max = 110) {
+  if (max <= min) return 0;
+  return Math.min(1, Math.max(0, (speed - min) / (max - min)));
+}
+
 // Exposed for the debug overlay / tests: what speed will converge to.
 export function targetSpeedForTier(tier) {
   return maxSpeedForTier(tier);

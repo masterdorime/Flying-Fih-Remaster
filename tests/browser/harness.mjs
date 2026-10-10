@@ -26,14 +26,14 @@ export async function startServer() {
 
 export async function stopServer(server) { await new Promise(resolve => server.close(resolve)); }
 
-export async function openPage() {
+export async function openPage(query = '') {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const consoleErrors = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => consoleErrors.push(String(e)));
-  await page.goto(`http://127.0.0.1:${PORT}/index.html`);
-  await page.waitForFunction(() => window.__FFM && window.__FFM.ready === true, { timeout: 15000 });
+  await page.goto(`http://127.0.0.1:${PORT}/index.html${query}`);
+  await page.waitForFunction(() => window.__FFM && window.__FFM.ready === true, { timeout: 20000 });
   return { browser, page, consoleErrors };
 }
 

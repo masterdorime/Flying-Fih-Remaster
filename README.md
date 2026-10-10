@@ -92,7 +92,41 @@ tests/browser/        automated in-browser checks (Playwright)
 docs/                 design spec, implementation plan, previews
 ```
 
+## Sound & music
+
+Real audio files live in `assets/audio/`:
+
+```
+assets/audio/
+  music/    calm.mp3 -> mid.mp3 -> high.m4a -> max.m4a   (adaptive ladder)
+            menu.mp3 (menu music), game-over.m4a (results song, reserved)
+  sfx/      perfect, good, miss, power-up/down, coin, crash, crash-big,
+            splash, ui, game-over stings
+  ambient/  waves.mp3, wind.mp3 (wind volume follows your speed)
+```
+
+**Adaptive soundtrack** (`js/adaptive-music.js`): one full track plays at a
+time; as your momentum (normalized speed, 8-110 -> 0-1) rises, the engine
+crossfades to the next rung at 30% / 60% / 85% and back down. Thresholds,
+volumes, and crossfade time are config in the file; nothing restarts mid-loop
+(long songs get a tail->head crossfade baked in at load so they loop cleanly).
+If a file is missing, that rung is skipped and the rest still play.
+
+**Music test panel (temporary)**: open `index.html?musicdebug=1` or press F4
+in-game to get a momentum slider + play/pause/mute/volume controls so the
+soundtrack can be auditioned without playing. Remove `js/music-test-panel.js`
+and its import before release.
+
+Music starts on your first keypress/click (browser autoplay rule). Volumes
+live in Settings (Master / Music / SFX).
+
 ## Tests
+
+```bash
+npm test             # pure-system unit tests (no browser needed)
+npm run test:browser # in-browser gameplay checks
+npm run test:all     # everything
+```
 
 ```bash
 npm test            # pure-system unit tests (no browser needed)
