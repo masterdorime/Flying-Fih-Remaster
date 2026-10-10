@@ -3,20 +3,14 @@ import { startServer, stopServer, openPage, closePage, assert } from './harness.
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
-// 1. FOV responds to tier
+// 1. FOV responds to tier (poll: FOV eases toward the target)
 await page.evaluate(() => window.__FFM_API.start());
 await page.waitForTimeout(150);
-const fovNone = await page.evaluate(() => window.__FFM_API.state().tier === 'none');
 await page.evaluate(() => window.__FFM_API.setGauge(105)); // max tier
-await page.waitForTimeout(500);
-const camFovMax = await page.evaluate(() => {
-  // read fov off the renderer's camera via the game's camera rig: expose via pixels? use __FFM_API state + debug hook
-  return window.__FFM_API.debugCameraFov();
-});
-assert(camFovMax >= 90, `camera FOV widens at max tier (${camFovMax.toFixed(1)})`);
+await page.waitForFunction(() => window.__FFM_API.debugCameraFov() >= 90, { timeout: 20000 });
 
 await page.evaluate(() => window.__FFM_API.setGauge(20)); // low tier
-await page.waitForTimeout(500);
+await page.waitForFunction(() => window.__FFM_API.debugCameraFov() < 75, { timeout: 20000 });
 const camFovLow = await page.evaluate(() => window.__FFM_API.debugCameraFov());
 assert(camFovLow < 75, `camera FOV narrows back at low tier (${camFovLow.toFixed(1)})`);
 

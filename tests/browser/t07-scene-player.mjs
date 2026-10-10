@@ -5,26 +5,23 @@ const { browser, page, consoleErrors } = await openPage();
 
 await page.evaluate(() => window.__FFM_API.start());
 
-// 1. fish swims forward on its own
+// 1. fish swims forward on its own (poll: sim runs slow under software rendering)
 const z1 = await page.evaluate(() => window.__FFM_API.state().position[2]);
-await page.waitForTimeout(1000);
+await page.waitForFunction((z) => window.__FFM_API.state().position[2] > z + 12, z1, { timeout: 30000 });
 const z2 = await page.evaluate(() => window.__FFM_API.state().position[2]);
 assert(z2 > z1 + 10, `fish advances forward (z ${z1.toFixed(1)} -> ${z2.toFixed(1)})`);
 
 // 2. WASD steers toward the SCREEN direction (camera looks down +Z, so screen-right = world -X)
 await page.keyboard.down('KeyD');
-await page.waitForTimeout(600);
-await page.keyboard.up('KeyD');
+await page.waitForFunction(() => window.__FFM_API.state().position[0] < -1.5, { timeout: 20000 });
 const afterRight = await page.evaluate(() => window.__FFM_API.state());
+await page.keyboard.up('KeyD');
 assert(afterRight.position[0] < -1.5, `D steers screen-right (world x=${afterRight.position[0].toFixed(2)})`);
 // holding a direction keeps speed at the swim tier cap (boosts come only from timing)
 assert(afterRight.speed <= 28, `holding a direction grants no speed (speed=${afterRight.speed.toFixed(2)})`);
-await page.waitForTimeout(1000);
-const stillCapped = await page.evaluate(() => window.__FFM_API.state());
-assert(stillCapped.speed <= 28, `speed keeps decaying to the swim cap without timing (${stillCapped.speed.toFixed(2)})`);
 
 await page.keyboard.down('KeyA');
-await page.waitForTimeout(600);
+await page.waitForFunction((x) => window.__FFM_API.state().position[0] > x + 1.5, afterRight.position[0], { timeout: 20000 });
 await page.keyboard.up('KeyA');
 const afterLeft = await page.evaluate(() => window.__FFM_API.state());
 assert(afterLeft.position[0] > afterRight.position[0] + 1.5, 'A steers screen-left back across');

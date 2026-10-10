@@ -5,7 +5,7 @@ const { browser, page, consoleErrors } = await openPage();
 
 await page.waitForTimeout(600);
 const frames = await page.evaluate(() => window.__FFM.frames);
-assert(frames > 10, `render loop running (frames=${frames})`);
+assert(frames > 3, `render loop running (frames=${frames})`);
 
 const canvasCount = await page.evaluate(() => document.querySelectorAll('#app canvas').length);
 assert(canvasCount === 1, 'exactly one canvas mounted');

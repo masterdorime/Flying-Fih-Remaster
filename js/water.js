@@ -48,7 +48,24 @@ export function createWater(scene) {
   return { mesh, update(t) { mat.uniforms.uTime.value = t; } };
 }
 
-export function createSky(scene) {
+// Kenney equirectangular skybox (skybox-day.png) used as the scene background.
+// An equirect background wraps the camera at any altitude, so the sky never
+// clips or turns black when the fish climbs. Falls back to the gradient dome.
+export async function createSky(scene) {
+  const loader = new THREE.TextureLoader();
+  try {
+    const tex = await loader.loadAsync('assets/models/skyboxes/skybox-day.png');
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    scene.background = tex;
+    scene.fog = new THREE.Fog(0xcfe8f5, 120, 480);
+    return { update() {} };
+  } catch {
+    return createFallbackDome(scene);
+  }
+}
+
+function createFallbackDome(scene) {
   const geo = new THREE.SphereGeometry(900, 24, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -72,5 +89,5 @@ export function createSky(scene) {
   });
   const mesh = new THREE.Mesh(geo, mat);
   scene.add(mesh);
-  return mesh;
+  return { update() {} };
 }

@@ -23,12 +23,12 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xdff3ff, 80, 380);
+scene.fog = new THREE.Fog(0xcfe8f5, 120, 480);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1200);
 camera.position.set(0, 4, -9);
 
-createSky(scene);
+const sky = await createSky(scene);
 const water = createWater(scene);
 scene.add(new THREE.HemisphereLight(0xcfeaff, 0x2a5a78, 1.25));
 const sun = new THREE.DirectionalLight(0xfff2dd, 1.1);
@@ -96,10 +96,11 @@ let fps = 60;
 let timeScale = 1;
 let lowFpsFor = 0;
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.05) * timeScale;
+  const realDt = (now - last) / 1000;            // true frame time (never clamped)
+  const dt = Math.min(realDt, 0.05) * timeScale; // sim step: clamped against tab-switch jumps
   last = now;
   frames++;
-  fps = fps * 0.95 + (1 / Math.max(dt, 1e-4) / Math.max(timeScale, 0.001)) * 0.05;
+  fps = fps * 0.95 + (1 / Math.max(realDt, 1e-3)) * 0.05;
 
   // adaptive quality: sustained low fps -> drop resolution (PRD §26.3)
   if (fps < 45) { lowFpsFor += dt; } else { lowFpsFor = Math.max(0, lowFpsFor - dt * 2); }
@@ -207,6 +208,7 @@ bus.on('timing:result', ({ result }) => {
   }
 });
 bus.on('prompt:expired', () => juice.popup('MISSED', '#9fb3c8', true));
+bus.on('prompt:spawn', () => ring.resetColors());
 bus.on('tier:up', () => juice.popup('TIER UP', '#9dff7a', true));
 bus.on('tier:down', () => {
   juice.popup('POWER DOWN', '#ff9f43');
@@ -255,6 +257,7 @@ window.__FFM_API = {
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugCameraPos: () => camera.position.toArray(),
   debugCameraFov: () => camera.fov,
+  debugScene: () => scene,
   debugShakeOffset: () => cameraRig.shakeOffset(),
   debugBanking: () => game.player.state.banking,
   debugInput: () => ({ ...input, keys: [...keys] }),
