@@ -4,14 +4,15 @@ import { profileFor } from './flight-state.js';
 // Animated low-poly water + gradient sky. Purely environmental.
 
 export function createWater(scene) {
-  const geo = new THREE.PlaneGeometry(600, 1600, 90, 220);
+  const geo = new THREE.PlaneGeometry(700, 1800, 90, 220);
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uShallow: { value: new THREE.Color(0x3aa7d9) },
-      uDeep: { value: new THREE.Color(0x0b3a5c) },
-      uFoam: { value: new THREE.Color(0xdff6ff) },
+      uShallow: { value: new THREE.Color(0x3fe0c8) },  // tropical shallow
+      uDeep: { value: new THREE.Color(0x075f86) },     // deep teal
+      uFoam: { value: new THREE.Color(0xf2ffff) },
+      uPlayer: { value: new THREE.Vector3(0, 0, 0) },
     },
     vertexShader: /* glsl */`
       uniform float uTime;
@@ -30,14 +31,33 @@ export function createWater(scene) {
     fragmentShader: /* glsl */`
       uniform vec3 uShallow, uDeep, uFoam;
       uniform float uTime;
+      uniform vec3 uPlayer;
       varying float vH;
       varying vec3 vPos;
       void main() {
+        // ---- toon depth bands ----
         float t = clamp(vH * 0.5 + 0.5, 0.0, 1.0);
-        vec3 col = mix(uDeep, uShallow, t);
-        float sparkle = smoothstep(0.55, 0.9, sin(vPos.x * 2.0 + uTime * 3.0) * sin(vPos.z * 1.7 - uTime * 2.2));
-        col = mix(col, uFoam, sparkle * 0.25);
-        float fade = 1.0 - smoothstep(200.0, 620.0, abs(vPos.z));
+        float band = floor(t * 5.0) / 5.0;                 // quantized cartoon bands
+        vec3 col = mix(uDeep, uShallow, band);
+
+        // ---- foam on wave crests ----
+        float crest = smoothstep(0.55, 0.9, vH);
+        col = mix(col, uFoam, crest * 0.85);
+
+        // ---- sun glitter on the wave faces ----
+        float g = sin(vPos.x * 1.7 + uTime * 1.4) * sin(vPos.z * 1.3 - uTime * 1.1)
+                + sin(vPos.x * 3.1 - uTime * 2.3) * 0.5;
+        float sparkle = smoothstep(0.72, 0.98, g) * (0.35 + crest * 0.65);
+        col += vec3(1.0, 0.98, 0.82) * sparkle * 0.5;
+
+        // ---- foam ring trailing the fish ----
+        float d = distance(vPos.xz, uPlayer.xz);
+        float ring = smoothstep(0.0, 1.0, 1.0 - abs(d - 3.2) / 1.6) * 0.32;
+        float bob = 0.85 + 0.15 * sin(uTime * 3.0);
+        col = mix(col, uFoam, clamp(ring * bob, 0.0, 1.0));
+
+        // ---- distance fade to the skybox ----
+        float fade = 1.0 - smoothstep(240.0, 700.0, abs(vPos.z - uPlayer.z));
         gl_FragColor = vec4(col, fade);
       }`,
     transparent: true,
@@ -45,7 +65,13 @@ export function createWater(scene) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = -0.15;
   scene.add(mesh);
-  return { mesh, update(t) { mat.uniforms.uTime.value = t; } };
+  return {
+    mesh,
+    update(t, playerPos) {
+      mat.uniforms.uTime.value = t;
+      if (playerPos) mat.uniforms.uPlayer.value.set(playerPos.x, playerPos.y, playerPos.z);
+    },
+  };
 }
 
 // Kenney equirectangular skybox (skybox-day.png) used as the scene background.

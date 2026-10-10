@@ -109,7 +109,7 @@ function loop(now) {
   if (game.state.phase === 'run' || game.state.phase === 'tutorial') {
     readInput();
     game.update(dt, input);
-    water.update(game.state.runTime);
+    water.update(game.state.runTime, game.player.state.position);
   }
 
   // timing ring follows the fish and faces the camera
