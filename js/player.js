@@ -79,8 +79,10 @@ export function createPlayer(scene, fish) {
     }
 
     // ---- visuals ----
-    state.banking += ((-state.lateralVel * 0.045 * profile.airControl) - state.banking) * Math.min(1, dt * 8);
-    state.yaw = state.lateralVel * -0.02;
+    // Screen-right = world -X, so negative lateral velocity is a right turn:
+    // yaw the nose into the turn and bank the same way (right wing dips).
+    state.banking += ((state.lateralVel * 0.045 * profile.airControl) - state.banking) * Math.min(1, dt * 8);
+    state.yaw = state.lateralVel * 0.02;
     const targetStretch = Math.min(0.35, (state.speed - 20) / 260);
     state.stretch += (targetStretch - state.stretch) * Math.min(1, dt * 5);
     if (state.squashDip > 0) state.squashDip = Math.max(0, state.squashDip - dt * 2.5);

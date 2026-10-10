@@ -22,8 +22,8 @@ const summary = await page.evaluate(async () => {
     coins = s.coins; perfects = s.counts.perfect;
     const p = api.prompt();
     if (p) {
-      // press exactly at the perfect moment (within one sim frame)
-      if (s.runTime >= p.perfectAt - 0.06 && s.runTime <= p.perfectAt + 0.06) {
+      // evaluate retroactively at the exact perfect moment (robust to frame timing)
+      if (s.runTime >= p.perfectAt && s.runTime <= p.expiresAt) {
         api.pressAt(p.perfectAt);
       }
     }

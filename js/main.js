@@ -73,15 +73,16 @@ window.addEventListener('resize', () => {
 
 function readInput() {
   let x = 0, y = 0;
-  if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1;
-  if (keys.has('KeyD') || keys.has('ArrowRight')) x += 1;
+  // Camera sits behind the fish looking down +Z, so world -X is screen RIGHT.
+  if (keys.has('KeyA') || keys.has('ArrowLeft')) x += 1;
+  if (keys.has('KeyD') || keys.has('ArrowRight')) x -= 1;
   if (keys.has('KeyW') || keys.has('ArrowUp')) y += 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) y -= 1;
   // gamepad
   const pads = navigator.getGamepads?.() ?? [];
   for (const pad of pads) {
     if (!pad) continue;
-    x += pad.axes[0] ?? 0;
+    x -= pad.axes[0] ?? 0;
     y -= pad.axes[1] ?? 0;
   }
   input.x = Math.max(-1, Math.min(1, x)) * settings.sensitivity;

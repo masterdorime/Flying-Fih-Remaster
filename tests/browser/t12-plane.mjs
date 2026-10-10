@@ -40,9 +40,9 @@ await page.waitForTimeout(160);
 const bankSample = await page.evaluate(() => ({ roll: window.__FFM_API.debugBanking(), x: window.__FFM_API.state().position[0] }));
 await page.keyboard.up('KeyD');
 const rolled = await page.evaluate(() => window.__FFM_API.state());
-assert(bankSample.x > x0 + 2, `bank-turn moves the fish sideways (x ${x0.toFixed(1)} -> ${bankSample.x.toFixed(1)})`);
+assert(bankSample.x < x0 - 2, `bank-turn moves the fish screen-right (x ${x0.toFixed(1)} -> ${bankSample.x.toFixed(1)})`);
 assert(Math.abs(bankSample.roll) > 0.3, `banking rolls the fish (${roll0.toFixed(2)} -> ${bankSample.roll.toFixed(2)})`);
-assert(rolled.position[0] > x0, 'sideways drift persists');
+assert(rolled.position[0] < x0, 'sideways drift persists');
 
 // 4. dropping below 100 exits plane mode with a damp + POWER DOWN
 await page.evaluate(() => window.__FFM_API.setGauge(99));
