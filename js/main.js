@@ -62,6 +62,8 @@ const audio = createAudio(settings, bus);
 // two environments: the ocean below the cloud curtain, the sky world above it
 const clouds = createClouds(scene);
 const skyWorld = createSkyWorld(scene, game.templates, game.coinTemplate);
+skyWorld.group.visible = false; // the sky exists only above the clouds
+bus.on('run:start', () => skyWorld.reset(game.player.state.position.z));
 
 // adaptive music: ladder tracks crossfaded by normalized momentum (game speed)
 const music = createAdaptiveMusicController({
@@ -131,6 +133,8 @@ function updateEnvironment(y) {
   if (!above) scene.background = dayBg;
   water.mesh.visible = !above;
   skyWorld.group.visible = above;
+  // the curtain also hides the ocean world itself: obstacles + ocean shrimp
+  game.setOceanVisible(!above);
 }
 
 // ---- loop with clamped dt (tab-switch guard) ----
@@ -318,6 +322,8 @@ bus.on('prompt:expired', () => juice.popup('MISSED', '#9fb3c8', true));
 bus.on('prompt:spawn', () => ring.resetColors());
 bus.on('tier:up', () => juice.popup('TIER UP', '#9dff7a', true));
 bus.on('tier:down', () => {
+  // draining in the sky is the flight timer, not a power-down: don't spam the popup
+  if (game.state.flying) return;
   juice.popup('POWER DOWN', '#ff9f43');
   cameraRig.shake(0.3);
 });
@@ -331,10 +337,12 @@ bus.on('plane:exit', () => juice.popup('POWER DOWN', '#ff9f43'));
 
 // ---- launch ritual announcements + slow-mo punch through the clouds ----
 bus.on('launch:charge', () => juice.popup('SPAM SPACE!', '#7dff9a', true));
+let scaleBeforeLeap = 1;
 bus.on('launch:blow', () => {
   juice.popup('LIFTOFF!', '#ffd54a', true);
-  timeScale = 0.35; // slow-mo while the camera punches through the curtain
-  setTimeout(() => { timeScale = 1; }, 800);
+  scaleBeforeLeap = timeScale; // restore what the player/debug had, not a hard 1
+  timeScale = 0.35;            // ~0.8s of slow-mo through the curtain (HANDOFF spec)
+  setTimeout(() => { timeScale = scaleBeforeLeap; }, 800);
   cameraRig.shake(0.4);
 });
 
@@ -377,6 +385,11 @@ window.__FFM_API = {
   debugForceFlight: () => game.debugForceFlight(),
   debugSpam: () => game.debugSpam(),
   debugEnvironment: () => environment,
+  debugVisibility: () => ({
+    sky: skyWorld.group.visible,
+    water: water.mesh.visible,
+    skyInfo: skyWorld.debugInfo(game.player.state.position.z),
+  }),
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),

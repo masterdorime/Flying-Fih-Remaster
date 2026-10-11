@@ -60,10 +60,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   const TUTORIAL_STEPS = [
     { on: 'prompt:spawn', text: 'Press SPACE when the ring shrinks to the gold core!' },
     { on: 'timing:result', match: 'perfect', text: 'PERFECT! Speed and gauge jump up.' },
-    { on: 'tier:up', text: 'Gauge fills → LOW FLIGHT! Timing unlocks flight tiers.' },
+    { on: 'tier:up', text: 'Gauge fills! Keep going — at a FULL gauge you launch into the sky.' },
     { on: 'prompt:spawn', text: 'Chain the next one for more momentum.' },
     { on: 'timing:result', match: 'miss', text: 'Missing costs speed and gauge. Rebuild and relaunch!' },
-    { on: 'timeout', seconds: 5, text: 'Now fly. Chase MAX FLIGHT — collect shrimp on the way!' },
+    { on: 'timeout', seconds: 5, text: 'Full gauge? Mash SPACE to overfill it — then you fly!' },
   ];
 
   function startTutorial() {
@@ -439,6 +439,11 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugSetAltitude: (y) => { player.state.position.y = y; },
     debugForceFlight: () => enterFlight(), // the real transition: also fires plane:enter
     debugSpam: () => spamPress(),
+    // hide the ocean world (obstacles + ocean shrimp) while the fish is in the sky
+    setOceanVisible: (v) => {
+      for (const chunk of world.chunks.values()) chunk.group.visible = v;
+      for (const coin of coins.active) coin.group.visible = v;
+    },
   };
 
   return gameApi;

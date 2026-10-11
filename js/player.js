@@ -95,8 +95,15 @@ export function createPlayer(scene, fish) {
         state.position.y -= FLIGHT.descendSpeed * dt;
         state.verticalVel = -FLIGHT.descendSpeed;
         if (state.position.y <= waterY) {
+          const impact = Math.abs(state.verticalVel);
           state.position.y = waterY;
           state.verticalVel = 0;
+          // a 30 u/s landing IS a water entry: splash + squash before the swim pose
+          if (impact > 6 && state.waterEntryCooldown <= 0) {
+            state.waterEntryCooldown = 0.8;
+            state.squashDip = Math.min(1, impact / 12);
+            game.onWaterEntry?.(impact);
+          }
           game.onLanded?.();
         }
         break;

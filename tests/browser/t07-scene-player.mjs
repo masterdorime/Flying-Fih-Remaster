@@ -32,7 +32,12 @@ await page.waitForFunction(() => window.__FFM_API.state().tier === 'low', { time
 const lowGauge = await page.evaluate(() => window.__FFM_API.state());
 assert(lowGauge.tier === 'low', `gauge 12 -> low tier (got ${lowGauge.tier})`);
 assertEqual(lowGauge.locomotion, 'swim', 'low gauge does not unlock flight');
-await page.waitForTimeout(2500); // let the swim phase pull the fish back to the surface
+// stay locked across ~40 frames of polling (no fixed timeout: sim pacing varies)
+await page.waitForFunction(() => {
+  window.__LOCKED_FRAMES = (window.__LOCKED_FRAMES ?? 0) + 1;
+  const s = window.__FFM_API.state();
+  return s.locomotion !== 'swim' || window.__LOCKED_FRAMES > 40;
+}, { timeout: 30000 });
 const stillSwimming = await page.evaluate(() => window.__FFM_API.state());
 assert(stillSwimming.locomotion === 'swim', `fish keeps swimming at low gauge (${stillSwimming.locomotion})`);
 assert(stillSwimming.position[1] < 2, `flight locked: fish stays on the water (y=${stillSwimming.position[1].toFixed(2)})`);

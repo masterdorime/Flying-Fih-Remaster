@@ -58,6 +58,7 @@ export function createSkyWorld(scene, templates, coinTemplate) {
         floorY + Math.random() * 26,
         playerZ - 150 + Math.random() * 380,
       );
+      p.baseY = p.group.position.y; // bob offset base, so y never random-walks
     }
     for (const g of trailCoins) group.remove(g);
     trailCoins.length = 0;
@@ -71,10 +72,11 @@ export function createSkyWorld(scene, templates, coinTemplate) {
   function update(dt, playerPos) {
     if (!group.visible) return;
     slab.position.x = playerPos.x;
+    slab.position.z = playerPos.z; // keep the slab under the fish for the whole flight
     for (const p of props) {
       p.group.rotation.y += p.spin * dt;
-      // gentle bob so the props feel afloat
-      p.group.position.y += Math.sin(performance.now() * 0.0008 + p.z) * 0.004;
+      // gentle bob so the props feel afloat (offset from the base, never accumulated)
+      p.group.position.y = p.baseY + Math.sin(performance.now() * 0.0008 + p.z) * 0.004;
       const dz = p.group.position.z - playerPos.z;
       if (dz > 120) p.group.position.z -= 470;
       else if (dz < -350) p.group.position.z += 470;
@@ -95,5 +97,14 @@ export function createSkyWorld(scene, templates, coinTemplate) {
 
   resetLayout(0);
 
-  return { group, update };
+  // a new run starts the fish back at z=0: rebuild the sky around it
+  function reset(playerZ) { resetLayout(playerZ); }
+
+  function debugInfo(playerZ) {
+    let ahead = 0;
+    for (const g of trailCoins) if (g.position.z > playerZ && g.position.z < playerZ + 300) ahead++;
+    return { trailAhead: ahead, slabZ: Math.round(slab.position.z), playerZ: Math.round(playerZ) };
+  }
+
+  return { group, update, reset, debugInfo };
 }

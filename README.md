@@ -64,7 +64,8 @@ Friends click the link and play in any modern browser. No install.
    (0-120). At a full gauge with a chain of hits, the launch sequence starts.
    Flight is no longer a passive tier; it is an event you trigger.
 4. **First flight: SPAM-QTE** — the fish locks and trembles at the surface.
-   **Mash SPACE** for 5 s to overfill the gauge past its max - then it **blows**.
+   **Mash SPACE** to overfill the gauge past its max - then it **blows**. Four
+   presses do it; if you stop mashing, the gauge blows on its own after 5 s.
 5. **Cinematic leap** — slow-mo, the camera orbits and rises as the fish punches
    through the cloud layer to a fixed altitude, **above the clouds**.
 6. **Fly like a plane** — in the sky you hold altitude and steer freely. Perfect

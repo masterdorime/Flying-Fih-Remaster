@@ -300,6 +300,7 @@ export function createAudio(settings, bus) {
     bus.on('collision:major', sfx.collisionMajor);
     bus.on('plane:enter', sfx.planeEnter);
     bus.on('plane:exit', sfx.planeExit);
+    bus.on('launch:spam', sfx.ui); // every mash clicks — the ritual has to feel physical
     bus.on('run:end', sfx.runEnd);
     bus.on('run:start', () => { resume(); startAmbient(); }); // music: synth vs files decided in main.js
     bus.on('ui:menu', stopAmbient);

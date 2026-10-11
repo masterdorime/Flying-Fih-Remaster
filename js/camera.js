@@ -38,9 +38,18 @@ export function createCamera(camera, settings) {
         p.y + THREE.MathUtils.lerp(2.5, 6.5, t) + t * 2,
         p.z + Math.cos(theta) * radius - 3,
       );
+      // shake from the blow-up rides along during the leap too
+      lastShakeOffset.set(0, 0, 0);
+      if (shakeState.time > 0) {
+        shakeState.time -= dt;
+        const s = shakeState.strength * settings.cameraShake;
+        lastShakeOffset.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, 0);
+        camera.position.add(lastShakeOffset);
+      }
       camera.lookAt(p.x, p.y + 1 + t * 4, p.z + 4);
-      const punch = Math.sin(t * Math.PI); // peaks mid-rise, settled at both ends
-      const targetFov = THREE.MathUtils.lerp(profileFov, 95, punch);
+      // one-way FOV swell 60 -> 95 across the rise (the tier fov is already 95
+      // at max tier, so punching from it would be a no-op)
+      const targetFov = THREE.MathUtils.lerp(60, 95, t);
       camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 6);
       camera.updateProjectionMatrix();
       return;
