@@ -28,10 +28,12 @@ assert(afterLeft.position[0] > afterRight.position[0] + 1.5, 'A steers screen-le
 
 // 3. gauge drains toward water when flying (poll: sim time runs slow under software GL)
 await page.evaluate(() => window.__FFM_API.setGauge(12));
-await page.waitForTimeout(1200);
+await page.waitForFunction(() => window.__FFM_API.state().tier === 'low', { timeout: 20000 });
 const midFlight = await page.evaluate(() => window.__FFM_API.state());
 assert(midFlight.tier === 'low', `gauge 12 -> low tier (got ${midFlight.tier})`);
-assert(midFlight.position[1] > 3, `fish climbs when flying (y=${midFlight.position[1].toFixed(2)})`);
+await page.waitForFunction(() => window.__FFM_API.state().position[1] > 3, { timeout: 30000 });
+const climbing = await page.evaluate(() => window.__FFM_API.state());
+assert(climbing.position[1] > 3, `fish climbs when flying (y=${climbing.position[1].toFixed(2)})`);
 await page.waitForFunction(() => window.__FFM_API.state().tier === 'none', { timeout: 30000 });
 await page.waitForFunction(() => window.__FFM_API.state().position[1] < 2, { timeout: 15000 });
 const sinking = await page.evaluate(() => window.__FFM_API.state());

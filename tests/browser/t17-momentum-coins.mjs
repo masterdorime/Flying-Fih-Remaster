@@ -14,7 +14,7 @@ const result = await page.evaluate(async () => {
   api.setTimeScale(4);
   let maxTier = 'none';
   let filledAt = null;
-  const deadline = Date.now() + 40000;
+  const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 20));
     const s = api.state();

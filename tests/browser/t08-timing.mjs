@@ -66,7 +66,7 @@ await page.waitForFunction(() => window.__FFM_API.prompt() !== null, { timeout: 
 const p4 = await page.evaluate(() => window.__FFM_API.prompt());
 const preExpire = await page.evaluate(() => window.__FFM_API.state().speed);
 await page.waitForFunction((t) => window.__FFM_API.state().runTime > t + 0.1, p4.expiresAt);
-await page.waitForTimeout(100);
+await page.waitForFunction(() => [...document.querySelectorAll('.ffm-popup')].some(e => e.textContent.includes('MISSED')), { timeout: 5000 });
 const postExpire = await page.evaluate(() => window.__FFM_API.state());
 assert(postExpire.speed >= preExpire - 1.5, `expired prompt causes no speed penalty (${preExpire.toFixed(1)} -> ${postExpire.speed.toFixed(1)})`);
 const popups2 = await page.evaluate(() => [...document.querySelectorAll('.ffm-popup')].map(e => e.textContent).join(','));

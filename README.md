@@ -61,7 +61,14 @@ Friends click the link and play in any modern browser. No install.
    The gauge drains while flying, so chain Perfects to stay up. Drop below full and
    you POWER DOWN.
 5. **Falling to the water isn't death** — swim, hit prompts, rebuild, relaunch.
-6. **Shrimp** = score only (they never fill the gauge).
+6. **Two ways the run ends:**
+   - **CRASHED** — a big crash (boat/container/large rock) while at Low or Medium
+     tier costs a wing; lose all 3 and the run is over (HUD shows remaining wings)
+   - **OUT OF MOMENTUM** — pinned at minimum speed while airborne for 1.5s
+     (e.g. two Max-tier misses in plane mode: no thrust, you plummet)
+   Being low over the water is survivable — it's the recovery zone, not death.
+7. **Shrimp** = score only (they never fill the gauge) and come as continuous
+   trails so there are always coins ahead to collect.
 7. Settings include an **Assist mode** (wider timing windows, slower top speed) —
   runs made with it are flagged on the results screen, not counted as records.
 

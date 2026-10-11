@@ -1,4 +1,4 @@
-import { GAUGE } from './config.js';
+import { GAUGE, GAMEOVER } from './config.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
 
@@ -18,6 +18,7 @@ export function createHud(root) {
         <div><span id="ffm-speed">0</span> <i>u/s</i></div>
         <div><span id="ffm-distance">0</span> <i>m</i></div>
         <div class="ffm-coin-count">🦐 <span id="ffm-coins">0</span></div>
+        <div class="ffm-wings" id="ffm-wings"></div>
         <div id="ffm-chain-wrap" class="ffm-chain hidden">CHAIN <span id="ffm-chain">0</span></div>
       </div>
     </div>
@@ -39,6 +40,8 @@ export function createHud(root) {
       font-size: 26px; font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
     .ffm-stats i { font-size: 12px; font-style: normal; opacity: .7; }
     .ffm-coin-count { color: #ffd54a; }
+    .ffm-wings { color: #ff8fa3; letter-spacing: .18em; font-size: 20px; align-self: center; }
+    .ffm-wings span.lost { opacity: .22; filter: grayscale(1); }
     .ffm-chain { color: #7dff9a; font-size: 18px; align-self: center; }
   `;
   document.head.appendChild(style);
@@ -51,7 +54,8 @@ export function createHud(root) {
   const coinsEl = root.querySelector('#ffm-coins');
   const chainWrap = root.querySelector('#ffm-chain-wrap');
   const chainEl = root.querySelector('#ffm-chain');
-
+  const wingsEl = root.querySelector('#ffm-wings');
+  const WING_GLYPH = '✦'; // one per remaining wing; lost wings dim out
   const TIER_LABEL = { none: 'SWIMMING', low: 'LOW FLIGHT', medium: 'MEDIUM FLIGHT', high: 'HIGH FLIGHT', max: 'MAX FLIGHT' };
 
   function update(state) {
@@ -67,6 +71,14 @@ export function createHud(root) {
     speedEl.textContent = state.speed.toFixed(0);
     distEl.textContent = state.distance.toFixed(0);
     coinsEl.textContent = String(state.coins);
+    // wings only show once you've lost one (no clutter early)
+    const total = GAMEOVER.wings;
+    if (state.wings < total) {
+      wingsEl.innerHTML = Array.from({ length: total }, (_, i) =>
+        `<span class="${i < state.wings ? '' : 'lost'}">${WING_GLYPH}</span>`).join('');
+    } else {
+      wingsEl.textContent = '';
+    }
     if (state.chain > 1) { chainWrap.classList.remove('hidden'); chainEl.textContent = String(state.chain); }
     else chainWrap.classList.add('hidden');
   }

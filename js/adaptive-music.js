@@ -151,6 +151,9 @@ export function createAdaptiveMusicController({ ctx, destination, config = {} })
     const failedIds = results.map((r, i) => ({ r, id: entries[i].id }))
       .filter(x => x.r.status === 'rejected')
       .map(x => { failed.add(x.id); return x.id; });
+    // a play() that arrived while loading (first click before tracks decoded)
+    // must not be swallowed — start as soon as the tracks are ready
+    if (pendingPlay) play();
     return { loaded: results.filter(r => r.status === 'fulfilled').length, failed: failedIds };
   }
 

@@ -143,6 +143,9 @@ export function createUi(root, { storage = globalThis.localStorage ?? memoryStor
     const best = loadBest(storage, 'ffm.bestDistance');
     const isBest = state.distance > best && best > 0;
     if (state.distance > best) saveBest(storage, 'ffm.bestDistance', state.distance);
+    const reason = state.endReason === 'CRASHED' ? 'CRASHED!' : state.endReason === 'OUT OF MOMENTUM' ? 'OUT OF MOMENTUM' : 'RUN OVER';
+    const title = $('ffm-results-title');
+    if (title) title.textContent = reason;
     const rows = [
       ['Distance', `${state.distance.toFixed(0)} m`],
       ['Duration', `${state.runTime.toFixed(1)} s`],

@@ -34,7 +34,13 @@ export function createPlayer(scene, fish) {
     const profile = profileFor(tier);
 
     // ---- forward momentum (pure integrate; never gains from direction input) ----
-    const raw = integrateSpeed(state.speed, tier, dt, game.state.flying);
+    // A fish pinned at MinSpeed while AIRBORNE has no thrust (it tumbles down);
+    // only the water restores forward speed. That makes bad crashes endable.
+    const airborne = tier !== 'none' && state.position.y > RECOVERY.waterY + 2;
+    const stalled = state.speed <= MOMENTUM.minSpeed + 0.01 && airborne;
+    const STRUGGLE_ACCEL = 5; // slow climb back toward MinSpeed while in the water
+    const accel = stalled ? 0 : (state.speed <= MOMENTUM.minSpeed + 0.01 ? STRUGGLE_ACCEL : undefined);
+    const raw = integrateSpeed(state.speed, tier, dt, game.state.flying, accel);
     state.speed = Math.min(raw, cap + MOMENTUM.overshootHeadroom);
 
     // ---- steering ----
@@ -49,9 +55,15 @@ export function createPlayer(scene, fish) {
     // ---- vertical ----
     const waterY = RECOVERY.waterY;
     if (planeMode) {
-      const climb = input.y * PLANE.climbRate * damp; // W = +input.y = climb
-      state.verticalVel += (climb - state.verticalVel) * Math.min(1, dt * 4);
-      state.position.y += state.verticalVel * dt;
+      if (stalled) {
+        // engines out in plane mode: the fish plummets like a stalled plane
+        state.verticalVel += (-30 - state.verticalVel) * Math.min(1, dt * 3);
+        state.position.y = Math.max(waterY, state.position.y + state.verticalVel * dt);
+      } else {
+        const climb = input.y * PLANE.climbRate * damp; // W = +input.y = climb
+        state.verticalVel += (climb - state.verticalVel) * Math.min(1, dt * 4);
+        state.position.y += state.verticalVel * dt;
+      }
       state.position.y = Math.min(PLANE.climbCeiling, Math.max(waterY, state.position.y));
     } else {
       const targetY = tier === 'none'
@@ -69,13 +81,6 @@ export function createPlayer(scene, fish) {
       state.waterEntryCooldown = 0.8;
       state.squashDip = Math.min(1, Math.abs(state.verticalVel) / 12);
       game.onWaterEntry?.(Math.abs(state.verticalVel));
-    }
-
-    // failure watchdog
-    if (state.speed <= MOMENTUM.minSpeed && state.position.y > waterY + 2) {
-      state.airborneTimeAtMin += dt;
-    } else {
-      state.airborneTimeAtMin = 0;
     }
 
     // ---- visuals ----

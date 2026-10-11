@@ -59,6 +59,15 @@ export const RECOVERY = {
   failureAirborneSeconds: 1.5, // speed at min while airborne this long = run over
 };
 
+// Run failure (PRD §10.4). Two reachable endings:
+//  1. major crash while fragile (medium tier or below) costs a wing; 3 = run over
+//  2. speed pinned at MinSpeed for collapsedSpeedSeconds = "out of momentum"
+export const GAMEOVER = {
+  wings: 3,
+  fragileTierIndex: 2,        // TIER_ORDER index: medium and below are fragile
+  collapsedSpeedSeconds: 3,
+};
+
 export const WORLD = {
   chunkLength: 120,
   chunksAhead: 3,

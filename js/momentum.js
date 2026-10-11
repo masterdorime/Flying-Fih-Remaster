@@ -19,14 +19,16 @@ export function applyTimingResult(speed, tier, result) {
 }
 
 // Per-second integration: accelerate toward the tier cap, drag pulls overshoot back down.
-export function integrateSpeed(speed, tier, dt, flying) {
+// accelOverride: pass 0 for a stalled fish (falling with no thrust).
+export function integrateSpeed(speed, tier, dt, flying, accelOverride) {
   const max = maxSpeedForTier(tier);
-  const accel = (TIER_PROFILE[tier] ?? TIER_PROFILE.none).accel;
+  const accel = accelOverride ?? (TIER_PROFILE[tier] ?? TIER_PROFILE.none).accel;
   const drag = flying ? MOMENTUM.dragFly : MOMENTUM.dragSwim;
   if (speed > max) {
     const down = speed - drag * 8 * dt; // drag decays headroom faster than gravity feels
     return Math.max(max, down);
   }
+  if (accel <= 0) return speed; // stalled: no thrust while falling
   return Math.min(max + MOMENTUM.overshootHeadroom, speed + accel * dt);
 }
 

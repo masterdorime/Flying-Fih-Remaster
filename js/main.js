@@ -65,6 +65,8 @@ const music = createAdaptiveMusicController({
 const musicLoad = await music.load();
 await audio.loadFiles();
 console.info(`[music] ${musicLoad.loaded} tracks loaded, ${audio.stats.filesLoaded} audio files`, musicLoad.failed.length ? `(missing: ${musicLoad.failed.join(', ')})` : '');
+// if a run started before the tracks finished decoding, retire the synth bed now
+if (musicLoad.loaded > 0 && game.state.phase === 'run') audio.stopMusic();
 
 // ---- input ----
 const keys = new Set();
@@ -198,7 +200,7 @@ function localStorageSafe() {
 }
 
 bus.on('ui:paused', () => ui.show('pause'));
-bus.on('ui:menu', () => { ui.show('menu'); ui.refreshBest(); });
+bus.on('ui:menu', () => { ui.show('menu'); ui.refreshBest(); music.setMenuMode(true); });
 bus.on('run:end', () => { music.pause(); ui.showResults(game.state); });
 
 // ---- adaptive music + ambience transport ----
@@ -253,6 +255,10 @@ window.addEventListener('keydown', e => { if (e.code === 'F4') { e.preventDefaul
 bus.on('collision:minor', () => {
   juice.popup('CRASH', '#ff9f43', true);
   cameraRig.shake(0.25);
+});
+bus.on('life:lost', (wings) => {
+  juice.popup(wings > 0 ? `WING LOST — ${wings} LEFT` : 'NO WINGS LEFT', wings > 0 ? '#ff8fa3' : '#ff4d4d');
+  if (wings > 0) cameraRig.shake(0.5);
 });
 bus.on('coin:collect', () => {
   juice.popup('COIN', '#ffd54a', true);
@@ -321,6 +327,9 @@ window.__FFM_API = {
   debugCorridorClear: () => game.debugCorridorClear(),
   debugCoins: () => game.debugCoins(),
   debugFish: () => game.debugFish(),
+  debugLoseWing: () => game.debugLoseWing(),
+  debugSetSpeed: (v) => game.debugSetSpeed(v),
+  debugSetAltitude: (y) => game.debugSetAltitude(y),
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),

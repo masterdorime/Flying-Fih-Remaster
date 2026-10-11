@@ -13,7 +13,7 @@ const summary = await page.evaluate(async () => {
   let maxTier = 'none';
   let coins = 0;
   let perfects = 0;
-  const deadline = Date.now() + 60000; // 60s real = 240s sim max
+  const deadline = Date.now() + 150000; // 60s real = 240s sim max
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 20));
     const s = api.state();

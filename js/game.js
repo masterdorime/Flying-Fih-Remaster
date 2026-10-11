@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor, planeModeAllowed } from './flight-state.js';
@@ -46,6 +46,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     sustainedTime: 0,
     assist: settings.assist,
     ended: false,
+    wings: GAMEOVER.wings,
+    endReason: null,
   };
 
   const player = createPlayer(scene, fish);
@@ -201,6 +203,12 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
         player.state.speed = state.speed;
         player.state.squashDip = Math.min(1, player.state.squashDip + 0.6);
         bus.emit('collision:major', hit);
+        // a big crash while fragile costs a wing; three and the run is over
+        if (TIER_ORDER.indexOf(state.tier) <= GAMEOVER.fragileTierIndex) {
+          state.wings -= 1;
+          bus.emit('life:lost', state.wings);
+          if (state.wings <= 0 && !state.ended) endRun('CRASHED');
+        }
       } else {
         state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 8);
         player.state.speed = state.speed;
@@ -225,9 +233,14 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     }
     state.score += SCORING.perMeter * state.speed * dt;
 
-    // failure: stuck at min speed in the air
+    // failure: pinned at MinSpeed while airborne (tumbling, not flying) = run over.
+    // In the water there's no accumulation — it's the recovery zone.
+    const stalled = state.speed <= MOMENTUM.minSpeed + 0.01
+      && player.state.position.y > RECOVERY.waterY + 2;
+    if (stalled) player.state.airborneTimeAtMin += dt;
+    else player.state.airborneTimeAtMin = 0;
     if (!state.ended && player.state.airborneTimeAtMin > RECOVERY.failureAirborneSeconds) {
-      endRun();
+      endRun('OUT OF MOMENTUM');
     }
 
     // animate character
@@ -292,10 +305,12 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     bus.emit('plane:exit', null);
   }
 
-  function endRun() {
+  function endRun(reason = 'OUT OF MOMENTUM') {
+    if (state.ended) return;
     state.ended = true;
+    state.endReason = reason;
     state.phase = 'results';
-    bus.emit('run:end', { ...state });
+    bus.emit('run:end', { ...state, endReason: reason });
   }
 
   function restart(assist = state.assist) {
@@ -305,6 +320,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       coins: 0, score: 0, chain: 0, bestChain: 0,
       counts: { perfect: 0, good: 0, miss: 0 }, lastResult: null,
       lastPerfectAt: -99, sustainedTime: 0, assist, ended: false,
+      wings: GAMEOVER.wings, endReason: null,
     });
     activePrompt = null;
     nextPromptAt = 1.2;
@@ -347,6 +363,14 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugCoins: () => coins.debugInfo(),
     debugFish: () => ({ skyfin: !fish.procedural }),
+    debugLoseWing: () => {
+      state.wings -= 1;
+      bus.emit('life:lost', state.wings);
+      if (state.wings <= 0 && !state.ended) endRun('CRASHED');
+      return state.wings;
+    },
+    debugSetSpeed: (v) => { state.speed = v; player.state.speed = v; },
+    debugSetAltitude: (y) => { player.state.position.y = y; },
   };
 
   return gameApi;
