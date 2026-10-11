@@ -13,6 +13,7 @@ await page.evaluate(() => {
   api.applyResult('good');
   api.applyResult('miss');
   api.setGauge(105);
+  api.debugForceFlight(); // a full gauge no longer auto-launches; use the real transition
 });
 await page.waitForTimeout(400);
 await page.evaluate(() => window.__FFM_API.setGauge(20));

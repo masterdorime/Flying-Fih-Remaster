@@ -7,6 +7,12 @@ export function createCamera(camera, settings) {
   const shakeState = { time: 0, strength: 0 };
   const kickState = { time: 0, strength: 0 };
   const lastShakeOffset = new THREE.Vector3();
+  const cinematic = { active: false, t: 0 };
+
+  function setCinematic(active, t = 0) {
+    cinematic.active = active;
+    cinematic.t = t;
+  }
 
   function kick(strength = CAMERA.tierUpKick) {
     kickState.strength = strength;
@@ -20,6 +26,26 @@ export function createCamera(camera, settings) {
 
   function update(dt, playerState, profileFov) {
     const p = playerState.position;
+
+    // cinematic leap: orbit close around the fish, rise with it, FOV punch —
+    // the camera owns itself until the leap ends, then the follow cam resumes
+    if (cinematic.active) {
+      const t = THREE.MathUtils.clamp(cinematic.t, 0, 1);
+      const theta = Math.PI * 0.9 * t;
+      const radius = THREE.MathUtils.lerp(6.5, 11, t);
+      camera.position.set(
+        p.x + Math.sin(theta) * radius,
+        p.y + THREE.MathUtils.lerp(2.5, 6.5, t) + t * 2,
+        p.z + Math.cos(theta) * radius - 3,
+      );
+      camera.lookAt(p.x, p.y + 1 + t * 4, p.z + 4);
+      const punch = Math.sin(t * Math.PI); // peaks mid-rise, settled at both ends
+      const targetFov = THREE.MathUtils.lerp(profileFov, 95, punch);
+      camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 6);
+      camera.updateProjectionMatrix();
+      return;
+    }
+
     const lag = Math.min(1, dt / CAMERA.positionLag);
 
     const behind = CAMERA.distance + (kickState.time > 0 ? kickState.strength * 4 : 0);
@@ -53,5 +79,5 @@ export function createCamera(camera, settings) {
     camera.rotateZ(playerState.banking * 0.12 * settings.cameraShake + 0);
   }
 
-  return { update, kick, shake, shakeOffset: () => lastShakeOffset.length() };
+  return { update, kick, shake, shakeOffset: () => lastShakeOffset.length(), setCinematic };
 }

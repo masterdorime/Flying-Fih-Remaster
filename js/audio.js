@@ -23,6 +23,12 @@ const AMBIENT_FILES = {
   wind: 'ambient/wind.mp3',
 };
 
+// Per-SFX playback gain (master mix trim). Your perfect take is mastered louder
+// than the rest, so it needs a cut; everything else plays at 1.
+const SFX_GAIN = {
+  perfect: 0.5,
+};
+
 const AUDIO_DIR = 'assets/audio/';
 
 export function createAudio(settings, bus) {
@@ -119,6 +125,14 @@ export function createAudio(settings, bus) {
     } catch { return false; }
   }
 
+  function fire(name, { rate = 1 } = {}) {
+    count(name);
+    const gain = SFX_GAIN[name] ?? 1;
+    const buffer = sfxBuffers.get(name);
+    if (buffer) playBuffer(buffer, { gain, rate });
+    else synthFallback[name]?.();
+  }
+
   // ---- one-shot synth voices (fallback when a file is missing) ----
   function tone({ freq = 440, dur = 0.15, type = 'sine', gain = 0.5, slideTo = null, delay = 0 }) {
     if (!ensure()) return;
@@ -173,13 +187,6 @@ export function createAudio(settings, bus) {
     ui() { tone({ freq: 700, dur: 0.06, type: 'sine', gain: 0.3 }); },
     runEnd() { tone({ freq: 300, slideTo: 120, dur: 0.6, type: 'triangle', gain: 0.4 }); },
   };
-
-  function fire(name, { rate = 1 } = {}) {
-    count(name);
-    const buffer = sfxBuffers.get(name);
-    if (buffer) playBuffer(buffer, { rate });
-    else synthFallback[name]?.();
-  }
 
   const sfx = {
     perfect: () => fire('perfect'),

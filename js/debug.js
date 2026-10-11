@@ -22,7 +22,7 @@ export function createDebug(root) {
       `speed      ${state.speed.toFixed(1)}`,
       `gauge      ${state.gauge.toFixed(1)}`,
       `tier       ${state.tier}`,
-      `plane      ${state.planeMode}`,
+      `loco       ${state.locomotion}`,
       `last       ${state.lastResult ?? '-'}`,
       `windows    P${(windows.perfect * 1000).toFixed(0)}ms G${(windows.good * 1000).toFixed(0)}ms`,
       `chain      ${state.chain}`,

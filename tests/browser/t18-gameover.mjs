@@ -38,38 +38,40 @@ s = await page.evaluate(() => window.__FFM_API.state());
 assertEqual(s.wings, 3, 'restart restores 3 wings');
 assert(s.phase === 'run', 'run restarts');
 
-// 3. speed pinned at MinSpeed while flying/plane mode ends the run (engines out)
+// 3. speed pinned at MinSpeed while in the sky flight phase ends the run (engines out)
 const collapse = await page.evaluate(async () => {
   const api = window.__FFM_API;
   api.start();
   api.setTimeScale(4);
+  api.setGauge(110);
+  api.debugForceFlight();          // get airborne first: the water is the recovery zone
   const deadline = Date.now() + 25000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 120));
     const s = api.state();
     if (s.phase === 'results') break;
-    // simulate a double Max-tier miss: gauge still full (plane mode), speed floored
+    // simulate a double Max-tier miss: gauge still full, speed floored, no thrust
     api.setGauge(110);
     api.debugSetSpeed(8);
-    api.debugSetAltitude(20);
   }
   return api.state();
 });
 assertEqual(collapse.phase, 'results', 'collapsed momentum ends the run');
 assertEqual(collapse.endReason, 'OUT OF MOMENTUM', 'end reason is OUT OF MOMENTUM');
 
-// 4. natural path: two real Max-tier misses while HIGH = plummet + run over
+// 4. natural path: two real Max-tier misses while in the sky = plummet + run over
 const natural = await page.evaluate(async () => {
   const api = window.__FFM_API;
   api.start();
   api.setGauge(110);
-  // climb to plane altitude first (low altitude = water recovery zone = survivable)
-  const climbDeadline = Date.now() + 10000;
+  api.debugForceFlight();          // setGauge no longer triggers flight on its own
+  // climb to the sky world first (low altitude + water = survivable recovery)
+  const climbDeadline = Date.now() + 20000;
   while (Date.now() < climbDeadline) {
     await new Promise(r => setTimeout(r, 120));
-    if (api.state().position[1] > 30) break;
+    if (api.state().position[1] > 50) break;
   }
-  api.applyResult('miss'); // -70
+  api.applyResult('miss'); // -70 at max tier
   api.applyResult('miss'); // floored at MinSpeed
   const minSpeedSeen = api.state().speed;
   const deadline = Date.now() + 15000;

@@ -22,14 +22,28 @@ export const TIMING = {
 
 export const GAUGE = {
   max: 120,
-  fillPerfect: 14,
-  fillGood: 7,
+  fillPerfect: 8,
+  fillGood: 4,
   drainFlying: 2.2,          // per second while flying without a recent perfect
   missDrainMultiplier: 1.4,  // instant extra drain on miss
   lowMax: 30,
   mediumMax: 70,
   highMax: 99.9,
   maxThreshold: 100,
+};
+
+// Two-phase locomotion: swim on the ocean until the gauge is full, then launch
+// into the sky. Flight is locked while swimming; the sky world is a separate
+// environment above the cloud curtain (placeholder for now).
+export const FLIGHT = {
+  altitude: 85,              // fixed flight height (above the clouds)
+  cloudY: 45,                // cloud curtain altitude — hides one world from the other
+  launchChargeSeconds: 5,    // SPAM-QTE length (first flight only)
+  spamFill: 6,               // gauge added per spam press during the charge
+  gateChain: 5,              // consecutive hits required before the first launch
+  leapSeconds: 2.6,          // cinematic leap duration
+  descendSpeed: 30,          // sink rate when the gauge empties in flight
+  firstFlightOnly: true,     // later launches skip the spam ritual
 };
 
 export const SPEED_BOOST = {

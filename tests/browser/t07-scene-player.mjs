@@ -26,18 +26,16 @@ await page.keyboard.up('KeyA');
 const afterLeft = await page.evaluate(() => window.__FFM_API.state());
 assert(afterLeft.position[0] > afterRight.position[0] + 1.5, 'A steers screen-left back across');
 
-// 3. gauge drains toward water when flying (poll: sim time runs slow under software GL)
+// 3. flight is LOCKED while swimming: a full-ish gauge does not lift the fish
 await page.evaluate(() => window.__FFM_API.setGauge(12));
 await page.waitForFunction(() => window.__FFM_API.state().tier === 'low', { timeout: 20000 });
-const midFlight = await page.evaluate(() => window.__FFM_API.state());
-assert(midFlight.tier === 'low', `gauge 12 -> low tier (got ${midFlight.tier})`);
-await page.waitForFunction(() => window.__FFM_API.state().position[1] > 3, { timeout: 30000 });
-const climbing = await page.evaluate(() => window.__FFM_API.state());
-assert(climbing.position[1] > 3, `fish climbs when flying (y=${climbing.position[1].toFixed(2)})`);
-await page.waitForFunction(() => window.__FFM_API.state().tier === 'none', { timeout: 30000 });
-await page.waitForFunction(() => window.__FFM_API.state().position[1] < 2, { timeout: 15000 });
-const sinking = await page.evaluate(() => window.__FFM_API.state());
-assert(sinking.tier === 'none', `gauge drained to none tier (got ${sinking.tier})`);
+const lowGauge = await page.evaluate(() => window.__FFM_API.state());
+assert(lowGauge.tier === 'low', `gauge 12 -> low tier (got ${lowGauge.tier})`);
+assertEqual(lowGauge.locomotion, 'swim', 'low gauge does not unlock flight');
+await page.waitForTimeout(2500); // let the swim phase pull the fish back to the surface
+const stillSwimming = await page.evaluate(() => window.__FFM_API.state());
+assert(stillSwimming.locomotion === 'swim', `fish keeps swimming at low gauge (${stillSwimming.locomotion})`);
+assert(stillSwimming.position[1] < 2, `flight locked: fish stays on the water (y=${stillSwimming.position[1].toFixed(2)})`);
 
 // 4. render loop alive, no console errors
 const fps = await page.evaluate(() => window.__FFM.fps);

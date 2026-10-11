@@ -1,4 +1,4 @@
-import { GAUGE, GAMEOVER } from './config.js';
+import { GAUGE, GAMEOVER, FLIGHT } from './config.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
 
@@ -12,6 +12,10 @@ export function createHud(root) {
           <div class="ffm-gauge-tick" style="left:${(GAUGE.lowMax / GAUGE.max) * 100}%"></div>
           <div class="ffm-gauge-tick" style="left:${(GAUGE.mediumMax / GAUGE.max) * 100}%"></div>
           <div class="ffm-gauge-tick ffm-gauge-tick-max" style="left:${(GAUGE.maxThreshold / GAUGE.max) * 100}%"></div>
+        </div>
+        <div id="ffm-charge-meter" class="ffm-charge hidden">
+          <div class="ffm-charge-label" id="ffm-charge-label">MASH SPACE — OVERFILL THE GAUGE</div>
+          <div class="ffm-charge-bar"><div class="ffm-charge-fill" id="ffm-charge-fill"></div></div>
         </div>
       </div>
       <div class="ffm-stats">
@@ -43,6 +47,14 @@ export function createHud(root) {
     .ffm-wings { color: #ff8fa3; letter-spacing: .18em; font-size: 20px; align-self: center; }
     .ffm-wings span.lost { opacity: .22; filter: grayscale(1); }
     .ffm-chain { color: #7dff9a; font-size: 18px; align-self: center; }
+    .ffm-charge { margin-top: 10px; text-align: center; }
+    .ffm-charge-label { color: #ffd54a; font-size: 15px; font-weight: 700; letter-spacing: .22em;
+      text-shadow: 0 2px 10px rgba(0,0,0,.6); animation: ffm-charge-pulse .5s infinite alternate; }
+    .ffm-charge-bar { margin: 7px auto 0; width: 78%; height: 12px; border-radius: 7px;
+      background: rgba(8, 30, 46, .72); border: 1px solid rgba(255, 140, 120, .55); overflow: hidden; }
+    .ffm-charge-fill { height: 100%; width: 0%; border-radius: 7px;
+      background: linear-gradient(90deg, #ffd54a, #ff9430, #ff4d6d); transition: width .08s linear; }
+    @keyframes ffm-charge-pulse { from { opacity: .65; } to { opacity: 1; } }
   `;
   document.head.appendChild(style);
 
@@ -55,6 +67,9 @@ export function createHud(root) {
   const chainWrap = root.querySelector('#ffm-chain-wrap');
   const chainEl = root.querySelector('#ffm-chain');
   const wingsEl = root.querySelector('#ffm-wings');
+  const chargeMeter = root.querySelector('#ffm-charge-meter');
+  const chargeFill = root.querySelector('#ffm-charge-fill');
+  const chargeLabel = root.querySelector('#ffm-charge-label');
   const WING_GLYPH = '✦'; // one per remaining wing; lost wings dim out
   const TIER_LABEL = { none: 'SWIMMING', low: 'LOW FLIGHT', medium: 'MEDIUM FLIGHT', high: 'HIGH FLIGHT', max: 'MAX FLIGHT' };
 
@@ -81,6 +96,16 @@ export function createHud(root) {
     }
     if (state.chain > 1) { chainWrap.classList.remove('hidden'); chainEl.textContent = String(state.chain); }
     else chainWrap.classList.add('hidden');
+
+    // SPAM-QTE charge meter: only during the launch ritual, driven by locomotion
+    if (state.locomotion === 'charge') {
+      chargeMeter.classList.remove('hidden');
+      chargeFill.style.width = Math.min(100, (state.gauge / GAUGE.max) * 100).toFixed(1) + '%';
+      const left = Math.max(0, FLIGHT.launchChargeSeconds - state.chargeTime);
+      chargeLabel.textContent = `MASH SPACE — ${left.toFixed(1)}s TO BLOW`;
+    } else {
+      chargeMeter.classList.add('hidden');
+    }
   }
 
   return { update };

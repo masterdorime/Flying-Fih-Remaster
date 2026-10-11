@@ -23,11 +23,11 @@ export async function loadSkyfinModel() {
         }
       }
     });
-    // normalize: orient nose to +Z (model's long axis) and scale to ~2.4 m
+    // normalize: orient nose to +Z (model's long axis) and scale to ~4.2 m
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const longest = Math.max(size.x, size.y, size.z);
-    model.scale.setScalar(2.4 / longest);
+    model.scale.setScalar(4.2 / longest);
     model.updateMatrixWorld(true);
     const box2 = new THREE.Box3().setFromObject(model);
     const c = box2.getCenter(new THREE.Vector3());
@@ -187,9 +187,12 @@ export function animateFish(fish, { time, speed, wingScale, stretch, banking }) 
 }
 
 export function setTrailColor(fish, hex) {
-  const mat = fish.refs.finMat;
-  if (mat && 'emissive' in mat) {
-    mat.emissive.set(hex);
-    mat.emissiveIntensity = 0.5;
+  // Tier glow intentionally REMOVED from the model's body: the Skyfin has a
+  // single material, so an emissive tint repainted the whole fish in the tier
+  // color (e.g. green at Low flight). The model's authored colors stay pure.
+  if (fish.procedural) {
+    // procedural fallback keeps the subtle fin emissive it always had
+    fish.refs.finMat?.emissive?.set(hex);
+    fish.refs.finMat.emissiveIntensity = 0.85;
   }
 }

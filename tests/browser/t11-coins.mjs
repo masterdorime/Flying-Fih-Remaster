@@ -14,7 +14,8 @@ assert(coins0.active >= 10, `shrimp coins spawned ahead (${coins0.active} coins)
 await page.evaluate(() => window.__FFM_API.setGauge(50));
 const before = await page.evaluate(() => window.__FFM_API.state());
 await page.evaluate(() => window.__FFM_API.debugTeleportToCoin());
-await page.waitForTimeout(250);
+// poll, never a fixed timeout: sim time runs slow under software GL (HANDOFF key facts)
+await page.waitForFunction((c) => window.__FFM_API.state().coins > c, before.coins, { timeout: 20000 });
 const after = await page.evaluate(() => window.__FFM_API.state());
 assert(after.coins >= before.coins + 1, 'coin collected');
 assert(after.score > before.score, `coin adds score (${before.score.toFixed(0)} -> ${after.score.toFixed(0)})`);
@@ -23,7 +24,7 @@ assert(after.gauge <= before.gauge + 0.001, `gauge never filled by coin (${befor
 // 3. coin popup feedback exists
 const mid = await page.evaluate(() => window.__FFM_API.state());
 await page.evaluate(() => window.__FFM_API.debugTeleportToCoin());
-await page.waitForTimeout(250);
+await page.waitForFunction((c) => window.__FFM_API.state().coins > c, mid.coins, { timeout: 20000 });
 const popups = await page.evaluate(() => [...document.querySelectorAll('.ffm-popup')].map(e => e.textContent).join(','));
 const s2 = await page.evaluate(() => window.__FFM_API.state());
 assert(s2.coins >= mid.coins, 'continued collection works');

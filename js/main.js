@@ -14,9 +14,11 @@ import { createAudio } from './audio.js';
 import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
 import { loadSkyfinModel } from './fish.js';
-import { MOMENTUM } from './config.js';
+import { MOMENTUM, FLIGHT } from './config.js';
 import { currentWindows } from './timing.js';
 import { bus } from './event-bus.js';
+import { createClouds } from './clouds.js';
+import { createSkyWorld } from './sky-world.js';
 
 const app = document.getElementById('app');
 
@@ -56,6 +58,10 @@ const hud = createHud(document.body);
 const ui = createUi(document.body, { storage: globalThis.localStorage ?? undefined });
 const debug = createDebug(document.body);
 const audio = createAudio(settings, bus);
+
+// two environments: the ocean below the cloud curtain, the sky world above it
+const clouds = createClouds(scene);
+const skyWorld = createSkyWorld(scene, game.templates, game.coinTemplate);
 
 // adaptive music: ladder tracks crossfaded by normalized momentum (game speed)
 const music = createAdaptiveMusicController({
@@ -107,6 +113,26 @@ function readInput() {
   input.y = Math.max(-1, Math.min(1, y)) * settings.sensitivity;
 }
 
+// ---- two-environment swap: day sky below the clouds, space sky above ----
+let environment = 'ocean';
+const dayBg = scene.background;
+let spaceBg = null;
+new THREE.TextureLoader()
+  .loadAsync('assets/models/skyboxes/skybox-space.png')
+  .then(t => { t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; spaceBg = t; })
+  .catch(() => { /* placeholder missing: the day sky simply stays */ });
+
+function updateEnvironment(y) {
+  // hysteresis so the swap doesn't flicker right at the curtain
+  const above = environment === 'sky' ? y > FLIGHT.cloudY - 6 : y > FLIGHT.cloudY + 6;
+  if (above === (environment === 'sky')) return;
+  environment = above ? 'sky' : 'ocean';
+  if (above && spaceBg) scene.background = spaceBg;
+  if (!above) scene.background = dayBg;
+  water.mesh.visible = !above;
+  skyWorld.group.visible = above;
+}
+
 // ---- loop with clamped dt (tab-switch guard) ----
 let last = performance.now();
 let frames = 0;
@@ -128,10 +154,19 @@ function loop(now) {
     readInput();
     game.update(dt, input);
     water.update(game.state.runTime, game.player.state.position);
+    // sky/curtain ride along with the fish; the swap is altitude-driven
+    const p = game.player.state.position;
+    clouds.update(dt, p);
+    updateEnvironment(p.y);
+    if (skyWorld.group.visible) skyWorld.update(dt, p);
+    // the camera owns itself during the cinematic leap
+    cameraRig.setCinematic(game.player.state.locomotion === 'leap', game.player.state.leapT);
     // adaptive soundtrack rides the same speed value the game uses (single source of truth)
     const momentum = normalizeSpeed(game.state.speed, MOMENTUM.minSpeed, 110);
     music.setMomentum(momentum);
     audio.setWind(momentum);
+  } else {
+    cameraRig.setCinematic(false, 0);
   }
 
   // timing ring follows the fish and faces the camera
@@ -294,6 +329,15 @@ bus.on('plane:enter', () => {
 });
 bus.on('plane:exit', () => juice.popup('POWER DOWN', '#ff9f43'));
 
+// ---- launch ritual announcements + slow-mo punch through the clouds ----
+bus.on('launch:charge', () => juice.popup('SPAM SPACE!', '#7dff9a', true));
+bus.on('launch:blow', () => {
+  juice.popup('LIFTOFF!', '#ffd54a', true);
+  timeScale = 0.35; // slow-mo while the camera punches through the curtain
+  setTimeout(() => { timeScale = 1; }, 800);
+  cameraRig.shake(0.4);
+});
+
 // boot state: main menu
 game.state.assist = settings.assist;
 ui.show('menu');
@@ -330,6 +374,9 @@ window.__FFM_API = {
   debugLoseWing: () => game.debugLoseWing(),
   debugSetSpeed: (v) => game.debugSetSpeed(v),
   debugSetAltitude: (y) => game.debugSetAltitude(y),
+  debugForceFlight: () => game.debugForceFlight(),
+  debugSpam: () => game.debugSpam(),
+  debugEnvironment: () => environment,
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),

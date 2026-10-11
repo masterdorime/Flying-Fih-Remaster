@@ -2,12 +2,16 @@
 
 A cartoony 3D endless-runner where you're a flying fish. You build speed **only** by
 pressing `SPACE` at the right moment — the timing ring shrinks to a gold core. Hit
-Perfects to fill the Flight Gauge, climb through flight tiers (Low → Medium → High →
-Max), and at a **full gauge you fly like a plane** — pitch, bank, and climb freely.
-Collect shrimp for score. Crash into rocks and boats and you lose momentum.
+Perfects to fill the Flight Gauge, and at a **full gauge you take flight**: the first
+launch is a SPAM quick-time-event that blows the gauge, then a cinematic leap punches
+through the cloud layer into a sky world where you **fly like a plane**. Later flights
+skip the ritual. Collect shrimp for score. Crash into rocks and boats and you lose momentum.
 
 Built from the *Flying Fish Momentum Master PRD v3.0* as a browser game (Three.js) —
 no install, no build step, runs anywhere.
+
+The game has **two environments**: the ocean below and a sky world above the cloud
+curtain. Flight is a gated, cinematic event - see *How it plays* below.
 
 ## Run it
 
@@ -50,27 +54,33 @@ Friends click the link and play in any modern browser. No install.
 
 ## How it plays
 
-1. **Swim** — you always move forward at minimum speed.
+1. **Swim** — the ocean is home. You always move forward at minimum speed, and
+   flight is **locked** until the gauge is full.
 2. **Timing ring appears** — press SPACE when it shrinks to the gold core.
    - Perfect (gold core) = big speed boost + gauge fill.
    - Good (outer blue edge) = smaller boost + fill.
    - Miss = speed loss + gauge drain; an untouched ring expires harmlessly.
-3. **Gauge fills → flight tiers** — Low → Medium → High → Max. Each tier is faster,
-   turns sharper, and pulls the camera wider.
-4. **Full gauge = PLANE MODE** — MAX FLIGHT: free pitch and climb, banking turns.
-   The gauge drains while flying, so chain Perfects to stay up. Drop below full and
-   you POWER DOWN.
-5. **Falling to the water isn't death** — swim, hit prompts, rebuild, relaunch.
-6. **Two ways the run ends:**
+3. **Gauge full = the gate opens** — Perfects and Goods fill the Flight Gauge
+   (0-120). At a full gauge with a chain of hits, the launch sequence starts.
+   Flight is no longer a passive tier; it is an event you trigger.
+4. **First flight: SPAM-QTE** — the fish locks and trembles at the surface.
+   **Mash SPACE** for 5 s to overfill the gauge past its max - then it **blows**.
+5. **Cinematic leap** — slow-mo, the camera orbits and rises as the fish punches
+   through the cloud layer to a fixed altitude, **above the clouds**.
+6. **Fly like a plane** — in the sky you hold altitude and steer freely. Perfect
+   hits **refill the gauge** (skill sustains flight); misses drain it. Gauge empty
+   means you descend back through the clouds into a swim recovery.
+7. **Later flights skip the spam** — a full gauge auto-launches straight into the leap.
+8. **Two ways the run ends:**
    - **CRASHED** — a big crash (boat/container/large rock) while at Low or Medium
      tier costs a wing; lose all 3 and the run is over (HUD shows remaining wings)
    - **OUT OF MOMENTUM** — pinned at minimum speed while airborne for 1.5s
-     (e.g. two Max-tier misses in plane mode: no thrust, you plummet)
-   Being low over the water is survivable — it's the recovery zone, not death.
-7. **Shrimp** = score only (they never fill the gauge) and come as continuous
-   trails so there are always coins ahead to collect.
-7. Settings include an **Assist mode** (wider timing windows, slower top speed) —
-  runs made with it are flagged on the results screen, not counted as records.
+     (e.g. two Max-tier misses in flight: no thrust, you plummet)
+   Being low over the water is survivable - it is the recovery zone, not death.
+9. **Shrimp** = score only (they never fill the gauge) and come as continuous
+   trails so there are always coins ahead to collect - on the ocean *and* in the sky.
+10. Settings include an **Assist mode** (wider timing windows, slower top speed) -
+    runs made with it are flagged on the results screen, not counted as records.
 
 ## Project layout
 
@@ -84,7 +94,9 @@ js/
   flight-state.js     tier profiles, plane-mode rules (pure)
   worldgen.js         chunk layout + safety constraints (pure)
   scoring.js          score formulas (pure)
-  player.js           movement: swim / fly / plane mode
+  player.js           movement: swim / charge / leap / fly / descend (phase machine)
+  clouds.js           cloud curtain between the ocean and the sky world
+  sky-world.js        placeholder sky environment above the clouds
   fish.js             procedural cartoony fish
   world.js            chunk pool, obstacle spawn, collisions
   coins.js            shrimp coins (score-only)

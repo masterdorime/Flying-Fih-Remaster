@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, PLANE, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
-import { profileFor, planeModeAllowed } from './flight-state.js';
+import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
 import { currentWindows, createPrompt, evaluatePress, expirePrompt, promptInterval } from './timing.js';
 import { createPlayer } from './player.js';
@@ -32,7 +32,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     tier: 'none',
     prevTier: 'none',
     flying: false,
-    planeMode: false,
+    locomotion: 'swim',
     distance: 0,
     runTime: 0,
     difficulty: 0,
@@ -48,6 +48,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     ended: false,
     wings: GAMEOVER.wings,
     endReason: null,
+    firstFlightDone: false,
+    chargeTime: 0,
   };
 
   const player = createPlayer(scene, fish);
@@ -144,7 +146,11 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     return result;
   }
 
-  function queuePress() { pressQueued = true; }
+  function queuePress() {
+    // during the launch charge, the button is the spam lever, not the timing input
+    if (player.state.locomotion === 'charge') { spamPress(); return; }
+    pressQueued = true;
+  }
   function pressAt(t) { return consumePress(t); }
 
   function profile() { return profileFor(state.tier); }
@@ -168,22 +174,50 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     // player movement
     player.update(dt, input, gameApi);
     state.speed = player.state.speed;
-    state.flying = state.tier !== 'none';
 
-    // gauge drain while flying without a recent perfect
+    // ---- locomotion phase machine (PRD §10: full gauge = flight) ----
+    const loco = player.state.locomotion;
+    state.locomotion = loco; // mirror for HUD/tests: player state is the source of truth
+    state.flying = loco === 'fly' || loco === 'leap';
+
+    // gauge drains only while actually flying, without a recent perfect
     const recentPerfect = (state.runTime - state.lastPerfectAt) < TIMING.recentPerfectSeconds;
     const before = state.gauge;
-    state.gauge = state.flying ? drainFlying(state.gauge, dt, recentPerfect) : state.gauge;
+    state.gauge = loco === 'fly' ? drainFlying(state.gauge, dt, recentPerfect) : state.gauge;
     if (before !== state.gauge) checkTierChange();
-
-    // plane mode entry/exit (player request: full gauge = plane)
-    if (!state.planeMode && planeModeAllowed(state.tier)) enterPlaneMode();
-    if (state.planeMode && !planeModeAllowed(state.tier)) exitPlaneMode();
 
     if (player.state.planeExitDamp > 0) player.state.planeExitDamp -= dt;
 
-    // prompt scheduling: cadence tightens with difficulty (PRD §13)
-    if (!activePrompt && state.runTime >= nextPromptAt) {
+    switch (loco) {
+      case 'charge': {
+        // SPAM-QTE: mash to overfill the gauge; the timer forces the blow
+        state.chargeTime += dt;
+        if (!state.ended && (state.gauge >= GAUGE.max || state.chargeTime >= FLIGHT.launchChargeSeconds)) {
+          blowUp();
+        }
+        break;
+      }
+      case 'leap': {
+        if (player.state.leapT >= 1) enterFlight();
+        break;
+      }
+      case 'fly': {
+        if (!state.ended && state.gauge <= 0.01) startDescent();
+        break;
+      }
+      default: {
+        // swim: the gauge is full — unlock flight
+        if (!state.ended && state.gauge >= GAUGE.maxThreshold) {
+          if (!state.firstFlightDone && state.chain >= FLIGHT.gateChain) startCharge();
+          else if (state.firstFlightDone) startLeap();
+        }
+      }
+    }
+
+    // prompt scheduling: cadence tightens with difficulty (PRD §13).
+    // Prompts freeze while the fish is locked in a launch/cinematic.
+    const locked = loco === 'charge' || loco === 'leap';
+    if (!activePrompt && !locked && state.runTime >= nextPromptAt) {
       spawnPrompt();
       nextPromptAt = state.runTime + promptInterval(state.difficulty);
     }
@@ -294,14 +328,40 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     return result;
   }
 
-  function enterPlaneMode() {
-    state.planeMode = true;
+  // ---- launch sequence: SPAM-QTE -> blow-up -> cinematic leap -> flight ----
+  function startCharge() {
+    player.setLocomotion('charge');
+    state.chargeTime = 0;
+    state.gauge = GAUGE.maxThreshold; // lock at full — overfilling to 120 comes only from spamming
+    bus.emit('launch:charge', { first: true });
+  }
+
+  function spamPress() {
+    if (player.state.locomotion !== 'charge') return;
+    state.gauge = Math.min(GAUGE.max, state.gauge + FLIGHT.spamFill);
+    state.chargeTime = Math.max(0, state.chargeTime - 0.05); // mashing slightly extends the window
+    bus.emit('launch:spam', { gauge: state.gauge });
+  }
+
+  function blowUp() {
+    state.gauge = GAUGE.max;
+    player.setLocomotion('leap');
+    bus.emit('launch:blow', null);
+  }
+
+  function startLeap() {
+    player.setLocomotion('leap');
+    bus.emit('launch:blow', { instant: true });
+  }
+
+  function enterFlight() {
+    player.setLocomotion('fly');
+    state.firstFlightDone = true;
     bus.emit('plane:enter', null);
   }
 
-  function exitPlaneMode() {
-    state.planeMode = false;
-    player.state.planeExitDamp = PLANE.exitDampSeconds;
+  function startDescent() {
+    player.setLocomotion('descend');
     bus.emit('plane:exit', null);
   }
 
@@ -316,20 +376,22 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   function restart(assist = state.assist) {
     Object.assign(state, {
       phase: 'run', speed: MOMENTUM.minSpeed, gauge: 0, tier: 'none', prevTier: 'none',
-      flying: false, planeMode: false, distance: 0, runTime: 0, difficulty: 0,
+      flying: false, distance: 0, runTime: 0, difficulty: 0,
       coins: 0, score: 0, chain: 0, bestChain: 0,
       counts: { perfect: 0, good: 0, miss: 0 }, lastResult: null,
       lastPerfectAt: -99, sustainedTime: 0, assist, ended: false,
       wings: GAMEOVER.wings, endReason: null,
+      locomotion: 'swim', firstFlightDone: false, chargeTime: 0,
     });
     activePrompt = null;
     nextPromptAt = 1.2;
     pressQueued = false;
     world.reset();
     coins.reset();
+    player.setLocomotion('swim');
     Object.assign(player.state, {
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
-      speed: MOMENTUM.minSpeed, planeExitDamp: 0,
+      speed: MOMENTUM.minSpeed, planeExitDamp: 0, leapT: 0, chargeShake: 0,
       airborneTimeAtMin: 0, squashDip: 0,
     });
     camera.position.set(0, RECOVERY.waterY + 3.6, -9);
@@ -340,6 +402,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     state,
     profile,
     update,
+    templates,        // normalized model templates (obstacle kinds), for the sky world
+    coinTemplate,     // shrimp model, for sky coin trails
     applyResult,
     restart,
     endRun,
@@ -356,6 +420,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     player,
     MOMENTUM,
     onWaterEntry: null,
+    // landing always returns the fish to the swim phase; main.js wraps this for view swaps
+    onLanded: () => player.setLocomotion('swim'),
     debugObstacleCount: () => world.debugCount(),
     debugModelFailures: () => failures,
     debugTeleportToObstacle: () => world.debugTeleport(player),
@@ -371,6 +437,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     },
     debugSetSpeed: (v) => { state.speed = v; player.state.speed = v; },
     debugSetAltitude: (y) => { player.state.position.y = y; },
+    debugForceFlight: () => enterFlight(), // the real transition: also fires plane:enter
+    debugSpam: () => spamPress(),
   };
 
   return gameApi;

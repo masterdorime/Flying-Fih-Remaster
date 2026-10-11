@@ -1,62 +1,51 @@
-import { startServer, stopServer, openPage, closePage, assert } from './harness.mjs';
+// t12 — the sky flight phase (replaces the retired tier-based plane mode):
+// debugForceFlight launches the fish, it holds the fixed flight altitude above
+// the clouds, banking still steers, and an empty gauge ends with a descent.
+import { startServer, stopServer, openPage, closePage, assert, assertEqual } from './harness.mjs';
 
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
-// 1. hitting max gauge engages plane mode
-await page.evaluate(() => { window.__FFM_API.start(); window.__FFM_API.setGauge(115); });
-await page.waitForTimeout(300);
+// 1. debugForceFlight enters the fly phase at full gauge
+await page.evaluate(() => {
+  window.__FFM_API.start();
+  window.__FFM_API.setGauge(115);
+  window.__FFM_API.debugForceFlight();
+});
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'fly', { timeout: 20000 });
 let s = await page.evaluate(() => window.__FFM_API.state());
-assert(s.tier === 'max', `gauge 115 -> max tier (${s.tier})`);
-assert(s.planeMode === true, 'plane mode engaged at full gauge');
+assertEqual(s.locomotion, 'fly', 'debugForceFlight enters the fly phase');
+assertEqual(s.tier, 'max', 'full gauge is max tier in flight');
 await page.waitForFunction(() => [...document.querySelectorAll('.ffm-popup')].some(e => e.textContent.includes('MAX FLIGHT')), { timeout: 5000 });
 
-// 2. plane mode flies like a plane: pitch climbs toward the ceiling, W/S control pitch
-const prePitch = await page.evaluate(() => window.__FFM_API.state().position[1]);
-await page.keyboard.down('KeyW');
-await page.waitForFunction((y) => window.__FFM_API.state().position[1] > y + 8, prePitch, { timeout: 20000 });
-const climbing = await page.evaluate(() => window.__FFM_API.state());
-await page.keyboard.up('KeyW');
-assert(climbing.position[1] > prePitch + 8, `pitch-up climbs (y ${prePitch.toFixed(1)} -> ${climbing.position[1].toFixed(1)})`);
-// keep holding: plane climb continues far above normal tier altitude
-await page.keyboard.down('KeyW');
-await page.waitForFunction((y) => window.__FFM_API.state().position[1] > y + 10, climbing.position[1], { timeout: 20000 });
-const highClimb = await page.evaluate(() => window.__FFM_API.state());
-await page.keyboard.up('KeyW');
-assert(highClimb.position[1] > climbing.position[1] + 10, `free climb continues (y=${highClimb.position[1].toFixed(1)})`);
+// 2. flight holds a fixed altitude above the cloud curtain
+await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, { timeout: 40000 });
+await page.waitForTimeout(1500); // let it settle
+s = await page.evaluate(() => window.__FFM_API.state());
+assert(Math.abs(s.position[1] - 85) < 8, `flight altitude settles near 85, above the clouds (y=${s.position[1].toFixed(1)})`);
+assert(s.speed > 8, `fish keeps flying forward (speed=${s.speed.toFixed(1)})`);
 
-await page.keyboard.down('KeyS');
-await page.waitForFunction((y) => window.__FFM_API.state().position[1] < y - 3, highClimb.position[1], { timeout: 20000 });
-await page.keyboard.up('KeyS');
-const diving = await page.evaluate(() => window.__FFM_API.state());
-assert(diving.position[1] < highClimb.position[1] - 3, `pitch-down descends (${highClimb.position[1].toFixed(1)} -> ${diving.position[1].toFixed(1)})`);
-
-// 3. banking in plane mode: hold D until the fish drifts screen-right and rolls
+// 3. banking in flight: hold D until the fish drifts screen-right and rolls
 const roll0 = await page.evaluate(() => window.__FFM_API.debugBanking());
 const x0 = await page.evaluate(() => window.__FFM_API.state().position[0]);
 await page.keyboard.down('KeyD');
 await page.waitForFunction((x) => window.__FFM_API.state().position[0] < x - 2, x0, { timeout: 20000 });
 const bankSample = await page.evaluate(() => ({ roll: window.__FFM_API.debugBanking(), x: window.__FFM_API.state().position[0] }));
 await page.keyboard.up('KeyD');
-const rolled = await page.evaluate(() => window.__FFM_API.state());
 assert(bankSample.x < x0 - 2, `bank-turn moves the fish screen-right (x ${x0.toFixed(1)} -> ${bankSample.x.toFixed(1)})`);
 assert(Math.abs(bankSample.roll) > 0.3, `banking rolls the fish (${roll0.toFixed(2)} -> ${bankSample.roll.toFixed(2)})`);
-assert(rolled.position[0] < x0, 'sideways drift persists');
 
-// 4. dropping below 100 exits plane mode with a damp + POWER DOWN
-await page.evaluate(() => window.__FFM_API.setGauge(99));
-await page.waitForFunction(() => window.__FFM_API.state().planeMode === false, { timeout: 10000 });
-const dropped = await page.evaluate(() => window.__FFM_API.state());
-assert(dropped.planeMode === false, 'plane mode exits below max gauge');
-assert(dropped.tier === 'high', `tier steps down to high (${dropped.tier})`);
-
-// 5. speed cap in plane mode reaches toward 110 with chained perfects
-await page.evaluate(() => { window.__FFM_API.setGauge(100); window.__FFM_API.applyResult('perfect'); window.__FFM_API.applyResult('perfect'); });
-await page.waitForFunction(() => window.__FFM_API.state().speed > 60, { timeout: 20000 });
-const fast = await page.evaluate(() => window.__FFM_API.state());
-assert(fast.speed > 60, `max tier accelerates hard (speed=${fast.speed.toFixed(1)})`);
+// 4. the gauge drains while flying; empty -> descent out of the sky
+const gaugeBefore = await page.evaluate(() => window.__FFM_API.state().gauge);
+await page.evaluate(() => window.__FFM_API.setTimeScale(4));
+await page.waitForFunction((g) => window.__FFM_API.state().gauge < g - 5, gaugeBefore, { timeout: 20000 });
+await page.evaluate(() => window.__FFM_API.setGauge(0.5));
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'descend', { timeout: 30000 });
+s = await page.evaluate(() => window.__FFM_API.state());
+assertEqual(s.locomotion, 'descend', 'empty gauge starts the descent');
+await page.waitForFunction(() => [...document.querySelectorAll('.ffm-popup')].some(e => e.textContent.includes('POWER DOWN')), { timeout: 5000 });
 
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
-console.log('PASS  t12-plane');
+console.log('PASS  t12-flight');
 await closePage(browser);
 await stopServer(server);
