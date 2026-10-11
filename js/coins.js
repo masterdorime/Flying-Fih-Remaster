@@ -2,15 +2,16 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { COINS, WORLD } from './config.js';
 
-// Shrimp coins (player-requested mechanic): the shrimp_low_poly.glb model,
-// spinning and bobbing in arcs that mark the safe lane.
+// Shrimp coins (player-requested mechanic): the shrimp_low_poly.glb model.
+// Coins spawn as CONTINUOUS trails along the safe corridor — like the coin
+// trains in endless runners — so there are always shrimp ahead to collect.
 // Coins affect SCORE ONLY — the gauge fills only from Perfect/Good (PRD §8.2).
 
 export async function loadCoinModel() {
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync('assets/models/shrimp_low_poly.glb');
   const scene = gltf.scene;
-  scene.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  scene.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; } });
   const box = new THREE.Box3().setFromObject(scene);
   const size = box.getSize(new THREE.Vector3());
   const scale = 1.4 / Math.max(size.x, size.y, size.z);
@@ -18,23 +19,34 @@ export async function loadCoinModel() {
   return scene;
 }
 
-export function createCoins(scene, coinTemplate) {
-  const active = []; // { group, x, y, z, baseY, collected }
-  let elapsed = 0;
-  let nextArcAt = 8;
+const SPACING = 4;          // coin spacing inside a trail
+const TRAIL_GAP = 24;       // distance between consecutive trail starts (>= spacing -> continuous)
+const AHEAD = 160;          // keep coins alive this far ahead
+const BEHIND = 30;          // recycle this far behind
+const MAGNET_RANGE = 8;     // start pulling toward the fish
+const MAGNET_REACH = 3.2;   // collect radius once magnetized
+const BASE_REACH = 1.6;     // normal collect radius
 
-  function spawnArc() {
-    const tone = Math.random() < 0.5 ? -1 : 1;
-    const x0 = tone * (1 + Math.random() * (WORLD.corridorHalfWidth - 1));
-    const z0 = playerZ + 70 + Math.random() * 30;
-    const count = 4 + Math.floor(Math.random() * 3);
-    const spacing = 5.5;
+export function createCoins(scene, coinTemplate) {
+  const active = []; // { group, baseX, baseY, z, phase }
+  let elapsed = 0;
+  let nextTrailZ = 20;
+
+  function spawnTrail(z0) {
+    const startX = (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * (WORLD.corridorHalfWidth - 2.5));
+    const baseY = 1.8 + Math.random() * 6;          // low trails for swimmers...
+    const highTrail = Math.random() < 0.4;          // ...and elevated trails for flyers
+    const count = Math.floor(TRAIL_GAP / SPACING);  // length matches the gap -> no holes
     for (let i = 0; i < count; i++) {
-      const y = 1.6 + Math.sin((i / (count - 1)) * Math.PI) * 3.5;
+      const z = z0 + i * SPACING;
+      const x = startX + Math.sin(z * 0.08) * 1.8;               // gentle lateral weave
+      const y = highTrail
+        ? baseY + 14 + Math.sin(z * 0.06) * 2.5
+        : baseY + Math.sin(z * 0.1) * 1.2;
       const group = coinTemplate.clone(true);
-      group.position.set(x0, y, z0 + i * spacing);
+      group.position.set(x, y, z);
       scene.add(group);
-      active.push({ group, baseY: y, x: x0, y, z: z0 + i * spacing });
+      active.push({ group, z, phase: Math.random() * Math.PI * 2 });
     }
   }
 
@@ -44,39 +56,40 @@ export function createCoins(scene, coinTemplate) {
     elapsed += dt;
     playerZ = playerPos.z;
 
-    while (nextArcAt < playerPos.z + 90) {
-      spawnArc();
-      nextArcAt += 55 + Math.random() * 60;
+    // keep a continuous river of coins ahead of the fish
+    while (nextTrailZ < playerPos.z + AHEAD) {
+      spawnTrail(nextTrailZ);
+      nextTrailZ += TRAIL_GAP;
     }
 
     for (let i = active.length - 1; i >= 0; i--) {
       const coin = active[i];
-      // spin + bob
-      coin.group.rotation.y += dt * 3.2;
-      coin.group.position.y = coin.baseY + Math.sin(elapsed * 2 + coin.z * 0.4) * 0.35;
+      const g = coin.group;
+      g.rotation.y += dt * 3.2;
+      g.position.y += Math.sin(elapsed * 2 + coin.phase) * 0.008; // bob
 
-      const dx = coin.group.position.x - playerPos.x;
-      const dy = coin.group.position.y - playerPos.y;
-      const dz = coin.group.position.z - playerPos.z;
+      const dx = g.position.x - playerPos.x;
+      const dy = g.position.y - playerPos.y;
+      const dz = g.position.z - playerPos.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      let reach = 1.6;
-      if (dist < 8) {
-        // magnet drift inside the radius
-        const pull = (1 - dist / 8) * dt * 14;
-        coin.group.position.x -= dx * pull;
-        coin.group.position.y -= dy * pull;
-        if (dist < COINS.magnetRadius * 3) reach = COINS.magnetRadius * 3;
+      let reach = BASE_REACH;
+      if (dist < MAGNET_RANGE) {
+        const pull = (1 - dist / MAGNET_RANGE) * dt * 12;
+        g.position.x -= dx * pull;
+        g.position.y -= dy * pull;
+        g.position.z -= dz * pull;
+        reach = MAGNET_REACH;
       }
 
       if (dist < reach) {
         onCollect?.(coin);
-        scene.remove(coin.group);
+        scene.remove(g);
         active.splice(i, 1);
         continue;
       }
-      if (coin.z < playerPos.z - 40) {
-        scene.remove(coin.group);
+      if (coin.z < playerPos.z - BEHIND) {
+        scene.remove(g);
         active.splice(i, 1);
       }
     }
@@ -85,21 +98,32 @@ export function createCoins(scene, coinTemplate) {
   function reset() {
     for (const coin of active) scene.remove(coin.group);
     active.length = 0;
-    nextArcAt = 8;
+    nextTrailZ = 20;
   }
 
-  function debugNearestCoinPos() {
-    if (!active.length) return null;
-    let best = active[0];
-    for (const c of active) if (c.z < best.z) best = c;
-    return [best.group.position.x, best.group.position.y, best.group.position.z];
+  // debug: verify the trail is continuous (largest z gap ahead) and reaches far
+  function debugInfo() {
+    const ahead = active
+      .map(c => c.z)
+      .filter(z => z > playerZ && z < playerZ + 120)
+      .sort((a, b) => a - b);
+    let maxGap = 0;
+    for (let i = 1; i < ahead.length; i++) maxGap = Math.max(maxGap, ahead[i] - ahead[i - 1]);
+    return {
+      active: active.length,
+      maxGapAhead: Number(maxGap.toFixed(1)),
+      coverageAhead: ahead.length ? Number((ahead[ahead.length - 1] - playerZ).toFixed(0)) : 0,
+    };
   }
 
   function debugTeleport(player) {
-    const pos = debugNearestCoinPos();
-    if (pos) player.state.position.set(pos[0], pos[1], pos[2] - 2);
+    if (!active.length) return null;
+    let best = active[0];
+    for (const c of active) if (c.z > player.state.position.z && c.z < (best.z > player.state.position.z ? best.z : Infinity)) best = c;
+    const pos = [best.group.position.x, best.group.position.y, best.z];
+    player.state.position.set(pos[0], pos[1], pos[2] - 2);
     return pos;
   }
 
-  return { update, reset, debugNearestCoinPos, debugTeleport, active };
+  return { update, reset, debugInfo, debugTeleport, active };
 }

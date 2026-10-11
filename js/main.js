@@ -13,6 +13,7 @@ import { createDebug } from './debug.js';
 import { createAudio } from './audio.js';
 import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
+import { loadSkyfinModel } from './fish.js';
 import { MOMENTUM } from './config.js';
 import { currentWindows } from './timing.js';
 import { bus } from './event-bus.js';
@@ -43,7 +44,10 @@ const settings = loadSettings(globalThis.localStorage ?? {
   setItem: () => {},
 });
 
-const game = await createGame({ scene, camera, renderer, water, settings, storage: globalThis.localStorage ?? null });
+// load the player fish model (falls back to the procedural fish if missing)
+const skyfinModel = await loadSkyfinModel();
+
+const game = await createGame({ scene, camera, renderer, water, settings, storage: globalThis.localStorage ?? null, fishModel: skyfinModel });
 const cameraRig = createCamera(camera, settings);
 const juice = createJuice();
 const ring = createTimingRing();
@@ -315,7 +319,8 @@ window.__FFM_API = {
   debugModelFailures: () => game.debugModelFailures(),
   debugTeleportToObstacle: () => game.debugTeleportToObstacle(),
   debugCorridorClear: () => game.debugCorridorClear(),
-  debugNearestCoin: () => game.debugNearestCoin(),
+  debugCoins: () => game.debugCoins(),
+  debugFish: () => game.debugFish(),
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),

@@ -12,8 +12,8 @@ import { createFish, animateFish, setTrailColor } from './fish.js';
 const PLAYER_RADIUS = 1.1;
 
 // RunManager + wiring of all gameplay systems (PRD §22, §23).
-export async function createGame({ scene, camera, renderer, water, settings, storage = null }) {
-  const fish = createFish();
+export async function createGame({ scene, camera, renderer, water, settings, storage = null, fishModel = null }) {
+  const fish = createFish(fishModel);
   scene.add(fish.group);
 
   const { loadModels } = await import('./models.js');
@@ -169,7 +169,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     state.flying = state.tier !== 'none';
 
     // gauge drain while flying without a recent perfect
-    const recentPerfect = (state.runTime - state.lastPerfectAt) < 2;
+    const recentPerfect = (state.runTime - state.lastPerfectAt) < TIMING.recentPerfectSeconds;
     const before = state.gauge;
     state.gauge = state.flying ? drainFlying(state.gauge, dt, recentPerfect) : state.gauge;
     if (before !== state.gauge) checkTierChange();
@@ -345,7 +345,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugTeleportToObstacle: () => world.debugTeleport(player),
     debugCorridorClear: () => world.debugCorridorClear(),
     debugTeleportToCoin: () => coins.debugTeleport(player),
-    debugNearestCoin: () => coins.debugNearestCoinPos(),
+    debugCoins: () => coins.debugInfo(),
+    debugFish: () => ({ skyfin: !fish.procedural }),
   };
 
   return gameApi;

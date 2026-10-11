@@ -14,18 +14,18 @@ export const MOMENTUM = {
 export const TIMING = {
   perfectWindow: 0.07,
   goodWindow: 0.18,
-  minPerfectWindow: 0.035,
-  minGoodWindow: 0.09,
+  minPerfectWindow: 0.045,
+  minGoodWindow: 0.11,
   promptLifetime: 2.2,
-  recentPerfectSeconds: 2, // "recent perfect" stops the flying drain
+  recentPerfectSeconds: 2.5, // "recent perfect" stops the flying drain
 };
 
 export const GAUGE = {
   max: 120,
-  fillPerfect: 12,
-  fillGood: 5,
-  drainFlying: 3.5,          // per second while flying without a recent perfect
-  missDrainMultiplier: 1.8,  // instant extra drain on miss
+  fillPerfect: 14,
+  fillGood: 7,
+  drainFlying: 2.2,          // per second while flying without a recent perfect
+  missDrainMultiplier: 1.4,  // instant extra drain on miss
   lowMax: 30,
   mediumMax: 70,
   highMax: 99.9,
@@ -68,10 +68,10 @@ export const WORLD = {
 };
 
 export const DIFFICULTY = {
-  rampMeters: 3500,          // distance over which difficulty reaches 1.0
-  rampSeconds: 90,           // time over which difficulty reaches 1.0 (whichever comes first)
+  rampMeters: 5000,          // distance over which difficulty reaches 1.0
+  rampSeconds: 120,          // time over which difficulty reaches 1.0 (whichever comes first)
   promptIntervalStart: 2.4,
-  promptIntervalEnd: 1.1,
+  promptIntervalEnd: 1.35,
   obstacleDensityStart: 0.12,
   obstacleDensityEnd: 0.85,
 };

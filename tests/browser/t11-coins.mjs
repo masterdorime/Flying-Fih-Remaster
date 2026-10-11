@@ -5,10 +5,10 @@ const { browser, page, consoleErrors } = await openPage();
 
 await page.evaluate(() => window.__FFM_API.start());
 
-// 1. coin arcs spawn ahead (shrimp model instances)
-await page.waitForFunction(() => window.__FFM_API.debugNearestCoin() !== null, { timeout: 10000 });
-const coinPos = await page.evaluate(() => window.__FFM_API.debugNearestCoin());
-assert(coinPos && coinPos[2] > 5, `shrimp coin spawned ahead (z=${coinPos?.[2].toFixed(1)})`);
+// 1. coin trails spawn ahead (shrimp model instances, continuous)
+await page.waitForFunction(() => (window.__FFM_API.debugCoins()?.active ?? 0) > 10, { timeout: 10000 });
+const coins0 = await page.evaluate(() => window.__FFM_API.debugCoins());
+assert(coins0.active >= 10, `shrimp coins spawned ahead (${coins0.active} coins)`);
 
 // 2. collecting increments coins + score but does NOT touch the gauge (PRD §8.2)
 await page.evaluate(() => window.__FFM_API.setGauge(50));
@@ -22,11 +22,8 @@ assert(after.gauge <= before.gauge + 0.001, `gauge never filled by coin (${befor
 
 // 3. coin popup feedback exists
 const mid = await page.evaluate(() => window.__FFM_API.state());
-const hasCoin = await page.evaluate(() => window.__FFM_API.debugNearestCoin() !== null);
-if (hasCoin) {
-  await page.evaluate(() => window.__FFM_API.debugTeleportToCoin());
-  await page.waitForTimeout(250);
-}
+await page.evaluate(() => window.__FFM_API.debugTeleportToCoin());
+await page.waitForTimeout(250);
 const popups = await page.evaluate(() => [...document.querySelectorAll('.ffm-popup')].map(e => e.textContent).join(','));
 const s2 = await page.evaluate(() => window.__FFM_API.state());
 assert(s2.coins >= mid.coins, 'continued collection works');

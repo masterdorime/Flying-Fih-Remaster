@@ -17,8 +17,8 @@ test('tier thresholds (PRD §5.2/§5.3 incl. exact boundaries)', () => {
 });
 
 test('fill only from perfect/good, overfill capped at 120', () => {
-  assert.equal(applyFill(50, 'perfect'), 62);
-  assert.equal(applyFill(50, 'good'), 55);
+  assert.equal(applyFill(50, 'perfect'), 64);  // fillPerfect 14
+  assert.equal(applyFill(50, 'good'), 57);     // fillGood 7
   assert.equal(applyFill(50, 'miss'), 50); // miss never fills
   assert.equal(applyFill(115, 'perfect'), GAUGE.max);
 });
