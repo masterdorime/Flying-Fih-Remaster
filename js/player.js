@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { MOMENTUM, WORLD, RECOVERY, PLANE, ASSIST, FLIGHT, TIER_PROFILE } from './config.js';
+import { MOMENTUM, WORLD, RECOVERY, PLANE, ASSIST, FLIGHT, WATER, TIER_PROFILE } from './config.js';
 import { integrateSpeed } from './momentum.js';
 import { profileFor } from './flight-state.js';
+import { surfaceHeight, waveSlopes } from './wave.js';
 
 // PlayerMovementController + PlayerMomentumController runtime (PRD §4, §6, §9, §10).
 // Locomotion is a phase machine:
@@ -17,6 +18,8 @@ export function createPlayer(scene, fish) {
     verticalVel: 0,
     yaw: 0,
     banking: 0,
+    pitch: 0,            // wave-slope nose pitch while swimming
+    waveRoll: 0,         // wave-slope body roll while swimming
     speed: MOMENTUM.minSpeed,
     locomotion: 'swim',
     leapT: 0,               // 0..1 cinematic progress during 'leap'
@@ -118,8 +121,21 @@ export function createPlayer(scene, fish) {
         break;
       }
       default: { // swim
-        state.position.y += (waterY - state.position.y) * Math.min(1, dt * 6);
-        state.verticalVel = 0;
+        // buoyancy: ride the same wave field the water shader draws. The fish
+        // bobs on swells and pitches/rolls onto the surface instead of hovering
+        // on a flat line. Speed/timing/gauge/launch rules are untouched, and
+        // swim vertical velocity stays far below splash thresholds (~±2 vs 6).
+        const t = game.state.runTime;
+        const target = surfaceHeight(state.position.x, state.position.z, t) + WATER.swimRideOffset;
+        const prevY = state.position.y;
+        state.position.y += (target - state.position.y) * Math.min(1, dt * WATER.buoyancyRate);
+        state.verticalVel = dt > 0 ? (state.position.y - prevY) / dt : 0;
+        const { ddx, ddz } = waveSlopes(state.position.x, state.position.z, t);
+        const targetPitch = THREE.MathUtils.clamp(
+          -Math.atan(ddz) * WATER.pitchFromSlope - state.verticalVel * 0.03, -0.6, 0.6);
+        state.pitch += (targetPitch - state.pitch) * Math.min(1, dt * 5);
+        const targetRoll = THREE.MathUtils.clamp(Math.atan(ddx) * WATER.rollFromSlope, -0.5, 0.5);
+        state.waveRoll += (targetRoll - state.waveRoll) * Math.min(1, dt * 5);
       }
     }
 
@@ -142,6 +158,8 @@ export function createPlayer(scene, fish) {
 
     fish.group.position.copy(state.position);
     fish.group.rotation.y = state.yaw;
+    fish.group.rotation.x = state.locomotion === 'swim' ? state.pitch : 0;
+    fish.group.rotation.z = state.banking * 0.6 + (state.locomotion === 'swim' ? state.waveRoll : 0);
   }
 
   function setLocomotion(next) {

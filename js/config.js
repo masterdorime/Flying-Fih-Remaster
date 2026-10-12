@@ -72,8 +72,18 @@ export const PLANE = {
 export const RECOVERY = {
   relaunchGauge: 8,   // gauge needed to launch from water back to flight
   relaunchSpeed: 15,  // forward speed needed to launch
-  waterY: 0.6,        // swimming ride height
+  waterY: 0.6,        // legacy still-water ride height (kept for charge/leap base, landings, stall checks)
   failureAirborneSeconds: 1.5, // speed at min while airborne this long = run over
+};
+
+// Swim feel: the fish rides the live wave field (js/wave.js, same math as the
+// water shader) instead of a flat altitude line. Visual/physical only —
+// speed, timing, gauge, and launch rules are untouched.
+export const WATER = {
+  swimRideOffset: 0.35, // fish center rides this far above the wave surface (belly in the water)
+  buoyancyRate: 4,       // spring rate toward the surface (per second)
+  pitchFromSlope: 0.8,   // nose follows the wave tilt this strongly
+  rollFromSlope: 0.5,    // body rolls onto the lateral slope this strongly
 };
 
 // Run failure (PRD §10.4). Two reachable endings:

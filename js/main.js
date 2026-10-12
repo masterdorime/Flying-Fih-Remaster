@@ -26,6 +26,11 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Neutral keeps the painted colors of Standard/Phong props without the ACES
+// grey; water and sky are custom shaders that don't include the tonemap
+// chunk, so their exact look is untouched.
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -36,17 +41,36 @@ camera.position.set(0, 4, -9);
 
 const sky = await createSky(scene);
 const water = createWater(scene);
+
+// painted props (fish/rocks/boats/shrimp) pick up soft sky reflections from the
+// day skybox, so the Skyfin's Standard material reads with the ambient gloss
+// the concept render has. Phong props and the custom water/sky shaders don't
+// sample scene.environment — their look is unchanged.
+try {
+  if (scene.background) {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envRT = pmrem.fromEquirectangular(scene.background);
+    scene.environment = envRT.texture;
+    scene.environmentIntensity = 0.55;
+    pmrem.dispose();
+  }
+} catch { /* environment optional: lights alone must carry the scene */ }
+
 // character lighting: a bright sky/ground hemisphere plus a warm key and a cool
 // camera-side fill, so the Skyfin's painted skin reads from the chase camera.
 // (Water and sky are a custom shader / background texture — these lights only
 // touch Standard-material props: fish, rocks, boats, shrimp.)
 scene.add(new THREE.HemisphereLight(0xcfeaff, 0x2a5a78, 1.6));
-const sun = new THREE.DirectionalLight(0xfff2dd, 1.1);
+const sun = new THREE.DirectionalLight(0xfff2dd, 2.3);
 sun.position.set(40, 80, 30);
 scene.add(sun);
-const fill = new THREE.DirectionalLight(0xbfe3ff, 0.5);
+const fill = new THREE.DirectionalLight(0xbfe3ff, 0.9);
 fill.position.set(-30, 20, -40);
 scene.add(fill);
+// rim from behind the fish: separates the wings from the sky they fly toward
+const rim = new THREE.DirectionalLight(0xd8ecff, 1.5);
+rim.position.set(0, 45, -75);
+scene.add(rim);
 
 const settings = loadSettings(globalThis.localStorage ?? {
   getItem: () => null,
@@ -194,10 +218,14 @@ function loop(now) {
 
   hud.update(game.state);
   const musicDbg = music.debugState();
+  // full audio chain on one line: transport + rung, files, music slider,
+  // controller bus, context state, master/sfx sliders — a silence report is
+  // settled by reading this line, no guessing
   const musicLine = `music      ${musicDbg.playing ? (musicDbg.rung ?? 'starting') + (musicDbg.menuActive ? ' (menu)' : '') : 'off'}`
     + ` t${musicDbg.tracksLoaded}/${musicDbg.tracksLoaded + musicDbg.failed.length}`
     + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '')
-    + ` vol:${settings.music}${musicDbg.muted ? ' MUTED' : ''}`;
+    + ` vol:${settings.music}${musicDbg.muted ? ' MUTED' : ''}`
+    + ` ctx:${musicDbg.contextState ?? '?'} bus:${musicDbg.busGain ?? '?'} m:${settings.master}/s:${settings.sfx}`;
   debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps), musicLine);
 
   // speed lines scale with speed and the post-FX setting (PRD §18.2)
@@ -413,6 +441,36 @@ window.__FFM_API = {
   debugAudioStats: () => audio.stats,
   debugResumeAudio: () => audio.resume(),
   debugMusic: () => music.debugState(),
+  // 1.5s test tone through the SAME destination node the music ladder uses.
+  // Silence triage: tone audible -> path to speakers works, fault is inside
+  // the controller (track gains/sources); tone silent while SFX sound ->
+  // the musicGain node/wiring; both silent -> system output.
+  debugMusicTest: () => {
+    const ctx = audio.getContext();
+    if (!ctx) return { ok: false, reason: 'no audio context' };
+    try {
+      const dest = audio.musicBus();
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 660;
+      const t0 = ctx.currentTime;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.05);
+      g.gain.setValueAtTime(0.5, t0 + 1.2);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.5);
+      osc.connect(g);
+      g.connect(dest);
+      osc.start(t0);
+      osc.stop(t0 + 1.6);
+      const m = music.debugState();
+      return {
+        ok: true, ctxState: ctx.state, destGain: dest?.gain?.value ?? null,
+        settings: { master: settings.master, music: settings.music, sfx: settings.sfx },
+        music: { playing: m.playing, rung: m.rung, busGain: m.busGain, muted: m.muted, targets: m.targets },
+      };
+    } catch (e) { return { ok: false, reason: e.message }; }
+  },
   debugMusicMissing: async () => {
     await music.load([{ id: '__bogus__', file: 'does-not-exist.mp3', at: 0, rungIndex: -1, volume: 0 }]);
     return 'ok';

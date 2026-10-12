@@ -258,7 +258,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       state.coins += 1;
       state.score += coinValue();
       bus.emit('coin:collect', { coins: state.coins, x: player.state.position.x });
-    }, airborne);
+    }, airborne, state.runTime); // runTime phase-locks shrimp to the water shader
 
     // sustained momentum bonus (PRD §14.2)
     if (TIER_ORDER.indexOf(state.tier) >= TIER_ORDER.indexOf(SCORING.sustainedTier)) {
@@ -394,7 +394,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     Object.assign(player.state, {
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
       speed: MOMENTUM.minSpeed, planeExitDamp: 0, leapT: 0, chargeShake: 0,
-      airborneTimeAtMin: 0, squashDip: 0,
+      airborneTimeAtMin: 0, squashDip: 0, pitch: 0, waveRoll: 0,
     });
     camera.position.set(0, RECOVERY.waterY + 3.6, -9);
     bus.emit('run:start', null);

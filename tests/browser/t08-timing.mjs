@@ -3,6 +3,18 @@ import { startServer, stopServer, openPage, closePage, assert, assertEqual } fro
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 
+await page.evaluate(() => {
+  // record every juice popup: they live ~850ms wall-clock, too short to poll
+  // reliably now the scene renders heavier (PBR fish + env), so
+  // observe-then-assert like t12/t19 instead of reading the live DOM
+  window.__POPUPS = [];
+  new MutationObserver(() => {
+    for (const e of document.querySelectorAll('.ffm-popup')) {
+      const t = e.textContent.trim();
+      if (t && !window.__POPUPS.includes(t)) window.__POPUPS.push(t);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+});
 await page.evaluate(() => window.__FFM_API.start());
 
 // 1. a prompt spawns on its own during a run
@@ -22,11 +34,8 @@ assert(s.speed > 20, `perfect boosts speed (${s.speed.toFixed(1)})`);
 assert(s.gauge > 0, 'perfect fills gauge');
 assert(s.chain === 1, 'chain starts');
 
-// 3. perfect popup visible
-const popupText = await page.evaluate(() => {
-  const els = [...document.querySelectorAll('.ffm-popup')];
-  return els.map(e => e.textContent).join(',');
-});
+// 3. perfect popup visible (recorded — the live node may already be gone)
+const popupText = await page.evaluate(() => (window.__POPUPS ?? []).join(','));
 assert(popupText.includes('PERFECT'), `PERFECT popup shown (${popupText})`);
 
 // 4. determinism: pressAt(t) evaluates exactly (scripted test hook)
@@ -66,10 +75,10 @@ await page.waitForFunction(() => window.__FFM_API.prompt() !== null, { timeout: 
 const p4 = await page.evaluate(() => window.__FFM_API.prompt());
 const preExpire = await page.evaluate(() => window.__FFM_API.state().speed);
 await page.waitForFunction((t) => window.__FFM_API.state().runTime > t + 0.1, p4.expiresAt);
-await page.waitForFunction(() => [...document.querySelectorAll('.ffm-popup')].some(e => e.textContent.includes('MISSED')), { timeout: 5000 });
+await page.waitForFunction(() => (window.__POPUPS ?? []).some(t => t.includes('MISSED')), { timeout: 8000 });
 const postExpire = await page.evaluate(() => window.__FFM_API.state());
 assert(postExpire.speed >= preExpire - 1.5, `expired prompt causes no speed penalty (${preExpire.toFixed(1)} -> ${postExpire.speed.toFixed(1)})`);
-const popups2 = await page.evaluate(() => [...document.querySelectorAll('.ffm-popup')].map(e => e.textContent).join(','));
+const popups2 = await page.evaluate(() => (window.__POPUPS ?? []).join(','));
 assert(popups2.includes('MISSED'), `MISSED popup on expiry (${popups2})`);
 
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));

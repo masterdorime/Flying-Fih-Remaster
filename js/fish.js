@@ -7,21 +7,58 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
 const SKYFIN_PATH = 'assets/models/fish/skyfin.fbx';
 
+// The model's authored maps. The FBX's own texture references resolve to
+// remapped export-artifact paths (textures/x.png -> textures_x_png.png) that
+// happen to exist on disk. We deliberately do NOT rely on them: the maps are
+// loaded explicitly so the load path can't silently change with an export,
+// and the loose underscore-named duplicates stop being load-bearing.
+// The metallic-roughness map stays unused on purpose: its channels pack as
+// metalness ~0.5 / roughness ~0 (orange, i.e. mirror), which chromes the
+// painted fish — the concept look is dielectric. Constants below instead.
+const TEX = {
+  map: 'assets/models/fish/textures/texture_0_1.png',
+  normalMap: 'assets/models/fish/textures/normal_0.png',
+};
+
+function loadTexture(url, srgb) {
+  return new Promise((resolve, reject) => {
+    new THREE.TextureLoader().load(url, t => {
+      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      t.anisotropy = 8; // flat wing fins seen at a grazing angle alias badly
+      resolve(t);
+    }, undefined, () => reject(new Error('texture failed: ' + url)));
+  });
+}
+
 export async function loadSkyfinModel() {
   try {
     const loader = new FBXLoader();
     const model = await loader.loadAsync(SKYFIN_PATH);
+    // rebuild the material as painted Standard: the FBX's native Phong
+    // material renders the model dark and flat (no env response, no way to
+    // express dielectric roughness). Color + normal maps carry the concept
+    // look; roughness/metalness constants keep it matte-painted, and the
+    // vertex-swim injection (below) keeps working on any material.
+    const [map, normalMap] = await Promise.all([
+      loadTexture(TEX.map, true),
+      loadTexture(TEX.normalMap, false),
+    ]);
     model.traverse(o => {
-      if (o.isMesh) {
-        o.castShadow = false; o.receiveShadow = false;
-        o.frustumCulled = false;
-        const mat = o.material;
-        if (mat) {
-          if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
-          // vertex-swim: undulation grows toward the tail with time*speed
-          injectSwim(o, mat);
-        }
-      }
+      if (!o.isMesh) return;
+      o.castShadow = false; o.receiveShadow = false;
+      o.frustumCulled = false;
+      const mat = new THREE.MeshStandardMaterial({
+        name: 'skyfin-painted',
+        map, normalMap,
+        color: 0xffffff,
+        roughness: 0.62,
+        metalness: 0.08,
+        envMapIntensity: 0.9,
+        normalScale: new THREE.Vector2(0.7, 0.7),
+        fog: false, // hero prop: scene fog must never grey the player out
+      });
+      o.material = mat;
+      injectSwim(o, mat);
     });
     // normalize: orient nose to +Z (model's long axis) and scale to ~5.5 m
     // so the fish reads at chase-camera distance (collider stays small on purpose)

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { COINS, WORLD } from './config.js';
+import { surfaceHeight } from './wave.js';
 
 // Shrimp coins (player-requested mechanic): the shrimp_low_poly.glb model.
 // Coins spawn as CONTINUOUS trails along the safe corridor — like the coin
@@ -26,35 +27,41 @@ const BEHIND = 30;          // recycle this far behind
 const MAGNET_RANGE = 8;     // start pulling toward the fish
 const MAGNET_REACH = 3.2;   // collect radius once magnetized
 const BASE_REACH = 1.6;     // normal collect radius
+const SKIM = 0.3;           // ocean shrimp ride this far above the wave surface
+const WAVE_RIDE = 3;        // spring rate locking low trails to the swell
 
 export function createCoins(scene, coinTemplate) {
   const active = []; // { group, baseX, baseY, z, phase }
   let elapsed = 0;
   let nextTrailZ = 20;
 
-  function spawnTrail(z0, high) {
+  function spawnTrail(z0, high, time) {
     const startX = (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * (WORLD.corridorHalfWidth - 2.5));
-    const baseY = 1.8 + Math.random() * 6;          // low trails for swimmers...
+    const baseY = 1.8 + Math.random() * 6;          // high-trail base only...
     const highTrail = high && Math.random() < 0.4;  // ...elevated trails only when airborne
     const count = Math.floor(TRAIL_GAP / SPACING);  // length matches the gap -> no holes
     for (let i = 0; i < count; i++) {
       const z = z0 + i * SPACING;
       const x = startX + Math.sin(z * 0.08) * 1.8;               // gentle lateral weave
+      // ocean shrimp skim the live wave surface (same field the fish rides);
+      // airborne trails keep the old elevated band
+      const low = !highTrail;
       const y = highTrail
         ? baseY + 14 + Math.sin(z * 0.06) * 2.5
-        : baseY + Math.sin(z * 0.1) * 1.2;
+        : surfaceHeight(x, z, time) + SKIM;
       const group = coinTemplate.clone(true);
       group.position.set(x, y, z);
       scene.add(group);
-      active.push({ group, z, phase: Math.random() * Math.PI * 2 });
+      active.push({ group, z, phase: Math.random() * Math.PI * 2, low });
     }
   }
 
   let playerZ = 0;
 
-  function update(dt, playerPos, onCollect, high = false) {
+  function update(dt, playerPos, onCollect, high = false, time = null) {
     elapsed += dt;
     playerZ = playerPos.z;
+    const t = time ?? elapsed; // game clock keeps coins phase-locked to the water shader
 
     // back on the water, unreachable sky coins from the last flight are removed
     // outright (low trails top out near y≈9; anything above 12 is a leftover high)
@@ -69,7 +76,7 @@ export function createCoins(scene, coinTemplate) {
 
     // keep a continuous river of coins ahead of the fish
     while (nextTrailZ < playerPos.z + AHEAD) {
-      spawnTrail(nextTrailZ, high);
+      spawnTrail(nextTrailZ, high, t);
       nextTrailZ += TRAIL_GAP;
     }
 
@@ -77,6 +84,12 @@ export function createCoins(scene, coinTemplate) {
       const coin = active[i];
       const g = coin.group;
       g.rotation.y += dt * 3.2;
+      // low trails stay glued to the swell as it moves; the magnet (below)
+      // overpowers this spring once the fish is close
+      if (coin.low) {
+        const waveY = surfaceHeight(g.position.x, g.position.z, t) + SKIM;
+        g.position.y += (waveY - g.position.y) * Math.min(1, dt * WAVE_RIDE);
+      }
       g.position.y += Math.sin(elapsed * 2 + coin.phase) * 0.008; // bob
 
       const dx = g.position.x - playerPos.x;
