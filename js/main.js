@@ -36,10 +36,17 @@ camera.position.set(0, 4, -9);
 
 const sky = await createSky(scene);
 const water = createWater(scene);
-scene.add(new THREE.HemisphereLight(0xcfeaff, 0x2a5a78, 1.25));
+// character lighting: a bright sky/ground hemisphere plus a warm key and a cool
+// camera-side fill, so the Skyfin's painted skin reads from the chase camera.
+// (Water and sky are a custom shader / background texture — these lights only
+// touch Standard-material props: fish, rocks, boats, shrimp.)
+scene.add(new THREE.HemisphereLight(0xcfeaff, 0x2a5a78, 1.6));
 const sun = new THREE.DirectionalLight(0xfff2dd, 1.1);
 sun.position.set(40, 80, 30);
 scene.add(sun);
+const fill = new THREE.DirectionalLight(0xbfe3ff, 0.5);
+fill.position.set(-30, 20, -40);
+scene.add(fill);
 
 const settings = loadSettings(globalThis.localStorage ?? {
   getItem: () => null,
@@ -186,7 +193,11 @@ function loop(now) {
   }
 
   hud.update(game.state);
-  debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps));
+  const musicDbg = music.debugState();
+  const musicLine = `music      ${musicDbg.playing ? (musicDbg.rung ?? 'starting') + (musicDbg.menuActive ? ' (menu)' : '') : 'off'}`
+    + ` t${musicDbg.tracksLoaded}/${musicDbg.tracksLoaded + musicDbg.failed.length}`
+    + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '');
+  debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps), musicLine);
 
   // speed lines scale with speed and the post-FX setting (PRD §18.2)
   const sim = game.state;

@@ -47,12 +47,12 @@ export function createHud(root) {
     .ffm-wings { color: #ff8fa3; letter-spacing: .18em; font-size: 20px; align-self: center; }
     .ffm-wings span.lost { opacity: .22; filter: grayscale(1); }
     .ffm-chain { color: #7dff9a; font-size: 18px; align-self: center; }
-    .ffm-charge { margin-top: 10px; text-align: center; }
-    .ffm-charge-label { color: #ffd54a; font-size: 15px; font-weight: 700; letter-spacing: .22em;
+    .ffm-charge { margin-top: 6px; text-align: center; opacity: .92; }
+    .ffm-charge-label { color: #ffd54a; font-size: 12px; font-weight: 700; letter-spacing: .18em;
       text-shadow: 0 2px 10px rgba(0,0,0,.6); animation: ffm-charge-pulse .5s infinite alternate; }
-    .ffm-charge-bar { margin: 7px auto 0; width: 78%; height: 12px; border-radius: 7px;
+    .ffm-charge-bar { margin: 5px auto 0; width: 46%; height: 8px; border-radius: 6px;
       background: rgba(8, 30, 46, .72); border: 1px solid rgba(255, 140, 120, .55); overflow: hidden; }
-    .ffm-charge-fill { height: 100%; width: 0%; border-radius: 7px;
+    .ffm-charge-fill { height: 100%; width: 0%; border-radius: 6px;
       background: linear-gradient(90deg, #ffd54a, #ff9430, #ff4d6d); transition: width .08s linear; }
     @keyframes ffm-charge-pulse { from { opacity: .65; } to { opacity: 1; } }
   `;
@@ -102,7 +102,7 @@ export function createHud(root) {
       chargeMeter.classList.remove('hidden');
       chargeFill.style.width = Math.min(100, (state.gauge / GAUGE.max) * 100).toFixed(1) + '%';
       const left = Math.max(0, FLIGHT.launchChargeSeconds - state.chargeTime);
-      chargeLabel.textContent = `MASH SPACE — ${left.toFixed(1)}s TO BLOW`;
+      chargeLabel.textContent = `MASH SPACE — ${left.toFixed(1)}s TO BLOW · A/D STEERS`;
     } else {
       chargeMeter.classList.add('hidden');
     }

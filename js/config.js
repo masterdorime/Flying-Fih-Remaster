@@ -44,6 +44,9 @@ export const FLIGHT = {
   leapSeconds: 2.6,          // cinematic leap duration
   descendSpeed: 30,          // sink rate when the gauge empties in flight
   firstFlightOnly: true,     // later launches skip the spam ritual
+  flyMin: 57,                // W/S cruise band: never back down through the curtain
+  flyMax: 110,               // ceiling for the climb
+  climbRate: 18,             // m/s of cruise-altitude change with pitch input
 };
 
 export const SPEED_BOOST = {

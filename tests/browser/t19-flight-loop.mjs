@@ -59,6 +59,14 @@ s = await page.evaluate(() => window.__FFM_API.state());
 assertEqual(s.locomotion, 'charge', 'first flight enters the SPAM charge phase');
 assert(await page.isVisible('#ffm-charge-meter'), 'charge meter shows during the QTE');
 
+// the fish can still steer toward screen-right while charging (aim the launch)
+const cx0 = await page.evaluate(() => window.__FFM_API.state().position[0]);
+await page.keyboard.down('KeyD');
+await page.waitForFunction((x) => window.__FFM_API.state().position[0] < x - 1, cx0, { timeout: 20000 });
+const steered = await page.evaluate(() => window.__FFM_API.state());
+await page.keyboard.up('KeyD');
+assert(steered.position[0] < cx0 - 1, `charge allows steering (x ${cx0.toFixed(1)} -> ${steered.position[0].toFixed(1)})`);
+
 // mashing overfills the gauge; the 5s timer forces the blow either way
 await page.evaluate(() => { for (let i = 0; i < 6; i++) window.__FFM_API.debugSpam(); });
 await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'leap', { timeout: 30000 });
@@ -69,7 +77,9 @@ await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'leap',
 const fovRange = await page.evaluate(async () => {
   let min = 999, max = 0, leapEndedAt = 0;
   const t0 = Date.now();
-  while (Date.now() - t0 < 10000) {
+  // generous wall budget: the first curtain crossing compiles new shaders on
+  // the GPU, which stalls frames for seconds under software GL
+  while (Date.now() - t0 < 25000) {
     const f = window.__FFM_API.debugCameraFov();
     min = Math.min(min, f); max = Math.max(max, f);
     if (window.__FFM_API.state().locomotion !== 'leap' && !leapEndedAt) leapEndedAt = Date.now();

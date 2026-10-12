@@ -100,7 +100,20 @@ assert((sfxCalls.calls.perfect ?? 0) >= 1, `perfect sfx fired (${JSON.stringify(
 assert((sfxCalls.calls.miss ?? 0) >= 1, 'miss sfx fired');
 assert(sfxCalls.filesLoaded >= 11, `SFX + ambience files loaded (${sfxCalls.filesLoaded})`);
 
-// 8. zero console errors (the deliberate missing-file 404 + loadBuffer warnings are expected)
+// 8. run transport without the panel path: a real run drives the ladder by
+// itself (targets are the assertion source headless — param.value reads 0
+// without an audio device, so gains can't be asserted)
+const transport = await page.evaluate(() => window.__FFM_API.debugMusic());
+assert(transport.playing === true, 'music transport playing during the run');
+assert(transport.targets.calm > 0, `calm rung has a live target after run start (${transport.targets.calm})`);
+
+// 9. F3 debug overlay reports the music transport state in one line
+await page.keyboard.press('F3');
+await page.waitForFunction(() => !document.querySelector('#ffm-debug').classList.contains('hidden'), { timeout: 5000 });
+const overlay = await page.evaluate(() => document.querySelector('#ffm-debug').textContent);
+assert(overlay.includes('music'), `debug overlay shows music status (${overlay.split('\n').filter(l => l.includes('music')).join('; ') || 'no music line'})`);
+
+// 10. zero console errors (the deliberate missing-file 404 + loadBuffer warnings are expected)
 const realErrors = consoleErrors.filter(e =>
   !e.includes('missing or unreadable') && !e.includes('Failed to load resource'));
 if (realErrors.length) throw new Error('console errors: ' + realErrors.join(' | '));

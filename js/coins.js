@@ -32,10 +32,10 @@ export function createCoins(scene, coinTemplate) {
   let elapsed = 0;
   let nextTrailZ = 20;
 
-  function spawnTrail(z0) {
+  function spawnTrail(z0, high) {
     const startX = (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * (WORLD.corridorHalfWidth - 2.5));
     const baseY = 1.8 + Math.random() * 6;          // low trails for swimmers...
-    const highTrail = Math.random() < 0.4;          // ...and elevated trails for flyers
+    const highTrail = high && Math.random() < 0.4;  // ...elevated trails only when airborne
     const count = Math.floor(TRAIL_GAP / SPACING);  // length matches the gap -> no holes
     for (let i = 0; i < count; i++) {
       const z = z0 + i * SPACING;
@@ -52,13 +52,13 @@ export function createCoins(scene, coinTemplate) {
 
   let playerZ = 0;
 
-  function update(dt, playerPos, onCollect) {
+  function update(dt, playerPos, onCollect, high = false) {
     elapsed += dt;
     playerZ = playerPos.z;
 
     // keep a continuous river of coins ahead of the fish
     while (nextTrailZ < playerPos.z + AHEAD) {
-      spawnTrail(nextTrailZ);
+      spawnTrail(nextTrailZ, high);
       nextTrailZ += TRAIL_GAP;
     }
 

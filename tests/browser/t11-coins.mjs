@@ -30,6 +30,19 @@ const s2 = await page.evaluate(() => window.__FFM_API.state());
 assert(s2.coins >= mid.coins, 'continued collection works');
 assert(popups.includes('COIN'), `COIN popup shown (${popups})`);
 
+// 4. while swimming, all shrimp trails stay low: no sky-high coins over the water
+const swimYs = await page.evaluate(() => {
+  const api = window.__FFM_API;
+  const ys = [];
+  for (let i = 0; i < 6; i++) {
+    const pos = api.debugTeleportToCoin();
+    if (pos) ys.push(pos[1]);
+  }
+  return ys;
+});
+assert(swimYs.length > 0, 'coin targets sampled while swimming');
+assert(swimYs.every(y => y < 12), `swim trails stay low (sampled heights: ${swimYs.map(y => y.toFixed(1)).join(', ')})`);
+
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 console.log('PASS  t11-coins');
 await closePage(browser);

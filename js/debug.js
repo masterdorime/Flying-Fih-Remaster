@@ -15,9 +15,9 @@ export function createDebug(root) {
   document.head.appendChild(style);
   const el = root.querySelector('#ffm-debug');
 
-  function update(state, timing, fps) {
+  function update(state, timing, fps, extra = '') {
     const windows = timing?.windows ?? { perfect: 0, good: 0 };
-    el.textContent = [
+    const lines = [
       `phase      ${state.phase}`,
       `speed      ${state.speed.toFixed(1)}`,
       `gauge      ${state.gauge.toFixed(1)}`,
@@ -30,7 +30,9 @@ export function createDebug(root) {
       `runTime    ${state.runTime.toFixed(1)}s`,
       `difficulty ${state.difficulty.toFixed(2)}`,
       `fps        ${fps}`,
-    ].join('\n');
+    ];
+    if (extra) lines.push(extra);
+    el.textContent = lines.join('\n');
   }
 
   function toggle() { el.classList.toggle('hidden'); return !el.classList.contains('hidden'); }

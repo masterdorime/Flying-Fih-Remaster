@@ -66,9 +66,11 @@ Friends click the link and play in any modern browser. No install.
 4. **First flight: SPAM-QTE** — the fish locks and trembles at the surface.
    **Mash SPACE** to overfill the gauge past its max - then it **blows**. Four
    presses do it; if you stop mashing, the gauge blows on its own after 5 s.
+   You can still steer with A/D during the charge to aim the launch.
 5. **Cinematic leap** — slow-mo, the camera orbits and rises as the fish punches
    through the cloud layer to a fixed altitude, **above the clouds**.
-6. **Fly like a plane** — in the sky you hold altitude and steer freely. Perfect
+6. **Fly like a plane** — in the sky, A/D steers and W/S works the cruise
+   altitude (it never drops you back through the curtain). Perfect
    hits **refill the gauge** (skill sustains flight); misses drain it. Gauge empty
    means you descend back through the clouds into a swim recovery.
 7. **Later flights skip the spam** — a full gauge auto-launches straight into the leap.

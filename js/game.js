@@ -251,12 +251,14 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       checkTierChange();
     });
 
-    // shrimp coins: score only, NEVER gauge (PRD §8.2)
+    // shrimp coins: score only, NEVER gauge (PRD §8.2).
+    // high trails spawn only when airborne — swimming sees low trails only.
+    const airborne = loco !== 'swim' && loco !== 'charge';
     coins.update(dt, player.state.position, () => {
       state.coins += 1;
       state.score += coinValue();
       bus.emit('coin:collect', { coins: state.coins, x: player.state.position.x });
-    });
+    }, airborne);
 
     // sustained momentum bonus (PRD §14.2)
     if (TIER_ORDER.indexOf(state.tier) >= TIER_ORDER.indexOf(SCORING.sustainedTier)) {

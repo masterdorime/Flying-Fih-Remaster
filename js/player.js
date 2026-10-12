@@ -20,6 +20,7 @@ export function createPlayer(scene, fish) {
     speed: MOMENTUM.minSpeed,
     locomotion: 'swim',
     leapT: 0,               // 0..1 cinematic progress during 'leap'
+    cruiseY: FLIGHT.altitude, // W/S-adjustable cruise altitude while flying
     planeExitDamp: 0,
     airborneTimeAtMin: 0,
     stretch: 0,
@@ -39,8 +40,11 @@ export function createPlayer(scene, fish) {
     const fly = state.locomotion === 'fly';
     const cap = capFor(tier, assist);
     const profile = profileFor(tier);
-    const locked = state.locomotion === 'charge' || state.locomotion === 'leap';
-    const moveInput = locked ? { x: 0, y: 0 } : input;
+    // charge locks the fish at the surface but still lets it steer sideways to
+    // aim the launch; the leap is fully scripted (no input at all)
+    const moveInput = state.locomotion === 'leap' ? { x: 0, y: 0 }
+      : state.locomotion === 'charge' ? { x: input.x, y: 0 }
+      : input;
 
     // ---- forward momentum (pure integrate; never gains from direction input) ----
     // A fish pinned at MinSpeed while AIRBORNE has no thrust (it tumbles down);
@@ -87,8 +91,13 @@ export function createPlayer(scene, fish) {
         break;
       }
       case 'fly': {
-        state.position.y += (FLIGHT.altitude - state.position.y) * Math.min(1, dt * 3);
-        state.verticalVel = 0;
+        // full planar control: A/D steers (above), W/S works the cruise altitude
+        state.cruiseY = THREE.MathUtils.clamp(
+          state.cruiseY + moveInput.y * FLIGHT.climbRate * dt,
+          FLIGHT.flyMin, FLIGHT.flyMax,
+        );
+        state.position.y += (state.cruiseY - state.position.y) * Math.min(1, dt * 3);
+        state.verticalVel = THREE.MathUtils.clamp((state.cruiseY - state.position.y) * 3, -FLIGHT.climbRate, FLIGHT.climbRate);
         break;
       }
       case 'descend': {
@@ -139,6 +148,7 @@ export function createPlayer(scene, fish) {
     state.locomotion = next;
     if (next !== 'leap') state.leapT = 0;
     if (next !== 'charge') state.chargeShake = 0;
+    if (next === 'fly') state.cruiseY = FLIGHT.altitude; // each flight starts at the gate altitude
   }
 
   return { state, update, setLocomotion };
