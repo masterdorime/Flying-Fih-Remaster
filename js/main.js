@@ -196,7 +196,8 @@ function loop(now) {
   const musicDbg = music.debugState();
   const musicLine = `music      ${musicDbg.playing ? (musicDbg.rung ?? 'starting') + (musicDbg.menuActive ? ' (menu)' : '') : 'off'}`
     + ` t${musicDbg.tracksLoaded}/${musicDbg.tracksLoaded + musicDbg.failed.length}`
-    + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '');
+    + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '')
+    + ` vol:${settings.music}${musicDbg.muted ? ' MUTED' : ''}`;
   debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps), musicLine);
 
   // speed lines scale with speed and the post-FX setting (PRD §18.2)

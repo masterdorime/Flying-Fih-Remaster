@@ -56,6 +56,17 @@ export function createCoins(scene, coinTemplate) {
     elapsed += dt;
     playerZ = playerPos.z;
 
+    // back on the water, unreachable sky coins from the last flight are removed
+    // outright (low trails top out near y≈9; anything above 12 is a leftover high)
+    if (!high) {
+      for (let i = active.length - 1; i >= 0; i--) {
+        if (active[i].group.position.y > 12) {
+          scene.remove(active[i].group);
+          active.splice(i, 1);
+        }
+      }
+    }
+
     // keep a continuous river of coins ahead of the fish
     while (nextTrailZ < playerPos.z + AHEAD) {
       spawnTrail(nextTrailZ, high);
@@ -109,10 +120,13 @@ export function createCoins(scene, coinTemplate) {
       .sort((a, b) => a - b);
     let maxGap = 0;
     for (let i = 1; i < ahead.length; i++) maxGap = Math.max(maxGap, ahead[i] - ahead[i - 1]);
+    let maxY = 0;
+    for (const c of active) maxY = Math.max(maxY, c.group.position.y);
     return {
       active: active.length,
       maxGapAhead: Number(maxGap.toFixed(1)),
       coverageAhead: ahead.length ? Number((ahead[ahead.length - 1] - playerZ).toFixed(0)) : 0,
+      maxY: Number(maxY.toFixed(1)),
     };
   }
 

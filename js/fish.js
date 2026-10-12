@@ -23,11 +23,12 @@ export async function loadSkyfinModel() {
         }
       }
     });
-    // normalize: orient nose to +Z (model's long axis) and scale to ~4.2 m
+    // normalize: orient nose to +Z (model's long axis) and scale to ~5.5 m
+    // so the fish reads at chase-camera distance (collider stays small on purpose)
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const longest = Math.max(size.x, size.y, size.z);
-    model.scale.setScalar(4.2 / longest);
+    model.scale.setScalar(5.5 / longest);
     model.updateMatrixWorld(true);
     const box2 = new THREE.Box3().setFromObject(model);
     const c = box2.getCenter(new THREE.Vector3());

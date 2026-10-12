@@ -19,8 +19,8 @@ const DEFAULT_CONFIG = {
   ladder: [
     { id: 'calm', file: 'calm.mp3', at: 0.0, volume: 0.9 },
     { id: 'mid', file: 'mid.mp3', at: 0.3, volume: 0.9 },
-    { id: 'high', file: 'high.m4a', at: 0.6, volume: 0.95 },
-    { id: 'max', file: 'max.m4a', at: 0.85, volume: 1.0 },
+    { id: 'high', file: 'high.mp3', at: 0.6, volume: 0.95 },
+    { id: 'max', file: 'max.mp3', at: 0.85, volume: 1.0 },
   ],
   menuTrack: { id: 'menu', file: 'menu.mp3', volume: 0.85 },
   transitionSeconds: 1.5,   // crossfade length between rungs

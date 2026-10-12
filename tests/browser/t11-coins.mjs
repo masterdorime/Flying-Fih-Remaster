@@ -43,6 +43,22 @@ const swimYs = await page.evaluate(() => {
 assert(swimYs.length > 0, 'coin targets sampled while swimming');
 assert(swimYs.every(y => y < 12), `swim trails stay low (sampled heights: ${swimYs.map(y => y.toFixed(1)).join(', ')})`);
 
+// 5. highs spawned while airborne are culled on landing: none linger over the water.
+//    Teleport-sampling can't see them (it finds the nearest coins, which are the
+//    fresh low ones), so assert on the tallest active coin instead.
+await page.evaluate(() => {
+  const api = window.__FFM_API;
+  api.setGauge(110);
+  api.debugForceFlight();
+});
+await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, { timeout: 60000 });
+await page.waitForTimeout(4000); // fly a while: mixed trails (incl. highs) spawn ahead
+await page.evaluate(() => window.__FFM_API.setGauge(0.5));
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'swim', { timeout: 90000 });
+await page.waitForTimeout(2000); // let the swim phase settle (no teleports: they would collect the evidence)
+const settled = await page.evaluate(() => window.__FFM_API.debugCoins());
+assert(settled.maxY < 12, `no high coins linger after landing (tallest active coin y=${settled.maxY})`);
+
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 console.log('PASS  t11-coins');
 await closePage(browser);
