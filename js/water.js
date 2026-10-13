@@ -13,6 +13,8 @@ export function createWater(scene) {
       uDeep: { value: new THREE.Color(0x075f86) },     // deep teal
       uFoam: { value: new THREE.Color(0xf2ffff) },
       uPlayer: { value: new THREE.Vector3(0, 0, 0) },
+      uWakeDir: { value: new THREE.Vector2(0, 1) }, // fish heading (xz)
+      uWakeStrength: { value: 0 },                  // 0 = calm/hidden, 1 = full churn
     },
     vertexShader: /* glsl */`
       uniform float uTime;
@@ -35,6 +37,8 @@ export function createWater(scene) {
       uniform vec3 uShallow, uDeep, uFoam;
       uniform float uTime;
       uniform vec3 uPlayer;
+      uniform vec2 uWakeDir;
+      uniform float uWakeStrength;
       varying float vH;
       varying vec3 vPos;
       void main() {
@@ -47,11 +51,22 @@ export function createWater(scene) {
         float crest = smoothstep(0.55, 0.9, vH);
         col = mix(col, uFoam, crest * 0.85);
 
-        // ---- foam ring trailing the fish ----
-        float d = distance(vPos.xz, uPlayer.xz);
-        float ring = smoothstep(0.0, 1.0, 1.0 - abs(d - 3.2) / 1.6) * 0.32;
+        // ---- contact foam: irregular band hugging the hull ----
+        // (replaces the old isolated halo ring: disturbance must touch the body)
+        vec2 rel0 = vPos.xz - uPlayer.xz;
+        float d = length(rel0);
+        float wob = sin(atan(rel0.y, rel0.x) * 5.0 + uTime * 4.0) * 0.35
+                  + sin((vPos.x + vPos.z) * 1.7 - uTime * 5.0) * 0.25;
+        float contact = smoothstep(2.4 + wob, 0.6, d);
+        // ---- churn streak astern: foam along -heading, V-tapering behind ----
+        float back = dot(rel0, -uWakeDir);
+        float side = abs(dot(rel0, vec2(-uWakeDir.y, uWakeDir.x)));
+        float streakLen = mix(4.0, 16.0, uWakeStrength);
+        float streak = smoothstep(streakLen, 0.0, back)
+                     * smoothstep(0.5 + max(back, 0.0) * 0.18, 0.0, side);
+        float foamAmt = clamp(contact * 0.85 + streak * 0.5 * uWakeStrength, 0.0, 1.0);
         float bob = 0.85 + 0.15 * sin(uTime * 3.0);
-        col = mix(col, uFoam, clamp(ring * bob, 0.0, 1.0));
+        col = mix(col, uFoam, foamAmt * bob);
 
         // ---- distance fade to the skybox ----
         float fade = 1.0 - smoothstep(240.0, 700.0, abs(vPos.z - uPlayer.z));
@@ -65,8 +80,16 @@ export function createWater(scene) {
   scene.add(mesh);
   return {
     mesh,
-    update(t, playerPos) {
+    update(t, playerPos, wake = null) {
       mat.uniforms.uTime.value = t;
+      // wake churn: heading + strength while swimming, zeroed when airborne
+      // (a null wake hides all contact foam — nothing disturbs water in flight)
+      if (wake) {
+        mat.uniforms.uWakeDir.value.set(wake.dirX, wake.dirZ);
+        mat.uniforms.uWakeStrength.value = wake.strength;
+      } else {
+        mat.uniforms.uWakeStrength.value = 0;
+      }
       if (playerPos) {
         mat.uniforms.uPlayer.value.set(playerPos.x, playerPos.y, playerPos.z);
         // keep the strip centered on the fish so water never runs out ahead

@@ -80,8 +80,10 @@ export const RECOVERY = {
 // water shader) instead of a flat altitude line. Visual/physical only —
 // speed, timing, gauge, and launch rules are untouched.
 export const WATER = {
-  swimRideOffset: 0.35, // fish center rides this far above the wave surface (belly in the water)
-  buoyancyRate: 4,       // spring rate toward the surface (per second)
+  draftFraction: 0.25,   // of measured model height sits BELOW the surface: belly and
+                          // lower sides intersect the water, back/dorsal/wings stay
+                          // visible (verified against trough occlusion 2026-10-13)
+  buoyancyRate: 4,       // spring rate toward the waterline (per second)
   pitchFromSlope: 0.8,   // nose follows the wave tilt this strongly
   rollFromSlope: 0.5,    // body rolls onto the lateral slope this strongly
 };

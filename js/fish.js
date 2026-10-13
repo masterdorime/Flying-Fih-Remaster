@@ -71,7 +71,11 @@ export async function loadSkyfinModel() {
     const c = box2.getCenter(new THREE.Vector3());
     model.position.x -= c.x;
     model.position.z -= c.z;
-    model.position.y -= box2.min.y;
+    model.position.y -= box2.min.y; // bottom-origin: group y = underside of the fish
+    // measured dims drive the swimming waterline (player.js): the draft is a
+    // fraction of the real height, never a guessed offset
+    const dimsSize = box2.getSize(new THREE.Vector3());
+    model.userData.dims = { height: dimsSize.y, width: dimsSize.x, length: dimsSize.z };
     injectTrailEmissive(model);
     return model;
   } catch (err) {
@@ -182,10 +186,21 @@ export function createFish(skyfinModel = null) {
     return {
       group,
       procedural: false,
+      dims: skyfinModel.userData.dims ?? measureDims(group),
       refs: { swim: findSwim(skyfinModel), finMat: findFinMaterial(skyfinModel) },
     };
   }
-  return createProceduralFish();
+  const proc = createProceduralFish();
+  proc.dims = measureDims(proc.group);
+  return proc;
+}
+
+// Measured model height/width/length (post-scale, post-centering) so the
+// waterline draft is derived from geometry, not guessed.
+function measureDims(group) {
+  group.updateMatrixWorld(true);
+  const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3());
+  return { height: size.y, width: size.x, length: size.z };
 }
 
 function findSwim(model) {

@@ -395,6 +395,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
       speed: MOMENTUM.minSpeed, planeExitDamp: 0, leapT: 0, chargeShake: 0,
       airborneTimeAtMin: 0, squashDip: 0, pitch: 0, waveRoll: 0,
+      launchBaseY: RECOVERY.waterY,
     });
     camera.position.set(0, RECOVERY.waterY + 3.6, -9);
     bus.emit('run:start', null);

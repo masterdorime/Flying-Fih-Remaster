@@ -7,6 +7,7 @@ import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { tierForGauge } from './gauge.js';
 import { createTimingRing } from './timing-view.js';
 import { createJuice } from './juice.js';
+import { createWake } from './wake.js';
 import { createHud } from './hud.js';
 import { createUi } from './ui.js';
 import { createDebug } from './debug.js';
@@ -83,6 +84,7 @@ const skyfinModel = await loadSkyfinModel();
 const game = await createGame({ scene, camera, renderer, water, settings, storage: globalThis.localStorage ?? null, fishModel: skyfinModel });
 const cameraRig = createCamera(camera, settings);
 const juice = createJuice();
+const wake = createWake(scene); // surface-contact ribbon + ripple pool (swim only)
 const ring = createTimingRing();
 scene.add(ring.group);
 const hud = createHud(document.body);
@@ -95,6 +97,11 @@ const clouds = createClouds(scene);
 const skyWorld = createSkyWorld(scene, game.templates, game.coinTemplate);
 skyWorld.group.visible = false; // the sky exists only above the clouds
 bus.on('run:start', () => skyWorld.reset(game.player.state.position.z));
+bus.on('run:start', () => wake.reset());
+// takeoff + landing bursts originate at the body-water contact point
+bus.on('launch:charge', () => wake.burst(game.player.state.position.x, game.player.state.position.z, 6));
+bus.on('launch:blow', () => wake.burst(game.player.state.position.x, game.player.state.position.z, 8));
+bus.on('plane:exit', () => wake.burst(game.player.state.position.x, game.player.state.position.z, 4));
 
 // adaptive music: ladder tracks crossfaded by normalized momentum (game speed)
 const music = createAdaptiveMusicController({
@@ -188,7 +195,21 @@ function loop(now) {
   if (game.state.phase === 'run' || game.state.phase === 'tutorial') {
     readInput();
     game.update(dt, input);
-    water.update(game.state.runTime, game.player.state.position);
+    // wake churn follows the fish only while it touches water; airborne the
+    // water stays undisturbed (strength floor 0.12 keeps faint contact at rest)
+    const loco = game.player.state.locomotion;
+    const swimming = loco === 'swim' || loco === 'charge';
+    const ps = game.player.state;
+    let wakeU = null;
+    if (swimming) {
+      const len = Math.hypot(ps.lateralVel, ps.speed) || 1;
+      wakeU = {
+        dirX: ps.lateralVel / len, dirZ: ps.speed / len,
+        strength: Math.min(1, Math.max(0.12, (ps.speed - 8) / 60)),
+      };
+    }
+    water.update(game.state.runTime, game.player.state.position, wakeU);
+    wake.update(dt, game.player.state, game.player.state.locomotion, game.state.runTime);
     // sky/curtain ride along with the fish; the swap is altitude-driven
     const p = game.player.state.position;
     clouds.update(dt, p);
@@ -419,6 +440,7 @@ window.__FFM_API = {
   debugCorridorClear: () => game.debugCorridorClear(),
   debugCoins: () => game.debugCoins(),
   debugFish: () => game.debugFish(),
+  debugWake: () => wake.debugInfo(),
   debugLoseWing: () => game.debugLoseWing(),
   debugSetSpeed: (v) => game.debugSetSpeed(v),
   debugSetAltitude: (y) => game.debugSetAltitude(y),

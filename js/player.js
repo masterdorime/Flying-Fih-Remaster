@@ -12,6 +12,9 @@ import { surfaceHeight, waveSlopes } from './wave.js';
 //   fly     — fixed high altitude; Perfect hits refill the gauge
 //   descend — the gauge emptied: sink back through the clouds to the ocean
 export function createPlayer(scene, fish) {
+  // measured draft: the bottom-origin model sits this far below the surface,
+  // so the lower body intersects the water instead of hovering above it
+  const draft = (fish.dims?.height ?? 1.89) * WATER.draftFraction;
   const state = {
     position: new THREE.Vector3(0, RECOVERY.waterY, 0),
     lateralVel: 0,
@@ -20,6 +23,7 @@ export function createPlayer(scene, fish) {
     banking: 0,
     pitch: 0,            // wave-slope nose pitch while swimming
     waveRoll: 0,         // wave-slope body roll while swimming
+    launchBaseY: RECOVERY.waterY, // surface height when a launch starts (no takeoff snap)
     speed: MOMENTUM.minSpeed,
     locomotion: 'swim',
     leapT: 0,               // 0..1 cinematic progress during 'leap'
@@ -72,10 +76,10 @@ export function createPlayer(scene, fish) {
     const waterY = RECOVERY.waterY;
     switch (state.locomotion) {
       case 'charge': {
-        // locked at the surface, trembling as the gauge blows
+        // locked at the takeoff waterline, trembling as the gauge blows
         state.chargeShake += dt;
         const jitter = Math.sin(state.chargeShake * 60) * 0.35 * Math.min(1, state.chargeShake);
-        state.position.y = waterY + jitter;
+        state.position.y = state.launchBaseY + jitter;
         state.verticalVel = 0;
         break;
       }
@@ -89,7 +93,8 @@ export function createPlayer(scene, fish) {
           const k = (t - 0.28) / 0.72;                                   // explosive rise
           h = Math.pow(k, 0.62) * (FLIGHT.altitude - waterY) * 1.06 - (k > 0.9 ? (k - 0.9) * 6 : 0);
         }
-        state.position.y = waterY + Math.max(-1.2, h);
+        state.position.y = waterY + Math.max(-1.2, h)
+          + (state.launchBaseY - waterY) * (1 - t); // blend out the takeoff offset by arrival
         state.verticalVel = 30;
         break;
       }
@@ -121,12 +126,13 @@ export function createPlayer(scene, fish) {
         break;
       }
       default: { // swim
-        // buoyancy: ride the same wave field the water shader draws. The fish
-        // bobs on swells and pitches/rolls onto the surface instead of hovering
-        // on a flat line. Speed/timing/gauge/launch rules are untouched, and
-        // swim vertical velocity stays far below splash thresholds (~±2 vs 6).
+        // buoyancy at a measured waterline: the bottom-origin model rides with
+        // `draft` meters of lower body intersecting the live wave field. The
+        // fish bobs on swells and pitches/rolls onto the surface instead of
+        // hovering. Speed/timing/gauge/launch rules are untouched, and swim
+        // vertical velocity stays far below splash thresholds (~±2 vs 6).
         const t = game.state.runTime;
-        const target = surfaceHeight(state.position.x, state.position.z, t) + WATER.swimRideOffset;
+        const target = surfaceHeight(state.position.x, state.position.z, t) - draft;
         const prevY = state.position.y;
         state.position.y += (target - state.position.y) * Math.min(1, dt * WATER.buoyancyRate);
         state.verticalVel = dt > 0 ? (state.position.y - prevY) / dt : 0;
@@ -163,6 +169,11 @@ export function createPlayer(scene, fish) {
   }
 
   function setLocomotion(next) {
+    // leaving the water: record the takeoff waterline so charge/leap continue
+    // from the actual surface instead of snapping to a fixed height
+    if ((next === 'charge' || next === 'leap') && state.locomotion !== next) {
+      state.launchBaseY = state.position.y;
+    }
     state.locomotion = next;
     if (next !== 'leap') state.leapT = 0;
     if (next !== 'charge') state.chargeShake = 0;
