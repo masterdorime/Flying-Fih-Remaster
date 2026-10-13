@@ -9,9 +9,10 @@ export function createWater(scene) {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uShallow: { value: new THREE.Color(0x3fe0c8) },  // tropical shallow
-      uDeep: { value: new THREE.Color(0x075f86) },     // deep teal
-      uFoam: { value: new THREE.Color(0xf2ffff) },
+      uDeep: { value: new THREE.Color(0x063a7a) },    // deep navy troughs
+      uOcean: { value: new THREE.Color(0x0d5cb0) },   // ocean blue
+      uAqua: { value: new THREE.Color(0x3ec3f0) },    // bright aqua highlights
+      uFoam: { value: new THREE.Color(0xffffff) },    // pure white foam
       uPlayer: { value: new THREE.Vector3(0, 0, 0) },
       uWakeDir: { value: new THREE.Vector2(0, 1) }, // fish heading (xz)
       uWakeStrength: { value: 0 },                  // 0 = calm/hidden, 1 = full churn
@@ -34,7 +35,7 @@ export function createWater(scene) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }`,
     fragmentShader: /* glsl */`
-      uniform vec3 uShallow, uDeep, uFoam;
+      uniform vec3 uDeep, uOcean, uAqua, uFoam;
       uniform float uTime;
       uniform vec3 uPlayer;
       uniform vec2 uWakeDir;
@@ -42,14 +43,35 @@ export function createWater(scene) {
       varying float vH;
       varying vec3 vPos;
       void main() {
-        // ---- toon depth bands ----
+        // ---- layered deep-blue ocean ----
+        // base: wave-height bands, navy troughs -> ocean blue crests, lifted
+        // off pure navy so the sea reads bright, not night-dark
         float t = clamp(vH * 0.5 + 0.5, 0.0, 1.0);
         float band = floor(t * 5.0) / 5.0;                 // quantized cartoon bands
-        vec3 col = mix(uDeep, uShallow, band);
+        vec3 col = mix(uDeep, uOcean, 0.15 + 0.85 * band);
+        col = mix(col, uAqua, 0.06 + band * 0.14);         // always a hint of aqua
 
-        // ---- foam on wave crests ----
-        float crest = smoothstep(0.55, 0.9, vH);
-        col = mix(col, uFoam, crest * 0.85);
+        // broad horizontal swell layers: slow tone shifts in world Z, the
+        // reference's layered horizon stripes
+        float layer = sin(vPos.z * 0.045 - uTime * 0.8);
+        col = mix(col, uAqua, smoothstep(0.5, 1.0, layer) * 0.30);
+        // quantized medium stripes: hard-edged tone layers streaming past,
+        // each stripe carrying its own aqua weight (the layered ocean read)
+        float stripe = floor(vPos.z * 0.11 - uTime * 1.2);
+        float stripeTone = 0.5 + 0.5 * sin(stripe * 37.0);
+        col = mix(col, uAqua, stripeTone * 0.12);
+
+        // fine bright wave lines streaming past, saturating with height
+        float fine = sin(vPos.z * 0.30 - uTime * 2.6);
+        col = mix(col, uFoam, smoothstep(0.78, 1.0, fine) * 0.38 * (0.35 + 0.65 * band));
+
+        // crests: aqua flash on the rise, white cap on the highest crests
+        col = mix(col, uAqua, smoothstep(0.45, 0.85, vH) * 0.45);
+        col = mix(col, uFoam, smoothstep(0.80, 0.98, vH) * 0.45);
+
+        // aerial lift: distant water rises toward brighter blue before the fade
+        float dist = abs(vPos.z - uPlayer.z);
+        col = mix(col, uOcean, smoothstep(80.0, 300.0, dist) * 0.35);
 
         // ---- contact foam: irregular band hugging the hull ----
         // (replaces the old isolated halo ring: disturbance must touch the body)

@@ -10,8 +10,8 @@ const TRAIL_MAX = 24;       // surface samples (~2.9s of travel at full rate)
 const SAMPLE_SECONDS = 0.12;
 const RIPPLE_POOL = 24;
 const RIPPLE_LIFE = 1.2;
-const FOAM = new THREE.Color(0xf2ffff);
-const FADE = new THREE.Color(0x0a6a80); // dissolves into the deep-teal band
+const FOAM = new THREE.Color(0xffffff);
+const FADE = new THREE.Color(0x0a3f7a); // dissolves into the deep-blue layer
 
 export function createWake(scene) {
   const trail = createTrail(TRAIL_MAX, 0.8);
