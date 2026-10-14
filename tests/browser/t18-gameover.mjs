@@ -20,6 +20,9 @@ assertEqual(wings[0], 2, 'first fragile crash leaves 2 wings');
 assertEqual(wings[1], 1, 'second fragile crash leaves 1 wing');
 s = await page.evaluate(() => window.__FFM_API.state());
 assert(s.phase === 'run', 'run continues with 1 wing (recovery possible)');
+// poll for the HUD pips: software-GL frames are slow, a fixed sleep can read
+// before the first render lands (repo rule: poll, never sleep)
+await page.waitForFunction(() => document.querySelector('#ffm-wings')?.textContent.includes('✦'), { timeout: 30000 });
 const pipText = await page.evaluate(() => document.querySelector('#ffm-wings').textContent);
 assert(pipText.includes('✦'), `wing pips render in the HUD (${pipText.trim()})`);
 

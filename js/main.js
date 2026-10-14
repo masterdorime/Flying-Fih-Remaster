@@ -5,7 +5,7 @@ import { createFish } from './fish.js';
 import { createCamera } from './camera.js';
 import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { tierForGauge } from './gauge.js';
-import { createTimingRing } from './timing-view.js';
+import { createGateView } from './gate-view.js';
 import { createJuice } from './juice.js';
 import { createWake } from './wake.js';
 import { createHud } from './hud.js';
@@ -16,7 +16,7 @@ import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
 import { loadSkyfinModel } from './fish.js';
 import { MOMENTUM, FLIGHT } from './config.js';
-import { currentWindows } from './timing.js';
+import { GATE } from './config.js';
 import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
@@ -85,8 +85,7 @@ const game = await createGame({ scene, camera, renderer, water, settings, storag
 const cameraRig = createCamera(camera, settings);
 const juice = createJuice();
 const wake = createWake(scene); // surface-contact ribbon + ripple pool (swim only)
-const ring = createTimingRing();
-scene.add(ring.group);
+const gateView = createGateView(scene);
 const hud = createHud(document.body);
 const ui = createUi(document.body, { storage: globalThis.localStorage ?? undefined });
 const debug = createDebug(document.body);
@@ -225,17 +224,9 @@ function loop(now) {
     cameraRig.setCinematic(false, 0);
   }
 
-  // timing ring follows the fish and faces the camera
-  const prompt = game.getActivePrompt();
-  if (prompt && (game.state.phase === 'run' || game.state.phase === 'tutorial')) {
-    ring.group.visible = true;
-    const p = game.player.state.position;
-    ring.group.position.set(p.x, p.y + 2.8, p.z + 7);
-    ring.group.quaternion.copy(camera.quaternion);
-    ring.setProgress((game.state.runTime - prompt.spawnTime) / (prompt.expiresAt - prompt.spawnTime));
-  } else {
-    ring.group.visible = false;
-  }
+  // momentum gate: rendered in world space ahead of the fish — no overlay
+  // covers the chase view, and swim gates ride the wave via surfaceHeight
+  gateView.update(dt, game.gate(), game.player.state.position, game.state.runTime, game.player.state.locomotion);
 
   hud.update(game.state);
   const musicDbg = music.debugState();
@@ -247,7 +238,7 @@ function loop(now) {
     + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '')
     + ` vol:${settings.music}${musicDbg.muted ? ' MUTED' : ''}`
     + ` ctx:${musicDbg.contextState ?? '?'} bus:${musicDbg.busGain ?? '?'} m:${settings.master}/s:${settings.sfx}`;
-  debug.update(game.state, { windows: currentWindows(game.state.speed, { assist: game.state.assist }) }, Math.round(fps), musicLine);
+  debug.update(game.state, { windows: { perfect: GATE.perfectRadius, good: GATE.goodRadius } }, Math.round(fps), musicLine);
 
   // speed lines scale with speed and the post-FX setting (PRD §18.2)
   const sim = game.state;
@@ -379,8 +370,13 @@ bus.on('timing:result', ({ result }) => {
     cameraRig.shake(0.4);
   }
 });
-bus.on('prompt:expired', () => juice.popup('MISSED', '#9fb3c8', true));
-bus.on('prompt:spawn', () => ring.resetColors());
+bus.on('gate:resolved', ({ result }) => {
+  const map = { perfect: ['PERFECT', '#ffd54a'], good: ['GOOD', '#7dff9a'], miss: ['MISS', '#ff5e5b'] };
+  const [text, color] = map[result] ?? [result, '#9fb3c8'];
+  juice.popup(text, color);
+  gateView.flash(result);
+  setTimeout(() => gateView.resetColors(), 220);
+});
 bus.on('tier:up', () => juice.popup('TIER UP', '#9dff7a', true));
 bus.on('tier:down', () => {
   // draining in the sky is the flight timer, not a power-down: don't spam the popup
@@ -429,11 +425,8 @@ window.__FFM_API = {
     game.state.tier = tierForGauge(v);
   },
   applyResult: (r) => game.applyResult(r),
-  prompt: () => {
-    const p = game.getActivePrompt();
-    return p ? { spawnTime: p.spawnTime, perfectAt: p.perfectAt, expiresAt: p.expiresAt } : null;
-  },
-  pressAt: (t) => game.pressAt(t),
+  gate: () => game.gate(),
+  debugTeleportToRing: (offX = 0, offY = 0) => game.debugTeleportToRing(offX, offY),
   debugObstacleCount: () => game.debugObstacleCount(),
   debugModelFailures: () => game.debugModelFailures(),
   debugTeleportToObstacle: () => game.debugTeleportToObstacle(),

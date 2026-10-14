@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT, GATE } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { currentWindows, createPrompt, evaluatePress, expirePrompt, promptInterval } from './timing.js';
+import { createGate, crossingSample, resolveGate, gateBehind, gateCadence } from './timing.js';
+import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
 import { createFish, animateFish, setTrailColor } from './fish.js';
@@ -57,20 +58,18 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
 
   // ---- phase flow + tutorial script (PRD §2, §3) ----
   let tutorialStep = 0;
-  const TUTORIAL_STEPS = [
-    { on: 'prompt:spawn', text: 'Press SPACE when the ring shrinks to the gold core!' },
-    { on: 'timing:result', match: 'perfect', text: 'PERFECT! Speed and gauge jump up.' },
-    { on: 'tier:up', text: 'Gauge fills! Keep going — at a FULL gauge you launch into the sky.' },
-    { on: 'prompt:spawn', text: 'Chain the next one for more momentum.' },
-    { on: 'timing:result', match: 'miss', text: 'Missing costs speed and gauge. Rebuild and relaunch!' },
-    { on: 'timeout', seconds: 5, text: 'Full gauge? Mash SPACE to overfill it — then you fly!' },
-  ];
+    const TUTORIAL_STEPS = [
+      { on: 'gate:spawn', text: 'Steer the fish THROUGH the ring to gain momentum!' },
+      { on: 'timing:result', match: 'perfect', text: 'PERFECT! Straight through the center — speed and gauge jump up.' },
+      { on: 'tier:up', text: 'Gauge fills! Keep going — at a FULL gauge you launch into the sky.' },
+      { on: 'timing:result', match: 'miss', text: 'Missed the ring? Chain resets — line up the next one!' },
+      { on: 'timeout', seconds: 5, text: 'Full gauge? Mash SPACE to overfill it — then you fly!' },
+    ];
 
   function startTutorial() {
     restart(state.assist);
     state.phase = 'tutorial';
     tutorialStep = 0;
-    nextPromptAt = 0.9;
     bus.emit('tutorial:step', TUTORIAL_STEPS[0]);
   }
 
@@ -122,47 +121,58 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     try { return storage.getItem(key); } catch { return null; }
   }
 
-  // ---- precision timing prompt lifecycle (PRD §7.1) ----
-  let activePrompt = null;
-  let nextPromptAt = 1.2;        // first prompt ~1.2s into the run
-  let pressQueued = false;
+  // ---- momentum-gate lifecycle (replaced the press-timing QTE 2026-10-14) ----
+  // one live gate; results feed applyResult exactly like the old prompt hands did
+  let activeGate = null;
+  let gateCooldown = 0;
+  let gateRng = mulberry32(0x9a7e);
 
-  function spawnPrompt() {
-    activePrompt = createPrompt(state.runTime, TIMING.promptLifetime);
-    bus.emit('prompt:spawn', activePrompt);
-    advanceTutorial('prompt:spawn');
+  function trySpawnGate() {
+    if (activeGate || state.ended) return;
+    if (!gateCadence(activeGate, gateCooldown)) return;
+    activeGate = createGate(gateRng, {
+      locomotion: player.state.locomotion,
+      playerPos: player.state.position,
+      runTime: state.runTime,
+    });
+    bus.emit('gate:spawn', activeGate);
+    advanceTutorial('gate:spawn');
   }
 
-  function consumePress(atTime) {
-    if (!activePrompt || activePrompt.state !== 'active') return null;
-    const windows = currentWindows(state.speed, { assist: state.assist });
-    const result = evaluatePress(activePrompt, atTime, windows);
-    activePrompt.result = result;
-    activePrompt.state = 'resolved';
-    if (!result) return null; // grace: press outside prompt lifetime
+  function resolveGateResult(result) {
+    activeGate.resolved = true;
     applyResult(result);
-    bus.emit('prompt:resolved', { result, prompt: activePrompt });
-    activePrompt = null;
-    return result;
+    bus.emit('gate:resolved', { result, gate: activeGate });
+    advanceTutorial('timing:result', result);
+    activeGate = null;
+    gateCooldown = GATE.cooldown;
+  }
+
+  function updateGates(prevPos, dt) {
+    if (state.ended) return;
+    const pos = player.state.position;
+    if (activeGate) {
+      const sample = crossingSample(prevPos, pos, activeGate.z);
+      if (sample) {
+        resolveGateResult(resolveGate(activeGate, sample, { assist: state.assist }));
+      } else if (gateBehind(activeGate, pos)) {
+        resolveGateResult('miss'); // sailed past the portal without entering it
+      }
+    } else {
+      gateCooldown = Math.max(0, gateCooldown - dt);
+      trySpawnGate();
+    }
   }
 
   function queuePress() {
-    // during the launch charge, the button is the spam lever, not the timing input
+    // SPACE keeps exactly one job: the launch spam lever during the charge
     if (player.state.locomotion === 'charge') { spamPress(); return; }
-    pressQueued = true;
   }
-  function pressAt(t) { return consumePress(t); }
 
   function profile() { return profileFor(state.tier); }
 
   function update(dt, input) {
     if (state.phase !== 'run' && state.phase !== 'tutorial') return;
-
-    // timing evaluation happens at frame start (buffered press uses current clock)
-    if (pressQueued) {
-      pressQueued = false;
-      consumePress(state.runTime);
-    }
 
     state.runTime += dt;
     state.distance += state.speed * dt;
@@ -171,7 +181,9 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       state.runTime / DIFFICULTY.rampSeconds,
     ));
 
-    // player movement
+    // player movement (gate resolution needs the pre-move position to sample
+    // the crossing plane without tunneling through it at speed)
+    const prevPos = player.state.position.clone();
     player.update(dt, input, gameApi);
     state.speed = player.state.speed;
 
@@ -214,20 +226,11 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       }
     }
 
-    // prompt scheduling: cadence tightens with difficulty (PRD §13).
-    // Prompts freeze while the fish is locked in a launch/cinematic.
+    // momentum gate: resolve the crossing (or a sailed-past miss), then spawn
+    // the next gate once the resolved one has cooled down. Gates freeze while
+    // the fish is locked in a launch/cinematic.
     const locked = loco === 'charge' || loco === 'leap';
-    if (!activePrompt && !locked && state.runTime >= nextPromptAt) {
-      spawnPrompt();
-      nextPromptAt = state.runTime + promptInterval(state.difficulty);
-    }
-    if (activePrompt) {
-      const expired = expirePrompt(activePrompt, state.runTime);
-      if (expired !== activePrompt) {
-        activePrompt = null;
-        bus.emit('prompt:expired', expired);
-      }
-    }
+    if (!locked) updateGates(prevPos, dt);
 
     // obstacle collisions: minor speed loss / major forced descent (PRD §11.3)
     world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, (hit) => {
@@ -385,9 +388,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       wings: GAMEOVER.wings, endReason: null,
       locomotion: 'swim', firstFlightDone: false, chargeTime: 0,
     });
-    activePrompt = null;
-    nextPromptAt = 1.2;
-    pressQueued = false;
+    activeGate = null;
+    gateCooldown = 0;
     world.reset();
     coins.reset();
     player.setLocomotion('swim');
@@ -418,8 +420,14 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     resume,
     toMenu,
     queuePress,
-    pressAt,
-    getActivePrompt: () => activePrompt,
+    gate: () => activeGate,
+    // test hook: park the fish on the live gate's plane at ±offsets from its
+    // center, so the next crossing resolves deterministically
+    debugTeleportToRing: (offX = 0, offY = 0) => {
+      if (!activeGate) return null;
+      player.state.position.set(activeGate.x + offX, activeGate.y + offY, activeGate.z - 2);
+      return { x: player.state.position.x, y: player.state.position.y, z: player.state.position.z };
+    },
     player,
     MOMENTUM,
     onWaterEntry: null,
