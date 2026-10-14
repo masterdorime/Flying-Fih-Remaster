@@ -24,8 +24,8 @@ const SPACING = 4;          // coin spacing inside a trail
 const TRAIL_GAP = 24;       // distance between consecutive trail starts (>= spacing -> continuous)
 const AHEAD = 160;          // keep coins alive this far ahead
 const BEHIND = 30;          // recycle this far behind
-const MAGNET_RANGE = 8;     // start pulling toward the fish
-const MAGNET_REACH = 3.2;   // collect radius once magnetized
+const MAGNET_RANGE = 4.5;   // start pulling toward the fish (nerfed 2026-10-14)
+const MAGNET_REACH = 2.4;   // collect radius once magnetized
 const BASE_REACH = 1.6;     // normal collect radius
 const SKIM = 0.3;           // ocean shrimp ride this far above the wave surface
 const WAVE_RIDE = 3;        // spring rate locking low trails to the swell
@@ -99,7 +99,7 @@ export function createCoins(scene, coinTemplate) {
 
       let reach = BASE_REACH;
       if (dist < MAGNET_RANGE) {
-        const pull = (1 - dist / MAGNET_RANGE) * dt * 12;
+        const pull = (1 - dist / MAGNET_RANGE) * dt * 6;
         g.position.x -= dx * pull;
         g.position.y -= dy * pull;
         g.position.z -= dz * pull;

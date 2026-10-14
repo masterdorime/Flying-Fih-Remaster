@@ -16,6 +16,20 @@ test('chunks are deterministic for a seed', () => {
   assert.deepEqual(a.obstacles, b.obstacles);
 });
 
+test('ocean obstacles are grounded: nothing floats below the clouds (2026-10-14)', () => {
+  // the retired `elevated` branch spawned props at y 8-24 — floating clutter
+  // below the cloud curtain. All ocean hazards must sit at the water line.
+  const MAX_Y = 2.5;
+  for (let d = 0; d <= 1.0001; d += 0.05) {
+    for (let i = 0; i < 200; i++) {
+      for (const o of generateChunk(i, d, 9).obstacles) {
+        assert.ok(o.y <= MAX_Y, `chunk ${i} d=${d} ${o.kind} floats at y=${o.y.toFixed(2)}`);
+        assert.ok(o.y >= 0, `chunk ${i} d=${d} ${o.kind} spawns below the water (y=${o.y.toFixed(2)})`);
+      }
+    }
+  }
+});
+
 test('every chunk keeps a safe corridor (PRD §12.4)', () => {
   for (let d = 0; d <= 1.0001; d += 0.05) {
     for (let i = 0; i < 200; i++) {

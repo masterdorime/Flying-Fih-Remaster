@@ -44,8 +44,10 @@ export function generateChunk(index, difficulty, seed = 1) {
     const corridor = WORLD.corridorHalfWidth + radius;
     const x = side * (corridor + rng() * Math.max(1, WORLD.laneHalfWidth - corridor));
     const z = (i + 0.35) * (WORLD.chunkLength / count) + rng() * 9;
-    const elevated = kind !== 'boat' && rng() < d * 0.4; // flying hazards appear later
-    const y = elevated ? lerp(8, 24, rng()) : (kind === 'buoy' ? 1.2 : 0.7);
+    // ocean hazards are ALWAYS grounded: the retired `elevated` branch put
+    // rocks/buoys at y 8-24, floating clutter below the cloud curtain
+    // (locked by tests/unit/worldgen.test.js)
+    const y = kind === 'buoy' ? 1.2 : 0.7;
     const moving = rng() < lerp(0, 0.55, d);
     obstacles.push({
       kind, x, y, z,

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLIGHT, WORLD } from './config.js';
 import { templateFor } from './models.js';
-import { puffTexture } from './clouds.js';
+import { puffTexture, slabTexture } from './clouds.js';
 
 // Placeholder sky world above the cloud curtain (HANDOFF step 4): a cloud-slab
 // floor, floating Kenney props, and shrimp trails at flight altitude. Everything
@@ -14,7 +14,7 @@ export function createSkyWorld(scene, templates, coinTemplate) {
   const floorY = FLIGHT.altitude - 10; // cloud slab you skim above
 
   // ---- cloud-slab floor ----
-  const slabTex = puffTexture();
+  const slabTex = slabTexture();
   slabTex.wrapS = slabTex.wrapT = THREE.RepeatWrapping;
   slabTex.repeat.set(8, 24);
   const slab = new THREE.Mesh(
