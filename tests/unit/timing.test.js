@@ -14,11 +14,26 @@ test('createGate is deterministic for a seed and respects bounds', () => {
   assert.ok(Math.abs(surfaceHeight(a.x, a.z, 3) + GATE.swimLift - a.y) < 1e-9);
 });
 
-test('flight gates sit inside the climb band', () => {
+test('flight gates are reachable: spawned near the fish, clamped into the band', () => {
   for (let i = 0; i < 50; i++) {
-    const g = createGate(mulberry32(100 + i), { locomotion: 'fly', playerPos: { x: 0, y: 80, z: 0 }, runTime: 5 });
-    assert.ok(g.y >= GATE.flightMin && g.y <= GATE.flightMax, `gate y=${g.y}`);
+    const g = createGate(mulberry32(100 + i), { locomotion: 'fly', playerPos: { x: 0, y: 80, z: 0 }, runTime: 5, speed: 110 });
+    assert.ok(Math.abs(g.y - 80) <= 8, `gate reachable by W/S within the lead (y=${g.y.toFixed(2)}, fish 80)`);
+    assert.ok(g.y >= GATE.flightMin && g.y <= GATE.flightMax, `gate in band (y=${g.y})`);
   }
+  // clamped at the band edges: a fish hugging the ceiling still gets in-band gates
+  const high = createGate(mulberry32(5), { locomotion: 'fly', playerPos: { x: 0, y: 112, z: 0 }, runTime: 5, speed: 110 });
+  assert.ok(high.y <= GATE.flightMax, `ceiling clamp (y=${high.y})`);
+  const low = createGate(mulberry32(5), { locomotion: 'fly', playerPos: { x: 0, y: 58, z: 0 }, runTime: 5, speed: 110 });
+  assert.ok(low.y >= GATE.flightMin, `floor clamp (y=${low.y})`);
+});
+
+test('spawn lead scales with speed: slow swim gets a near gate, fast run keeps the horizon', () => {
+  const slow = createGate(mulberry32(3), { locomotion: 'swim', playerPos: { x: 0, y: 0, z: 0 }, runTime: 1, speed: GATE.spawnMin / GATE.leadSeconds - 1 });
+  assert.equal(slow.z, GATE.spawnMin); // MinSpeed opener: ~5s away, not a 11s crawl
+  const fast = createGate(mulberry32(3), { locomotion: 'swim', playerPos: { x: 0, y: 0, z: 0 }, runTime: 1, speed: 200 });
+  assert.equal(fast.z, GATE.spawnAhead); // capped at speed * leadSeconds
+  const mid = createGate(mulberry32(3), { locomotion: 'swim', playerPos: { x: 0, y: 0, z: 0 }, runTime: 1, speed: GATE.spawnAhead / GATE.leadSeconds });
+  assert.equal(mid.z, GATE.spawnAhead);
 });
 
 test('crossingSample interpolates the crossing plane (no tunneling misses)', () => {

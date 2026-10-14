@@ -6,7 +6,7 @@ const { browser, page, consoleErrors } = await openPage();
 await page.evaluate(() => window.__FFM_API.start());
 
 // 1. coin trails spawn ahead (shrimp model instances, continuous)
-await page.waitForFunction(() => (window.__FFM_API.debugCoins()?.active ?? 0) > 10, { timeout: 10000 });
+await page.waitForFunction(() => (window.__FFM_API.debugCoins()?.active ?? 0) > 10, null, { timeout: 30000 });
 const coins0 = await page.evaluate(() => window.__FFM_API.debugCoins());
 assert(coins0.active >= 10, `shrimp coins spawned ahead (${coins0.active} coins)`);
 
@@ -46,15 +46,28 @@ assert(swimYs.every(y => y < 12), `swim trails stay low (sampled heights: ${swim
 // 5. highs spawned while airborne are culled on landing: none linger over the water.
 //    Teleport-sampling can't see them (it finds the nearest coins, which are the
 //    fresh low ones), so assert on the tallest active coin instead.
+//    While airborne, chain the gates (real play keeps the run alive; steering
+//    through gates is what prevents the OUT OF MOMENTUM stall).
 await page.evaluate(() => {
   const api = window.__FFM_API;
   api.setGauge(110);
   api.debugForceFlight();
 });
-await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, { timeout: 60000 });
-await page.waitForTimeout(4000); // fly a while: mixed trails (incl. highs) spawn ahead
+await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, null, { timeout: 60000 });
+// fly a while: mixed trails (incl. highs) spawn ahead. Hold speed with the
+// debug hook — in flight the y-interpolation snaps toward cruise, so gate
+// chaining needs real W/S input (t15/t20 cover that path); this section is
+// about coin heights, and a stalled run would end before the descent.
+await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const until = Date.now() + 6000;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, 30));
+    api.debugSetSpeed(40);
+  }
+});
 await page.evaluate(() => window.__FFM_API.setGauge(0.5));
-await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'swim', { timeout: 90000 });
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'swim', null, { timeout: 90000 });
 await page.waitForTimeout(2000); // let the swim phase settle (no teleports: they would collect the evidence)
 const settled = await page.evaluate(() => window.__FFM_API.debugCoins());
 assert(settled.maxY < 12, `no high coins linger after landing (tallest active coin y=${settled.maxY})`);

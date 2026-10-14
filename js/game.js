@@ -134,6 +134,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       locomotion: player.state.locomotion,
       playerPos: player.state.position,
       runTime: state.runTime,
+      speed: state.speed,
     });
     bus.emit('gate:spawn', activeGate);
     advanceTutorial('gate:spawn');

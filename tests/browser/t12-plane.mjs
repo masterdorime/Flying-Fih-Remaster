@@ -28,7 +28,7 @@ assertEqual(s.locomotion, 'fly', 'debugForceFlight enters the fly phase');
 assertEqual(s.tier, 'max', 'full gauge is max tier in flight');
 
 // 2. flight holds a fixed altitude above the cloud curtain
-await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, { timeout: 40000 });
+await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, null, { timeout: 40000 });
 await page.waitForTimeout(1500); // let it settle
 s = await page.evaluate(() => window.__FFM_API.state());
 assert(Math.abs(s.position[1] - 85) < 8, `flight altitude settles near 85, above the clouds (y=${s.position[1].toFixed(1)})`);

@@ -21,12 +21,15 @@ export const GATE = {
   perfectRadius: 1.2,   // center circle: Perfect (+8 gauge, chain+1)
   goodRadius: 3.0,      // outer band: Good (+4); beyond this = Miss
   outerRadius: 3.0,     // visual torus radius (matches the good band)
-  spawnAhead: 90,       // meters ahead of the fish
+  spawnAhead: 90,       // max meters ahead of the fish
+  spawnMin: 45,         // min lead, so a stall doesn't mean dead air
+  leadSeconds: 4,       // target reaction time; lead = clamp(speed*this, min, max)
   cooldown: 0.6,        // seconds between resolve and the next spawn
   behindMiss: 6,        // meters past the plane unresolved = forced miss
   swimLift: 0.8,        // portal center above the wave surface while swimming
   flightMin: 63,        // gate Y band while flying (inside the 57-110 flight band)
   flightMax: 104,
+  flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
   corridorX: 4,         // |x| bound for placement (obstacles never enter |x| < 5)
 };
 

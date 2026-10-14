@@ -5,16 +5,24 @@
 import { GATE, ASSIST } from './config.js';
 import { surfaceHeight } from './wave.js';
 
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
 let nextGateId = 1;
 
 // One gate: a portal standing perpendicular to travel, placed ahead of the
-// player. rng is injected so placement stays deterministic under test.
-export function createGate(rng, { locomotion, playerPos, runTime }) {
+// player. The lead distance scales with speed (~GATE.leadSeconds of reaction
+// time) so a MinSpeed opener never crawls to the first gate. rng is injected
+// so placement stays deterministic under test.
+export function createGate(rng, { locomotion, playerPos, runTime, speed = 25 }) {
   const x = (rng() * 2 - 1) * GATE.corridorX;
-  const z = playerPos.z + GATE.spawnAhead;
+  const lead = Math.min(GATE.spawnAhead, Math.max(GATE.spawnMin, speed * GATE.leadSeconds));
+  const z = playerPos.z + lead;
   const flying = locomotion === 'fly' || locomotion === 'leap';
+  // flight gates spawn within a reachable window of the fish so W/S alignment
+  // is required but never impossible at speed (clamped into the flight band)
+  const reach = (rng() * 2 - 1) * GATE.flightReach;
   const y = flying
-    ? GATE.flightMin + rng() * (GATE.flightMax - GATE.flightMin)
+    ? clamp(playerPos.y + reach, GATE.flightMin, GATE.flightMax)
     : surfaceHeight(x, z, runTime) + GATE.swimLift;
   return { id: nextGateId++, x, y, z, resolved: false, result: null };
 }

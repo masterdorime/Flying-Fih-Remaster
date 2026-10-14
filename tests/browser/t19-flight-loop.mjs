@@ -92,8 +92,8 @@ assert(fovRange.min < 80, `leap dips the FOV toward 60 (min ${fovRange.min.toFix
 assert(fovRange.max > 90, `camera settles back into the flight FOV (max ${fovRange.max.toFixed(1)})`);
 
 // 2. the leap ends in flight at the fixed altitude, above the cloud curtain
-await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'fly', { timeout: 40000 });
-await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, { timeout: 40000 });
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'fly', null, { timeout: 40000 });
+await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, null, { timeout: 40000 });
 s = await page.evaluate(() => window.__FFM_API.state());
 assert(Math.abs(s.position[1] - 85) < 8, `flight holds fixed altitude ~85, above the clouds (y=${s.position[1].toFixed(1)})`);
 assert(s.firstFlightDone === true, 'first flight is marked done');
@@ -107,8 +107,8 @@ assert(Math.abs(vis.skyInfo.slabZ - vis.skyInfo.playerZ) < 400, `cloud slab foll
 
 // 3. the gauge empties -> descent back through the clouds -> landing -> swimming again
 await page.evaluate(() => window.__FFM_API.setGauge(1));
-await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'descend', { timeout: 40000 });
-await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'swim', { timeout: 90000 });
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'descend', null, { timeout: 40000 });
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'swim', null, { timeout: 90000 });
 s = await page.evaluate(() => window.__FFM_API.state());
 assert(s.position[1] < 2, `landing returns the fish to the water (y=${s.position[1].toFixed(2)})`);
 assertEqual(await page.evaluate(() => window.__FFM_API.debugEnvironment()), 'ocean', 'environment swapped back to the ocean');
@@ -125,7 +125,7 @@ await page.evaluate(() => {
   const api = window.__FFM_API;
   for (let i = 0; i < 20 && api.state().gauge < 100; i++) api.applyResult('perfect');
 });
-await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'leap', { timeout: 40000 });
+await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'leap', null, { timeout: 40000 });
 s = await page.evaluate(() => window.__FFM_API.state());
 assertEqual(s.locomotion, 'leap', 'later flights skip the spam and auto-launch');
 assert(s.firstFlightDone === true, 'the first flight is still marked done');
@@ -137,7 +137,7 @@ await page.evaluate(() => {
   window.__FFM_API.setGauge(100);
   window.__FFM_API.debugForceFlight();
 });
-await page.waitForFunction(() => window.__FFM_API.debugVisibility().sky === true, { timeout: 40000 });
+await page.waitForFunction(() => window.__FFM_API.debugVisibility().sky === true, null, { timeout: 40000 });
 vis = await page.evaluate(() => window.__FFM_API.debugVisibility());
 assert(vis.skyInfo.trailAhead > 0, `sky shrimp rebuilt after restart (${vis.skyInfo.trailAhead} ahead)`);
 assert(Math.abs(vis.skyInfo.slabZ - vis.skyInfo.playerZ) < 400, `cloud slab rebuilt near the fish after restart (slab ${vis.skyInfo.slabZ} vs player ${vis.skyInfo.playerZ})`);
