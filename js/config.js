@@ -12,12 +12,22 @@ export const MOMENTUM = {
 };
 
 export const TIMING = {
-  perfectWindow: 0.07,
-  goodWindow: 0.18,
-  minPerfectWindow: 0.045,
-  minGoodWindow: 0.11,
-  promptLifetime: 2.2,
   recentPerfectSeconds: 2.5, // "recent perfect" stops the flying drain
+};
+
+// Momentum gates (ring portals the fish passes through — see
+// js/timing.js + js/gate-view.js; replaced the press-timing QTE 2026-10-14).
+export const GATE = {
+  perfectRadius: 1.2,   // center circle: Perfect (+8 gauge, chain+1)
+  goodRadius: 3.0,      // outer band: Good (+4); beyond this = Miss
+  outerRadius: 3.0,     // visual torus radius (matches the good band)
+  spawnAhead: 90,       // meters ahead of the fish
+  cooldown: 0.6,        // seconds between resolve and the next spawn
+  behindMiss: 6,        // meters past the plane unresolved = forced miss
+  swimLift: 0.8,        // portal center above the wave surface while swimming
+  flightMin: 63,        // gate Y band while flying (inside the 57-110 flight band)
+  flightMax: 104,
+  corridorX: 4,         // |x| bound for placement (obstacles never enter |x| < 5)
 };
 
 export const GAUGE = {
@@ -146,10 +156,6 @@ export const CAMERA = {
 };
 
 export const ASSIST = {
-  windowScale: 1.6,    // timing windows wider
+  windowScale: 1.6,    // widens the gate's perfect circle (timing windows, pre-2026-10-14)
   speedScale: 0.85,    // top speed multiplier
-};
-
-export const INPUT = {
-  bufferMs: 70,        // late-input buffer (PRD §7.3)
 };

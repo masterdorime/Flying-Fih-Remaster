@@ -1,65 +1,52 @@
-// PrecisionTimingSystem core (PRD §7). Pure: window math + evaluation. Node-testable.
+// Momentum gates (replaced the press-timing QTE on 2026-10-14).
+// Pure: gate placement + crossing resolution. Node-testable; rendering lives
+// in js/gate-view.js, lifecycle in js/game.js.
 
-import { TIMING, MOMENTUM, ASSIST, INPUT, DIFFICULTY } from './config.js';
+import { GATE, ASSIST } from './config.js';
+import { surfaceHeight } from './wave.js';
 
-export function lerp(a, b, t) { return a + (b - a) * t; }
+let nextGateId = 1;
 
-export function inverseLerp(a, b, v) {
-  if (b === a) return 0;
-  return Math.min(1, Math.max(0, (v - a) / (b - a)));
+// One gate: a portal standing perpendicular to travel, placed ahead of the
+// player. rng is injected so placement stays deterministic under test.
+export function createGate(rng, { locomotion, playerPos, runTime }) {
+  const x = (rng() * 2 - 1) * GATE.corridorX;
+  const z = playerPos.z + GATE.spawnAhead;
+  const flying = locomotion === 'fly' || locomotion === 'leap';
+  const y = flying
+    ? GATE.flightMin + rng() * (GATE.flightMax - GATE.flightMin)
+    : surfaceHeight(x, z, runTime) + GATE.swimLift;
+  return { id: nextGateId++, x, y, z, resolved: false, result: null };
 }
 
-// Windows shrink as speed rises (PRD §7.2), widen in Assist mode.
-export function currentWindows(speed, { assist = false } = {}) {
-  const f = inverseLerp(MOMENTUM.minSpeed, maxSpeedRef(), speed);
-  let perfect = lerp(TIMING.perfectWindow, TIMING.minPerfectWindow, f);
-  let good = lerp(TIMING.goodWindow, TIMING.minGoodWindow, f);
-  if (assist) { perfect *= ASSIST.windowScale; good *= ASSIST.windowScale; }
-  return { perfect, good };
+// Where the player crossed the gate's plane this frame, linearly interpolated
+// so a big step (low fps at max speed) can't tunnel past the gate unseen.
+// Returns null when the plane wasn't crossed between prevPos and pos.
+export function crossingSample(prevPos, pos, gateZ) {
+  if (!(prevPos.z < gateZ && pos.z >= gateZ)) return null;
+  const span = Math.max(1e-6, pos.z - prevPos.z);
+  const f = (gateZ - prevPos.z) / span;
+  return { x: prevPos.x + (pos.x - prevPos.x) * f, y: prevPos.y + (pos.y - prevPos.y) * f, z: gateZ };
 }
 
-function maxSpeedRef() {
-  // 110 = Max tier top speed. Kept literal here so timing stays independent of profile edits.
-  return 110;
+// Grade a crossing: distance from the ring's central axis. Idempotent — the
+// stored result is returned once the gate has resolved.
+export function resolveGate(gate, sample, { assist = false } = {}) {
+  if (gate.resolved) return gate.result;
+  const perfect = GATE.perfectRadius * (assist ? ASSIST.windowScale : 1);
+  const d = Math.hypot(sample.x - gate.x, sample.y - gate.y);
+  const result = d <= perfect ? 'perfect' : d <= GATE.goodRadius ? 'good' : 'miss';
+  gate.resolved = true;
+  gate.result = result;
+  return result;
 }
 
-export function createPrompt(now, lifetime = TIMING.promptLifetime) {
-  return {
-    state: 'active',
-    spawnTime: now,
-    perfectAt: now + lifetime / 2,
-    expiresAt: now + lifetime,
-    result: null,
-  };
+// The player sailed past the gate without entering it.
+export function gateBehind(gate, playerPos) {
+  return playerPos.z - gate.z >= GATE.behindMiss;
 }
 
-// Evaluate a press. Returns 'perfect' | 'good' | 'miss' | null (grace: press outside prompt lifetime).
-export function evaluatePress(prompt, pressTime, windows) {
-  if (prompt.state !== 'active') return null;
-  const d = Math.abs(pressTime - prompt.perfectAt);
-  if (d <= windows.perfect) return 'perfect';
-  if (d <= windows.good) return 'good';
-  if (pressTime >= prompt.spawnTime && pressTime <= prompt.expiresAt) return 'miss';
-  return null;
+// A new gate may spawn only once the previous one resolved and cooled down.
+export function gateCadence(gate, cooldownLeft) {
+  return gate === null || (gate.resolved && cooldownLeft <= 0);
 }
-
-export function expirePrompt(prompt, now) {
-  if (prompt.state === 'active' && now >= prompt.expiresAt) {
-    return { ...prompt, state: 'expired', result: 'expired' };
-  }
-  return prompt;
-}
-
-// A press is buffered if it arrived up to INPUT.bufferMs after the moment it
-// should have been evaluated (late buffer, PRD §7.3). The browser input layer
-// uses this; core evaluation itself stays time-exact.
-export function withinBuffer(pressTime, evaluatedAt) {
-  return pressTime - evaluatedAt <= INPUT.bufferMs / 1000;
-}
-
-// Spawn cadence from difficulty 0..1 (PRD §13).
-export function promptInterval(difficulty) {
-  return lerp(DIFFICULTY.promptIntervalStart, DIFFICULTY.promptIntervalEnd, clamp01(difficulty));
-}
-
-function clamp01(v) { return Math.min(1, Math.max(0, v)); }

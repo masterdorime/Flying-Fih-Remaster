@@ -1,59 +1,57 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { currentWindows, createPrompt, evaluatePress, expirePrompt, promptInterval, inverseLerp } from '../../js/timing.js';
-import { TIMING, MOMENTUM } from '../../js/config.js';
+import { createGate, crossingSample, resolveGate, gateBehind, gateCadence } from '../../js/timing.js';
+import { GATE, ASSIST } from '../../js/config.js';
+import { mulberry32 } from '../../js/worldgen.js';
+import { surfaceHeight } from '../../js/wave.js';
 
-test('windows shrink with speed (PRD §7.2)', () => {
-  const slow = currentWindows(MOMENTUM.minSpeed);
-  const fast = currentWindows(110);
-  assert.equal(slow.perfect, TIMING.perfectWindow);
-  assert.equal(slow.good, TIMING.goodWindow);
-  assert.equal(fast.perfect, TIMING.minPerfectWindow);
-  assert.equal(fast.good, TIMING.minGoodWindow);
+test('createGate is deterministic for a seed and respects bounds', () => {
+  const a = createGate(mulberry32(7), { locomotion: 'swim', playerPos: { x: 0, y: 0, z: 0 }, runTime: 3 });
+  const b = createGate(mulberry32(7), { locomotion: 'swim', playerPos: { x: 0, y: 0, z: 0 }, runTime: 3 });
+  assert.deepEqual({ x: a.x, y: a.y, z: a.z }, { x: b.x, y: b.y, z: b.z }); // placement; id is a counter
+  assert.ok(Math.abs(a.x) <= GATE.corridorX);
+  assert.equal(a.z, GATE.spawnAhead);
+  assert.ok(Math.abs(surfaceHeight(a.x, a.z, 3) + GATE.swimLift - a.y) < 1e-9);
 });
 
-test('assist mode widens windows by 1.6x', () => {
-  const w = currentWindows(110, { assist: true });
-  assert.ok(Math.abs(w.perfect - TIMING.minPerfectWindow * 1.6) < 1e-9);
-  assert.ok(Math.abs(w.good - TIMING.minGoodWindow * 1.6) < 1e-9);
+test('flight gates sit inside the climb band', () => {
+  for (let i = 0; i < 50; i++) {
+    const g = createGate(mulberry32(100 + i), { locomotion: 'fly', playerPos: { x: 0, y: 80, z: 0 }, runTime: 5 });
+    assert.ok(g.y >= GATE.flightMin && g.y <= GATE.flightMax, `gate y=${g.y}`);
+  }
 });
 
-test('press exactly on perfectAt is perfect (boundary, PRD §27.2)', () => {
-  const p = createPrompt(0);
-  const w = currentWindows(20);
-  assert.equal(evaluatePress(p, p.perfectAt, w), 'perfect');
+test('crossingSample interpolates the crossing plane (no tunneling misses)', () => {
+  const s = crossingSample({ x: 0.2, y: 1.0, z: 88 }, { x: 0.4, y: 1.0, z: 92 }, 90);
+  assert.ok(Math.abs(s.x - 0.3) < 1e-9 && s.z === 90);
+  assert.equal(crossingSample({ x: 0, y: 0, z: 88 }, { x: 0, y: 0, z: 89 }, 90), null);
 });
 
-test('just outside perfect but inside good is good (boundary)', () => {
-  const p = createPrompt(0);
-  const w = currentWindows(20);
-  const t = p.perfectAt + w.perfect + 0.0001;
-  assert.equal(evaluatePress(p, t, w), 'good');
-  const t2 = p.perfectAt + w.good + 0.0001;
-  assert.equal(evaluatePress(p, t2, w), 'miss');
+test('resolveGate bands: perfect / good / miss, idempotent', () => {
+  assert.equal(resolveGate(gate(), { x: 0.5, y: 1.0, z: 100 }), 'perfect');        // <=1.2
+  assert.equal(resolveGate(gate(), { x: 2, y: 1, z: 100 }), 'good');               // <=3.0
+  assert.equal(resolveGate(gate(), { x: 4.5, y: 1, z: 100 }), 'miss');             // >3.0
+  const g = gate();
+  resolveGate(g, { x: 0, y: 1, z: 100 });
+  assert.equal(resolveGate(g, { x: 4.5, y: 1, z: 100 }), 'perfect');              // stored result wins
+  assert.equal(g.resolved, true);
 });
 
-test('press outside prompt lifetime is grace (no penalty)', () => {
-  const p = createPrompt(0);
-  const w = currentWindows(20);
-  assert.equal(evaluatePress(p, -1, w), null);
-  assert.equal(evaluatePress(p, p.expiresAt + 1, w), null);
+test('assist widens the perfect circle but stays inside good', () => {
+  assert.ok(GATE.perfectRadius * ASSIST.windowScale < GATE.goodRadius);
+  assert.equal(resolveGate(gate(), { x: 1.5, y: 1, z: 100 }, { assist: true }), 'perfect');
 });
 
-test('expired prompt evaluates to nothing', () => {
-  const p = createPrompt(0);
-  const expired = expirePrompt(p, TIMING.promptLifetime + 0.01);
-  assert.equal(expired.result, 'expired');
-  assert.equal(evaluatePress(expired, expired.perfectAt, currentWindows(20)), null);
+test('gateBehind + gateCadence', () => {
+  assert.equal(gateBehind(gate({ z: 100 }), { z: 106 }), true);  // >= 6 m past the plane
+  assert.equal(gateBehind(gate({ z: 100 }), { z: 105 }), false); // 5 m past: still resolving
+  assert.equal(gateBehind(gate({ z: 100 }), { z: 95 }), false);
+  assert.equal(gateCadence(gate({ resolved: false }), 0), false);
+  assert.equal(gateCadence(gate({ resolved: true }), 0.3), false);
+  assert.equal(gateCadence(gate({ resolved: true }), 0), true);
 });
 
-test('prompt interval tightens with difficulty', () => {
-  assert.ok(promptInterval(0) > promptInterval(0.5));
-  assert.ok(promptInterval(0.5) > promptInterval(1));
-});
-
-test('inverseLerp clamps', () => {
-  assert.equal(inverseLerp(8, 110, 8), 0);
-  assert.equal(inverseLerp(8, 110, 110), 1);
-  assert.equal(inverseLerp(8, 110, -5), 0);
-});
+// local fixture: a resolved-able gate at a known place
+function gate(over = {}) {
+  return { id: 1, x: 0, y: 1, z: 100, resolved: false, result: null, ...over };
+}
