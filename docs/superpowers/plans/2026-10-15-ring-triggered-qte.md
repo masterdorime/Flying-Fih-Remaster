@@ -308,7 +308,7 @@ Expected: all FAIL — `__FFM_API.qte is not a function` / `debugPress is not a 
 
 - [ ] **Step 3: Implement the lifecycle in `js/game.js`**
 
-- Import: `createQte, evaluatePress` added to the `./timing.js` import; `resolveGate` removed.
+- Import: `createQte, evaluatePress, qteRemaining` added to the `./timing.js` import; `resolveGate` removed.
 - State: `let activeQte = null;` beside `activeGate`.
 - In `updateGates`, replace the `crossingSample` block:
 
@@ -325,8 +325,8 @@ if (sample && !activeGate.qteOpened) {
 if (activeQte && !activeQte.resolved) {
   // a pending QTE owns the gate: no behind-miss until the window expires,
   // or a fast fish (6 m behind < 0.70 s) would double-resolve
-  if (state.runTime >= activeQte.startedAt + activeQte.goodWindow) {
-    resolveQte('miss'); // auto-miss on expiry
+  if (qteRemaining(activeQte, state.runTime) <= 0) {
+    resolveQte('miss'); // auto-miss on expiry (shared helper — same math as the HUD)
   }
 } else if (gateBehind(activeGate, pos)) {
   resolveGateResult('miss');
