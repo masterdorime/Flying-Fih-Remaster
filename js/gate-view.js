@@ -16,7 +16,7 @@ export function createGateView(scene) {
 
   const torus = new THREE.Mesh(new THREE.TorusGeometry(GATE.outerRadius, 0.18, 16, 48), ringMat);
   const highlight = new THREE.Mesh(new THREE.RingGeometry(GATE.outerRadius - 0.34, GATE.outerRadius - 0.1, 48), innerMat);
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(GATE.goodRadius, 48), discMat);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(GATE.mouthRadius, 48), discMat);
 
   const spin = new THREE.Group();
   spin.add(highlight);
@@ -47,7 +47,7 @@ export function createGateView(scene) {
     // proximity tint: gold as the fish nears the central axis
     if (playerPos && flashLeft <= 0) {
       const d = Math.hypot(playerPos.x - gate.x, playerPos.y - y);
-      const near = Math.max(0, 1 - d / (GATE.goodRadius + 2));
+      const near = Math.max(0, 1 - d / (GATE.mouthRadius + 2));
       torus.material.color.copy(baseRing).lerp(GOLD, near * 0.8);
       const pulse = 1 + Math.sin(runTime * 3) * 0.02;
       torus.scale.setScalar(pulse);

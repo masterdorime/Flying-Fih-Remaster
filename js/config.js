@@ -18,9 +18,8 @@ export const TIMING = {
 // Momentum gates (ring portals the fish passes through — see
 // js/timing.js + js/gate-view.js; replaced the press-timing QTE 2026-10-14).
 export const GATE = {
-  perfectRadius: 1.2,   // center circle: Perfect (+8 gauge, chain+1)
-  goodRadius: 3.0,      // outer band: Good (+4); beyond this = Miss
-  outerRadius: 3.0,     // visual torus radius (matches the good band)
+  mouthRadius: 3.0,   // the ring mouth (torus radius): inside = QTE eligible, outside = Miss
+  outerRadius: 3.0,   // visual torus radius (matches the mouth)
   spawnAhead: 90,       // max meters ahead of the fish
   spawnMin: 45,         // min lead, so a stall doesn't mean dead air
   leadSeconds: 4,       // target reaction time; lead = clamp(speed*this, min, max)
@@ -31,6 +30,13 @@ export const GATE = {
   flightMax: 104,
   flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
   corridorX: 4,         // |x| bound for placement (obstacles never enter |x| < 5)
+};
+
+// Ring-triggered QTE: crossing the mouth opens one SPACE window; the press
+// times the grade (js/timing.js + js/game.js; see the 2026-10-15 spec).
+export const QTE = {
+  perfectWindow: 0.30, // seconds after crossing: Perfect
+  goodWindow: 0.70,    // seconds after crossing: Good; beyond / no press = Miss
 };
 
 export const GAUGE = {
@@ -159,6 +165,6 @@ export const CAMERA = {
 };
 
 export const ASSIST = {
-  windowScale: 1.6,    // widens the gate's perfect circle (timing windows, pre-2026-10-14)
+  windowScale: 1.6,    // widens the QTE press windows (perfect 0.48, good 1.12)
   speedScale: 0.85,    // top speed multiplier
 };

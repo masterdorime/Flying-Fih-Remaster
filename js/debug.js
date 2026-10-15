@@ -24,7 +24,7 @@ export function createDebug(root) {
       `tier       ${state.tier}`,
       `loco       ${state.locomotion}`,
       `last       ${state.lastResult ?? '-'}`,
-      `rings      P${windows.perfect.toFixed(1)}m G${windows.good.toFixed(1)}m`,
+      `qte        P${windows.perfect.toFixed(2)}s G${windows.good.toFixed(2)}s`,
       `chain      ${state.chain}`,
       `distance   ${state.distance.toFixed(1)}m`,
       `runTime    ${state.runTime.toFixed(1)}s`,

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, resolveGate, gateBehind, gateCadence, reseatSwimGate } from '../../js/timing.js';
-import { GATE, ASSIST } from '../../js/config.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate } from '../../js/timing.js';
+import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
 
@@ -42,19 +42,53 @@ test('crossingSample interpolates the crossing plane (no tunneling misses)', () 
   assert.equal(crossingSample({ x: 0, y: 0, z: 88 }, { x: 0, y: 0, z: 89 }, 90), null);
 });
 
-test('resolveGate bands: perfect / good / miss, idempotent', () => {
-  assert.equal(resolveGate(gate(), { x: 0.5, y: 1.0, z: 100 }), 'perfect');        // <=1.2
-  assert.equal(resolveGate(gate(), { x: 2, y: 1, z: 100 }), 'good');               // <=3.0
-  assert.equal(resolveGate(gate(), { x: 4.5, y: 1, z: 100 }), 'miss');             // >3.0
-  const g = gate();
-  resolveGate(g, { x: 0, y: 1, z: 100 });
-  assert.equal(resolveGate(g, { x: 4.5, y: 1, z: 100 }), 'perfect');              // stored result wins
-  assert.equal(g.resolved, true);
+test('mouthHit: inside / boundary / outside, on both axes', () => {
+  assert.equal(mouthHit(gate(), { x: 0, y: 0, z: 100 }), 'inside');
+  assert.equal(mouthHit(gate(), { x: 3.0, y: 0, z: 100 }), 'inside');   // = mouthRadius counts
+  assert.equal(mouthHit(gate(), { x: 4.5, y: 0, z: 100 }), 'miss');
+  assert.equal(mouthHit(gate(), { x: 0, y: -2.1, z: 100 }), 'inside'); // vertical axis too
 });
 
-test('assist widens the perfect circle but stays inside good', () => {
-  assert.ok(GATE.perfectRadius * ASSIST.windowScale < GATE.goodRadius);
-  assert.equal(resolveGate(gate(), { x: 1.5, y: 1, z: 100 }, { assist: true }), 'perfect');
+test('config: QTE windows are 0.30 / 0.70 and perfectRadius is retired', () => {
+  assert.equal(QTE.perfectWindow, 0.30);
+  assert.equal(QTE.goodWindow, 0.70);
+  assert.equal(GATE.mouthRadius, 3.0);
+  assert.equal('perfectRadius' in GATE, false);
+});
+
+test('createQte: windows from config; assist widens both by windowScale', () => {
+  const q = createQte(gate(), 10);
+  assert.equal(q.perfectWindow, QTE.perfectWindow);
+  assert.equal(q.goodWindow, QTE.goodWindow);
+  assert.equal(q.startedAt, 10);
+  assert.equal(q.resolved, false);
+  const a = createQte(gate(), 10, { assist: true });
+  assert.ok(Math.abs(a.perfectWindow - QTE.perfectWindow * ASSIST.windowScale) < 1e-9);
+  assert.ok(Math.abs(a.goodWindow - QTE.goodWindow * ASSIST.windowScale) < 1e-9);
+});
+
+test('createQte stamps qteOpened: one QTE per gate', () => {
+  const g = gate();
+  createQte(g, 10);
+  assert.equal(g.qteOpened, true);
+});
+
+test('evaluatePress: early perfect, mid good, late miss; idempotent', () => {
+  assert.equal(evaluatePress(createQte(gate(), 10), 10.30), 'perfect');
+  assert.equal(evaluatePress(createQte(gate(), 10), 10.31), 'good');
+  assert.equal(evaluatePress(createQte(gate(), 10), 10.69), 'good');
+  assert.equal(evaluatePress(createQte(gate(), 10), 10.71), 'miss');
+  assert.equal(evaluatePress(createQte(gate(), 10), 9.99), 'miss'); // press predates the window
+  const q = createQte(gate(), 10);
+  evaluatePress(q, 10.1);
+  assert.equal(evaluatePress(q, 10.9), 'perfect'); // stored result wins
+  assert.equal(q.resolved, true);
+});
+
+test('qteRemaining: exact before the deadline, 0 after', () => {
+  const q = createQte(gate(), 10);
+  assert.ok(Math.abs(qteRemaining(q, 10.25) - 0.45) < 1e-9);
+  assert.equal(qteRemaining(q, 11), 0);
 });
 
 test('gateBehind + gateCadence', () => {
@@ -76,7 +110,8 @@ test('reseatSwimGate re-glues a swim gate to the live wave (grade = what is draw
   assert.ok(Math.abs(g.y - 99) > 0.5, 'stale spawn-time height actually moved');
 });
 
-// local fixture: a resolved-able gate at a known place
+// local fixture: a gate at a known place (the gateBehind/gateCadence tests pass
+// overrides through it, so it stays a function with an `over` param)
 function gate(over = {}) {
-  return { id: 1, x: 0, y: 1, z: 100, resolved: false, result: null, ...over };
+  return { id: 1, x: 0, y: 0, z: 100, resolved: false, result: null, ...over };
 }

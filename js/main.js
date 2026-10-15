@@ -16,7 +16,7 @@ import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
 import { loadSkyfinModel } from './fish.js';
 import { MOMENTUM, FLIGHT } from './config.js';
-import { GATE } from './config.js';
+import { GATE, QTE } from './config.js';
 import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
@@ -238,7 +238,7 @@ function loop(now) {
     + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '')
     + ` vol:${settings.music}${musicDbg.muted ? ' MUTED' : ''}`
     + ` ctx:${musicDbg.contextState ?? '?'} bus:${musicDbg.busGain ?? '?'} m:${settings.master}/s:${settings.sfx}`;
-  debug.update(game.state, { windows: { perfect: GATE.perfectRadius, good: GATE.goodRadius } }, Math.round(fps), musicLine);
+  debug.update(game.state, { windows: { perfect: QTE.perfectWindow, good: QTE.goodWindow } }, Math.round(fps), musicLine);
 
   // speed lines scale with speed and the post-FX setting (PRD §18.2)
   const sim = game.state;
