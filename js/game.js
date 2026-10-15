@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, resolveGate, gateBehind, gateCadence, reseatSwimGate } from './timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -59,10 +59,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   // ---- phase flow + tutorial script (PRD §2, §3) ----
   let tutorialStep = 0;
     const TUTORIAL_STEPS = [
-      { on: 'gate:spawn', text: 'Steer the fish THROUGH the ring to gain momentum!' },
-      { on: 'timing:result', match: 'perfect', text: 'PERFECT! Straight through the center — speed and gauge jump up.' },
+      { on: 'gate:spawn', text: 'Cross the ring, then hit SPACE inside the window!' },
+      { on: 'timing:result', match: 'perfect', text: 'PERFECT! Right inside the window — speed and gauge jump up.' },
       { on: 'tier:up', text: 'Gauge fills! Keep going — at a FULL gauge you launch into the sky.' },
-      { on: 'timing:result', match: 'miss', text: 'Missed the ring? Chain resets — line up the next one!' },
+      { on: 'timing:result', match: 'miss', text: 'Window missed? Chain resets — cross the next ring and time your press!' },
       { on: 'timeout', seconds: 5, text: 'Full gauge? Mash SPACE to overfill it — then you fly!' },
     ];
 
@@ -121,9 +121,13 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     try { return storage.getItem(key); } catch { return null; }
   }
 
-  // ---- momentum-gate lifecycle (replaced the press-timing QTE 2026-10-14) ----
-  // one live gate; results feed applyResult exactly like the old prompt hands did
+  // ---- ring-triggered QTE lifecycle (2026-10-15) ----
+  // one live gate; crossing inside the mouth opens exactly one SPACE window and
+  // the press time picks the grade. While a window is pending the gate stays
+  // unresolved — the deadline is its only expiry — so every result still feeds
+  // applyResult exactly once.
   let activeGate = null;
+  let activeQte = null;
   let gateCooldown = 0;
   let gateRng = mulberry32(0x9a7e);
 
@@ -153,12 +157,19 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     gateCooldown = GATE.cooldown;
   }
 
+  // A press grades the pending window, then everything downstream runs through
+  // the shared resolve path (one gate, one result, one cooldown).
+  function resolveQte(result) {
+    activeQte = null;
+    resolveGateResult(result);
+  }
+
   // Launch/descent transitions drop any live gate WITHOUT scoring it. In real
   // play the gauge only fills through applyResult (which runs inside
   // updateGates and nulls the gate in the same call), so a transition never
   // sees a live gate; clearing here keeps that invariant true for debug
   // hooks (debugForceFlight) and future refactors alike.
-  function clearGate() { activeGate = null; }
+  function clearGate() { activeGate = null; activeQte = null; }
 
   function updateGates(prevPos, dt) {
     if (state.ended) return;
@@ -169,8 +180,21 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
         reseatSwimGate(activeGate, state.runTime);
       }
       const sample = crossingSample(prevPos, pos, activeGate.z);
-      if (sample) {
-        resolveGateResult(resolveGate(activeGate, sample, { assist: state.assist }));
+      if (sample && !activeGate.qteOpened) {
+        if (mouthHit(activeGate, sample) === 'inside') {
+          activeQte = createQte(activeGate, state.runTime, { assist: state.assist });
+          bus.emit('qte:open', activeQte);
+        } else {
+          resolveGateResult('miss'); // crossed outside the mouth: plain miss, no QTE
+          return; // the gate is gone this frame: nothing below may touch it
+        }
+      }
+      if (activeQte && !activeQte.resolved) {
+        // a pending QTE owns the gate: no behind-miss until the window expires,
+        // or a fast fish (6 m behind < 0.70 s) would double-resolve
+        if (qteRemaining(activeQte, state.runTime) <= 0) {
+          resolveQte('miss'); // auto-miss on expiry (shared helper — same math as the HUD)
+        }
       } else if (gateBehind(activeGate, pos)) {
         resolveGateResult('miss'); // sailed past the portal without entering it
       }
@@ -181,8 +205,14 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   }
 
   function queuePress() {
-    // SPACE keeps exactly one job: the launch spam lever during the charge
-    if (player.state.locomotion === 'charge') { spamPress(); return; }
+    // a pending window grades on the first press: mash-tapping can't score twice
+    // (evaluatePress is idempotent, and the gate resolves in the same call)
+    if (activeQte && !activeQte.resolved) {
+      resolveQte(evaluatePress(activeQte, state.runTime));
+      return;
+    }
+    // SPACE keeps exactly one job outside a window: the launch spam lever
+    if (player.state.locomotion === 'charge') { spamPress(); }
   }
 
   function profile() { return profileFor(state.tier); }
@@ -396,6 +426,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     state.ended = true;
     state.endReason = reason;
     state.phase = 'results';
+    activeQte = null; // no window outlives a run: no stuck cue, no stale grade
     bus.emit('run:end', { ...state, endReason: reason });
   }
 
@@ -410,6 +441,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       locomotion: 'swim', firstFlightDone: false, chargeTime: 0,
     });
     activeGate = null;
+    activeQte = null;
     gateCooldown = 0;
     world.reset();
     coins.reset();
@@ -442,6 +474,11 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     toMenu,
     queuePress,
     gate: () => activeGate,
+    qte: () => activeQte,
+    debugPress: () => queuePress(),
+    // a press evaluated at an explicit run-time, so browser tests read the
+    // grade deterministically instead of racing frame pacing
+    debugPressAt: (t) => (activeQte && !activeQte.resolved ? resolveQte(evaluatePress(activeQte, t)) : null),
     // test hook: park the fish on the live gate's plane at ±offsets from its
     // center, so the next crossing resolves deterministically
     debugTeleportToRing: (offX = 0, offY = 0) => {

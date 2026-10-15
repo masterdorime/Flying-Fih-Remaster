@@ -21,7 +21,10 @@ const summary = await page.evaluate(async () => {
     if (s.phase !== 'run' && s.phase !== 'tutorial') break;
     if (['low', 'medium', 'high', 'max'].indexOf(s.tier) > ['low', 'medium', 'high', 'max'].indexOf(maxTier)) maxTier = s.tier;
     coins = s.coins; perfects = s.counts.perfect;
-    if (api.gate()) api.debugTeleportToRing(); // park on the portal's center axis
+    if (api.gate()) {
+      api.debugTeleportToRing(); // park on the portal's center axis
+      api.debugPress();          // Phase 2: cross the mouth, then hit the window
+    }
     if (s.runTime >= TARGET_SIM_SECONDS) break;
   }
   const final = api.state();

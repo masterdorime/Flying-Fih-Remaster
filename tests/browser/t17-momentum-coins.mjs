@@ -22,7 +22,10 @@ const result = await page.evaluate(async () => {
     maxTier = ['none', 'low', 'medium', 'high', 'max'].indexOf(s.tier) > ['none', 'low', 'medium', 'high', 'max'].indexOf(maxTier) ? s.tier : maxTier;
     if (filledAt === null && s.gauge >= 100) filledAt = s.runTime;
     if (s.gauge >= 100 && s.runTime >= 60) break;
-    if (api.gate()) api.debugTeleportToRing(); // chain perfects through the portal center
+    if (api.gate()) {
+      api.debugTeleportToRing(); // chain perfects: cross the mouth, press in the window
+      api.debugPress();
+    }
   }
   const final = api.state();
   api.setTimeScale(1);
