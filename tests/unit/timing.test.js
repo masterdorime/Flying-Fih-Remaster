@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, resolveGate, gateBehind, gateCadence } from '../../js/timing.js';
+import { createGate, crossingSample, resolveGate, gateBehind, gateCadence, reseatSwimGate } from '../../js/timing.js';
 import { GATE, ASSIST } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -64,6 +64,16 @@ test('gateBehind + gateCadence', () => {
   assert.equal(gateCadence(gate({ resolved: false }), 0), false);
   assert.equal(gateCadence(gate({ resolved: true }), 0.3), false);
   assert.equal(gateCadence(gate({ resolved: true }), 0), true);
+});
+
+test('reseatSwimGate re-glues a swim gate to the live wave (grade = what is drawn)', () => {
+  const g = { id: 1, x: 0, y: 99, z: 100, resolved: false, result: null };
+  const runTime = 8.3;
+  reseatSwimGate(g, runTime);
+  const expected = surfaceHeight(0, 100, runTime) + GATE.swimLift;
+  assert.ok(Math.abs(g.y - expected) < 1e-9, `gate re-seated to the wave (${g.y} vs ${expected})`);
+  // drift from the stale height is real: up to ~2x wave amplitude (0.93)
+  assert.ok(Math.abs(g.y - 99) > 0.5, 'stale spawn-time height actually moved');
 });
 
 // local fixture: a resolved-able gate at a known place

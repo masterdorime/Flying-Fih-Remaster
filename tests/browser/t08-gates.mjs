@@ -61,8 +61,32 @@ await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'fly', 
 await page.waitForFunction(() => {
   const g = window.__FFM_API.gate();
   return g && g.y >= 63 && g.y <= 104;
-}, { timeout: 90000 });
+}, null, { timeout: 90000 });
 assert(true, 'flight gate inside the 63-104 band');
+
+// 7. the gate flash actually renders: visible + colored after a resolve
+await page.waitForFunction(() => (window.__FFM_API.debugGateFlash()?.flashLeft ?? 0) > 0, null, { timeout: 60000 });
+const flash = await page.evaluate(() => window.__FFM_API.debugGateFlash());
+assert(flash.visible && flash.flashLeft > 0, `flash renders after a resolve (${JSON.stringify(flash)})`);
+
+// 8. descent hands out NO gates: a sinking fish has no vertical control, so a
+//    portal would be an unavoidable miss
+await page.evaluate(() => window.__FFM_API.debugSetSpeed(40));
+await page.evaluate(() => window.__FFM_API.setGauge(0.5));
+const descentMisses = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  let sawGateWhileDescending = false;
+  const until = Date.now() + 40000;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, 25));
+    const s = api.state();
+    if (s.locomotion === 'descend' && api.gate()) sawGateWhileDescending = true;
+    if (s.locomotion === 'swim') break;
+  }
+  return { sawGateWhileDescending, loco: api.state().locomotion };
+});
+assert(!descentMisses.sawGateWhileDescending, 'no gates spawn while descending');
+assertEqual(descentMisses.loco, 'swim', 'the sinking fish reaches the swim phase');
 
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 console.log('PASS  t08-gates');

@@ -25,32 +25,41 @@ export function createGateView(scene) {
 
   const RING = 0x4dd2ff, GOLD = 0xffd54a, GOOD = 0x7dff9a, BAD = 0xff5e5b;
   const baseRing = new THREE.Color(RING);
+  const FLASH_SECONDS = 0.25;
+  let flashLeft = 0;
 
   function update(_dt, gate, playerPos, runTime, locomotion) {
-    if (!gate) { group.visible = false; return; }
+    // a result flash keeps the group alive for FLASH_SECONDS even after the
+    // gate resolves (game nulls the gate in the same tick)
+    flashLeft = Math.max(0, flashLeft - 1 / 60);
+    if (!gate) {
+      if (flashLeft > 0) { group.visible = true; spin.rotation.z += 0.02; }
+      else group.visible = false;
+      return;
+    }
     group.visible = true;
     // swim gates ride the wave so the portal never floats detached from the sea
     const flying = locomotion === 'fly' || locomotion === 'leap';
     const y = flying ? gate.y : surfaceHeight(gate.x, gate.z, runTime) + GATE.swimLift;
     group.position.set(gate.x, y, gate.z);
-    spin.rotation.z += 0.02;
+    if (flashLeft <= 0) spin.rotation.z += 0.02;
 
     // proximity tint: gold as the fish nears the central axis
-    if (playerPos) {
+    if (playerPos && flashLeft <= 0) {
       const d = Math.hypot(playerPos.x - gate.x, playerPos.y - y);
       const near = Math.max(0, 1 - d / (GATE.goodRadius + 2));
-      torus.material.color.copy(baseRing).lerp(new THREE.Color(GOLD), near * 0.8);
+      torus.material.color.copy(baseRing).lerp(GOLD, near * 0.8);
       const pulse = 1 + Math.sin(runTime * 3) * 0.02;
       torus.scale.setScalar(pulse);
     }
   }
 
-  function flash(result) {
+  function flash(result, _now) {
     const c = result === 'perfect' ? GOLD : result === 'good' ? GOOD : BAD;
     torus.material.color.set(c);
     disc.material.color.set(c);
     torus.scale.setScalar(1.25);
-    group.visible = true;
+    flashLeft = FLASH_SECONDS; // group stays visible + colored for the flash
   }
 
   function resetColors() {
@@ -59,5 +68,9 @@ export function createGateView(scene) {
     torus.scale.setScalar(1);
   }
 
-  return { group, update, flash, resetColors };
+  function debugInfo() {
+    return { visible: group.visible, flashLeft: Number(flashLeft.toFixed(2)) };
+  }
+
+  return { group, update, flash, resetColors, debugInfo };
 }

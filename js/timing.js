@@ -24,7 +24,7 @@ export function createGate(rng, { locomotion, playerPos, runTime, speed = 25 }) 
   const y = flying
     ? clamp(playerPos.y + reach, GATE.flightMin, GATE.flightMax)
     : surfaceHeight(x, z, runTime) + GATE.swimLift;
-  return { id: nextGateId++, x, y, z, resolved: false, result: null };
+  return { id: nextGateId++, x, y, z, locomotion, resolved: false, result: null };
 }
 
 // Where the player crossed the gate's plane this frame, linearly interpolated
@@ -52,6 +52,13 @@ export function resolveGate(gate, sample, { assist = false } = {}) {
 // The player sailed past the gate without entering it.
 export function gateBehind(gate, playerPos) {
   return playerPos.z - gate.z >= GATE.behindMiss;
+}
+
+// Re-glue a swim gate to the live wave every frame: the renderer draws the
+// portal on the moving surface, so the graded center must read the same value
+// (wave amplitude reaches ±0.93 m — more than the whole perfect window).
+export function reseatSwimGate(gate, runTime) {
+  gate.y = surfaceHeight(gate.x, gate.z, runTime) + GATE.swimLift;
 }
 
 // A new gate may spawn only once the previous one resolved and cooled down.

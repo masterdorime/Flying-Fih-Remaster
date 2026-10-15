@@ -358,24 +358,18 @@ bus.on('collision:major', () => {
   juice.popup('BIG CRASH', '#ff4d4d');
   cameraRig.shake(0.6);
 });
+// result feedback lives on gate:resolved (one popup, one flash); timing:result
+// only does the camera reaction
 bus.on('timing:result', ({ result }) => {
-  if (result === 'perfect') {
-    juice.popup('PERFECT', '#ffd54a');
-    cameraRig.kick(0.35);
-  } else if (result === 'good') {
-    juice.popup('GOOD', '#7dff9a', true);
-    cameraRig.kick(0.15);
-  } else {
-    juice.popup('MISS', '#ff5e5b');
-    cameraRig.shake(0.4);
-  }
+  if (result === 'perfect') cameraRig.kick(0.35);
+  else if (result === 'good') cameraRig.kick(0.15);
+  else cameraRig.shake(0.4);
 });
 bus.on('gate:resolved', ({ result }) => {
   const map = { perfect: ['PERFECT', '#ffd54a'], good: ['GOOD', '#7dff9a'], miss: ['MISS', '#ff5e5b'] };
   const [text, color] = map[result] ?? [result, '#9fb3c8'];
   juice.popup(text, color);
-  gateView.flash(result);
-  setTimeout(() => gateView.resetColors(), 220);
+  gateView.flash(result); // flash lifetime owned by the view
 });
 bus.on('tier:up', () => juice.popup('TIER UP', '#9dff7a', true));
 bus.on('tier:down', () => {
@@ -426,6 +420,7 @@ window.__FFM_API = {
   },
   applyResult: (r) => game.applyResult(r),
   gate: () => game.gate(),
+  debugGateFlash: () => gateView.debugInfo(),
   debugTeleportToRing: (offX = 0, offY = 0) => game.debugTeleportToRing(offX, offY),
   debugObstacleCount: () => game.debugObstacleCount(),
   debugModelFailures: () => game.debugModelFailures(),

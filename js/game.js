@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, resolveGate, gateBehind, gateCadence } from './timing.js';
+import { createGate, crossingSample, resolveGate, gateBehind, gateCadence, reseatSwimGate } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -129,6 +129,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
 
   function trySpawnGate() {
     if (activeGate || state.ended) return;
+    // no gates during cinematics/lock-in, and none while sinking: a descending
+    // fish has no vertical control, so a portal would be an unavoidable miss
+    const loco = player.state.locomotion;
+    if (loco === 'charge' || loco === 'leap' || loco === 'descend') return;
     if (!gateCadence(activeGate, gateCooldown)) return;
     activeGate = createGate(gateRng, {
       locomotion: player.state.locomotion,
@@ -149,10 +153,21 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     gateCooldown = GATE.cooldown;
   }
 
+  // Launch/descent transitions drop any live gate WITHOUT scoring it. In real
+  // play the gauge only fills through applyResult (which runs inside
+  // updateGates and nulls the gate in the same call), so a transition never
+  // sees a live gate; clearing here keeps that invariant true for debug
+  // hooks (debugForceFlight) and future refactors alike.
+  function clearGate() { activeGate = null; }
+
   function updateGates(prevPos, dt) {
     if (state.ended) return;
     const pos = player.state.position;
     if (activeGate) {
+      // swim gates ride the wave: grade and draw read the same center
+      if (activeGate.locomotion !== 'fly' && activeGate.locomotion !== 'leap') {
+        reseatSwimGate(activeGate, state.runTime);
+      }
       const sample = crossingSample(prevPos, pos, activeGate.z);
       if (sample) {
         resolveGateResult(resolveGate(activeGate, sample, { assist: state.assist }));
@@ -336,6 +351,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
 
   // ---- launch sequence: SPAM-QTE -> blow-up -> cinematic leap -> flight ----
   function startCharge() {
+    clearGate();
     player.setLocomotion('charge');
     state.chargeTime = 0;
     state.gauge = GAUGE.maxThreshold; // lock at full — overfilling to 120 comes only from spamming
@@ -350,23 +366,27 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   }
 
   function blowUp() {
+    clearGate();
     state.gauge = GAUGE.max;
     player.setLocomotion('leap');
     bus.emit('launch:blow', null);
   }
 
   function startLeap() {
+    clearGate();
     player.setLocomotion('leap');
     bus.emit('launch:blow', { instant: true });
   }
 
   function enterFlight() {
+    clearGate();
     player.setLocomotion('fly');
     state.firstFlightDone = true;
     bus.emit('plane:enter', null);
   }
 
   function startDescent() {
+    clearGate();
     player.setLocomotion('descend');
     bus.emit('plane:exit', null);
   }
