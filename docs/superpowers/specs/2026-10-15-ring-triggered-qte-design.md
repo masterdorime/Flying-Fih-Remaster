@@ -31,15 +31,15 @@ Replaced: `resolveGate` → **`mouthHit(gate, sample)`** → `'inside' | 'miss'`
 
 New QTE math (pure, no three.js):
 
-- `createQte(gate, now, { assist = false })` → `{ gateId, startedAt: now, perfectWindow, goodWindow, resolved: false, result: null }`, with `perfectWindow = QTE.perfectWindow * (assist ? ASSIST.windowScale : 1)` and `goodWindow` likewise. The scaled windows are baked in at creation so downstream math is trivial.
+- `createQte(gate, now, { assist = false })` → `{ gateId, startedAt: now, perfectWindow, goodWindow, resolved: false, result: null }`, with `perfectWindow = QTE.perfectWindow * (assist ? ASSIST.windowScale : 1)` and `goodWindow` likewise. The scaled windows are baked in at creation so downstream math is trivial. Also stamps `gate.qteOpened = true` — a gate opens **at most one** QTE, so repeated crossings of the same plane (only reachable via `debugTeleportToRing` spam, e.g. the t15 loop) cannot reopen one.
 - `evaluatePress(qte, pressAt)` → `'perfect' | 'good' | 'miss'`. `elapsed = pressAt - startedAt`; `elapsed < 0` → `'miss'` (a press that predates the window never counts); `elapsed <= perfectWindow` → `'perfect'`; `<= goodWindow` → `'good'`; else `'miss'`. Sets `resolved`/`result` and returns the stored result on any later call — **exactly one grade per QTE**.
 - `qteRemaining(qte, now)` → `max(0, startedAt + goodWindow - now)`. Shared by the game (auto-miss expiry) and the HUD (countdown drain), so the readout and the rule can never disagree.
 
 ### 3.2 Lifecycle — `js/game.js`
 
 - New state `activeQte` alongside `activeGate`. On a crossing sample: `mouthHit(gate, sample)`:
-  - `'inside'` → `activeQte = createQte(gate, state.runTime, { assist: state.assist })`; `bus.emit('qte:open', activeQte)`. **The gate stays live and unresolved** — `gateCadence` already refuses to spawn while a gate is live, so a closely spaced ring can neither spawn into nor cancel an open QTE. This is the eligibility rule: the single-live-gate invariant, verified in code.
-  - `'miss'` → `resolveGateResult('miss')` immediately (plain miss, no QTE).
+  - `'inside'` (and the gate has not already opened a QTE) → `activeQte = createQte(gate, state.runTime, { assist: state.assist })`; `bus.emit('qte:open', activeQte)`. A second crossing of the same plane with a QTE already open is ignored (the `qteOpened` stamp). **The gate stays live and unresolved** — `gateCadence` already refuses to spawn while a gate is live, so a closely spaced ring can neither spawn into nor cancel an open QTE. This is the eligibility rule: the single-live-gate invariant, verified in code.
+  - `'miss'` (and the gate has not opened a QTE) → `resolveGateResult('miss')` immediately (plain miss, no QTE).
 - While `activeQte` is pending and `!resolved`: when `state.runTime >= activeQte.startedAt + activeQte.goodWindow` with no press → `resolveQte('miss')` (auto-miss expiry). **This deadline is checked before `gateBehind`** in `updateGates` (6 m behind at minimum speed is 0.75 s — comparable to the 0.70 s window, so ordering matters).
 - `queuePress()`: if `activeQte && !activeQte.resolved` → `resolveQte(evaluatePress(activeQte, state.runTime))`; else if charging → `spamPress()`. A press before any crossing finds no QTE (the window never opens early — per the decided model).
 - `resolveQte(result)` → existing `resolveGateResult(result)` (applyResult + `gate:resolved` + tutorial + cooldown), then `activeQte = null`.
@@ -84,6 +84,7 @@ Config changes: `GATE.goodRadius` renamed **`GATE.mouthRadius`** (same value, 3.
 - `createQte`: windows equal `QTE` config; assist scales both by `ASSIST.windowScale`; `startedAt` = now.
 - `evaluatePress`: within `perfectWindow` → `'perfect'`; within `goodWindow` → `'good'`; past → `'miss'`; press before `startedAt` → `'miss'`; second call returns the stored result.
 - `qteRemaining`: 0 after the deadline; exact before.
+- `createQte` stamps `gate.qteOpened` — one QTE per gate, even if the plane is crossed again.
 - `createGate` / `crossingSample` / `gateBehind` / `gateCadence` / `reseatSwimGate` tests carried over unchanged.
 
 All other unit files untouched.
