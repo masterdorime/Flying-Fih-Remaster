@@ -49,12 +49,9 @@
 
 - [ ] **Step 1: Rewrite the unit test file (RED)**
 
-Keep the existing `createGate` / flight-band / lead-scaling / `crossingSample` / `gateBehind` + `gateCadence` / `reseatSwimGate` tests verbatim. Replace the `resolveGate` tests with:
+Keep the existing `createGate` / flight-band / lead-scaling / `crossingSample` / `gateBehind` + `gateCadence` / `reseatSwimGate` tests verbatim. Extend the two existing import lines rather than adding new ones (a duplicate `import` binding is a SyntaxError): line 3 becomes `import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate } from '../../js/timing.js';` and line 4 becomes `import { GATE, ASSIST, QTE } from '../../js/config.js';`. Replace the `resolveGate` tests with:
 
 ```js
-import { mouthHit, createQte, evaluatePress, qteRemaining } from '../../js/timing.js';
-import { QTE, ASSIST } from '../../js/config.js';
-
 const gate = () => ({ id: 1, x: 0, y: 0, z: 100 });
 
 test('mouthHit: inside / boundary / outside, on both axes', () => {
@@ -193,14 +190,15 @@ git commit -m "feat: QTE core — mouth hit + press windows in pure timing (suit
 **Files:**
 - Modify: `js/game.js` (imports, `activeQte` state, `updateGates` branch, `resolveQte`, `queuePress`, `clearGate`, `endRun`, `restart`, tutorial beats, `qte`/`debugPress`/`debugPressAt` API)
 - Rewrite: `tests/browser/t08-gates.mjs`
+- Modify: `tests/browser/t15-acceptance.mjs` (~line 24) and `tests/browser/t17-momentum-coins.mjs` (~line 25) — both chain gates via `debugTeleportToRing` and must press the window now
 
 **Interfaces:**
 - Consumes: Task 1's `mouthHit`, `createQte`, `evaluatePress`, `qteRemaining`.
-- Produces: `game.qte() -> qte | null`; `game.debugPress()`; `game.debugPressAt(t)`; bus events `qte:open` / `qte:resolved`(not emitted separately — `timing:result` already fires from `applyResult`; `qte:open` is the only new event).
+- Produces: `game.qte() -> qte | null`; `game.debugPress()`; `game.debugPressAt(t)`; bus event `qte:open` (the only new event — `timing:result` already fires from `applyResult`). `debugPress` is consumed by the t15/t17 adaptations in this task.
 
-- [ ] **Step 1: Rewrite `tests/browser/t08-gates.mjs` (RED)**
+- [ ] **Step 1: Rewrite `tests/browser/t08-gates.mjs` and adapt t15/t17 (RED)**
 
-Keep sections 1 (spawn), 6 (flight band 63–104), 7 (flash renders), 8 (no gates while descending) from the current file verbatim. Replace the grading sections with (keep the observer-recorder popup pattern and the `null` second-arg `waitForFunction` discipline):
+Keep sections 1 (spawn), 6 (flight band 63–104), 7 (flash renders), 8 (no gates while descending) from the current file verbatim. Replace the grading sections (old 2–5) with the new 2–5, 10, and 12 below, and add the cooldown section 9 after the kept section 8. Keep the observer-recorder popup pattern and the `null` second-arg `waitForFunction` discipline:
 
 ```js
 // 2. crossing the mouth opens exactly one QTE; an early press -> PERFECT
@@ -285,10 +283,28 @@ assertEqual(postEnd.qte, null, 'ending a run clears a pending QTE');
 assertEqual(postEnd.phase, 'results', 'run ended');
 ```
 
-- [ ] **Step 2: Run to verify RED**
+Cooldown section 9, placed after the kept section 8:
 
-Run: `node tests/browser/t08-gates.mjs` (stop any dev server first — the harness binds :8123 itself)
-Expected: FAIL at section 2 — `__FFM_API.qte is not a function` / `debugPress is not a function`.
+```js
+// 9. the next gate appears after the cooldown (one at a time)
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+```
+
+And adapt the two teleport-loop tests so they press the window (they go RED with t08 until the lifecycle lands). t15 ~line 24:
+
+```js
+if (api.gate()) {
+  api.debugTeleportToRing(); // park on the portal's center axis
+  api.debugPress();          // Phase 2: cross the mouth, then hit the window
+}
+```
+
+(The loop's 20 ms cadence means the press lands ~0–40 ms after the window opens → inside the 0.30 s perfect window; the first iteration's press may no-op before the crossing, which is fine.) Same edit at t17 ~line 25 (`// chain perfects: cross the mouth, press in the window`).
+
+- [ ] **Step 2: Run the new tests to verify RED**
+
+Run: `node tests/browser/t08-gates.mjs` (stop any dev server first — the harness binds :8123 itself), then `node tests/browser/t15-acceptance.mjs` and `node tests/browser/t17-momentum-coins.mjs`
+Expected: all FAIL — `__FFM_API.qte is not a function` / `debugPress is not a function`.
 
 - [ ] **Step 3: Implement the lifecycle in `js/game.js`**
 
@@ -328,11 +344,16 @@ if (activeQte && !activeQte.resolved) {
 Run: `node tests/browser/t08-gates.mjs`
 Expected: `PASS t08-gates`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run t15 and t17 — GREEN**
+
+Run: `node tests/browser/t15-acceptance.mjs`, then `node tests/browser/t17-momentum-coins.mjs`
+Expected: both PASS, t15's summary showing `misses: 0` and `perfects > 0`.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add js/game.js tests/browser/t08-gates.mjs
-git commit -m "feat: ring-triggered QTE lifecycle — press times the grade (suite: XX/XX unit, 14/15 browser)"
+git add js/game.js tests/browser/t08-gates.mjs tests/browser/t15-acceptance.mjs tests/browser/t17-momentum-coins.mjs
+git commit -m "feat: ring-triggered QTE lifecycle — press times the grade (suite: XX/XX unit, 15/15 browser)"
 ```
 
 ---
@@ -430,58 +451,28 @@ Expected: `PASS t08-gates` (audio cue counted, cue shows/hides).
 
 ```bash
 git add js/hud.js js/audio.js js/main.js tests/browser/t08-gates.mjs
-git commit -m "feat: QTE cue — HUD countdown + synth open blip (suite: XX/XX unit, 14/15 browser)"
+git commit -m "feat: QTE cue — HUD countdown + synth open blip (suite: XX/XX unit, 15/15 browser)"
 ```
 
 ---
 
-### Task 4: t15/t17 press adaptations + full verification
+### Task 4: Full-suite verification + handoff update
 
 **Files:**
-- Modify: `tests/browser/t15-acceptance.mjs:24` and `tests/browser/t17-momentum-coins.mjs:25`
 - Modify: `HANDOFF.md` (§9 status — the file stays untracked per §10)
 
 **Interfaces:**
-- Consumes: Task 2's `debugPress` (Task 3's cue is cosmetic to these tests).
-- Produces: nothing new; the suite is green end-to-end.
+- Consumes: nothing new — all code landed in Tasks 1–3.
+- Produces: nothing; the deliverable is a verified green suite and an accurate handoff.
 
-- [ ] **Step 1: Adapt t15**
-
-Replace line 24 `if (api.gate()) api.debugTeleportToRing(); // park on the portal's center axis` with:
-
-```js
-if (api.gate()) {
-  api.debugTeleportToRing(); // park on the portal's center axis
-  api.debugPress();          // Phase 2: cross the mouth, then hit the window
-}
-```
-
-(The loop's 20 ms cadence means the press lands ~0–40 ms after the window opens → inside the 0.30 s perfect window; the first iteration's press may no-op before the crossing, which is fine.)
-
-- [ ] **Step 2: Adapt t17**
-
-Same edit at line 25 (`// chain perfects: cross the mouth, press in the window`).
-
-- [ ] **Step 3: Run t15 and t17 individually**
-
-Run: `node tests/browser/t15-acceptance.mjs` then `node tests/browser/t17-momentum-coins.mjs`
-Expected: both PASS with `misses: 0` in t15's summary (perfects > 0).
-
-- [ ] **Step 4: Full suite**
+- [ ] **Step 1: Full suite**
 
 Run: `npm run test:all`
-Expected: unit + browser all green (record counts). If t19/t20 hit wall-clock under load, re-run them individually to confirm.
+Expected: unit + browser all green (record the counts). If t19/t20 hit wall-clock under load, re-run them individually to confirm.
 
-- [ ] **Step 5: Update `HANDOFF.md`**
+- [ ] **Step 5: Update `HANDOFF.md` and record the ship state**
 
-Mark Phase 2 shipped in §9 (commit hash, suite counts, `qte:open` event, `QTE` config block, `GATE.mouthRadius` rename); leave the file untracked.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add tests/browser/t15-acceptance.mjs tests/browser/t17-momentum-coins.mjs
-git commit -m "test: t15/t17 press the QTE window — full suite (suite: XX/XX unit, 15/15 browser)"
-```
+Mark Phase 2 shipped in §9 (commit hash, suite counts, `qte:open` event, `QTE` config block, `GATE.mouthRadius` rename, the behind-miss exemption while a window is pending); leave the file untracked per §10. No git commit is needed for this task — the only tracked changes were committed in Tasks 1–3, and the suite counts from Step 1 go into the final review + the handoff. (`flying-fish-momentum.zip` is rebuilt at ship, after the final branch review.)
 
 ---
 
