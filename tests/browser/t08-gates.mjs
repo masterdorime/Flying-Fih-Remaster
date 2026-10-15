@@ -29,10 +29,15 @@ assert(g0 && g0.z > 0, `gate spawns ahead (z=${g0?.z})`);
 assert(Math.abs(g0.x) <= 4, `gate placed inside the corridor (x=${g0.x.toFixed(2)})`);
 
 // 2. crossing the mouth opens exactly one QTE; an early press -> PERFECT
+// (read + press in one evaluate: a separate CDP round trip could cross the
+// 300 ms perfect window under load and grade GOOD instead)
 await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 90000 });
 await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
 await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
-await page.evaluate(() => window.__FFM_API.debugPress());
+await page.evaluate(() => {
+  const q = window.__FFM_API.qte();
+  if (q) window.__FFM_API.debugPressAt(q.startedAt + 0.001);
+});
 await page.waitForFunction(() => window.__FFM_API.state().lastResult === 'perfect', null, { timeout: 60000 });
 let s = await page.evaluate(() => window.__FFM_API.state());
 assertEqual(s.counts.perfect, 1, 'perfect counted');
@@ -74,6 +79,28 @@ s = await page.evaluate(() => window.__FFM_API.state());
 assertEqual(s.chain, 0, 'miss resets the chain');
 assert(s.speed < preMiss, `miss cuts speed (${preMiss.toFixed(1)} -> ${s.speed.toFixed(1)})`);
 assertEqual(s.counts.miss, 1, 'miss counted');
+
+// 14. a pending window outlives the behind-miss threshold — the deadline is
+// its only expiry (numbered out of order: it must run here, while a fresh
+// window is cheap to open, before the terminal section 12)
+await page.evaluate(() => window.__FFM_API.debugSetSpeed(40));
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
+await page.waitForFunction(() => {
+  const api = window.__FFM_API;
+  const q = api.qte(), g = api.gate(), z = api.state().position[2];
+  return q && !q.resolved && g && (z - g.z) >= 6;
+}, null, { timeout: 30000 });
+assert(await page.evaluate(() => window.__FFM_API.qte() !== null),
+  'a pending QTE survives being 6 m past the plane (no behind-miss on top of the window)');
+// resolve §14's window so it can't pollute section 5's "no window opened" watch
+const p14 = await page.evaluate(() => window.__FFM_API.state().counts.perfect);
+await page.evaluate(() => {
+  const q = window.__FFM_API.qte();
+  if (q) window.__FFM_API.debugPressAt(q.startedAt + 0.001);
+});
+await page.waitForFunction((p) => window.__FFM_API.state().counts.perfect > p, p14, { timeout: 60000 });
 
 // 5. crossing OUTSIDE the mouth -> plain miss, and NO window ever opens
 await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
@@ -129,14 +156,16 @@ assertEqual(descentMisses.loco, 'swim', 'the sinking fish reaches the swim phase
 await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
 
 // 10. exactly one press grades: a second press while resolved no-ops
+// (both presses deterministic in one evaluate — no frame-pacing gap)
 await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
 await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
 await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
 const double = await page.evaluate(() => {
   const api = window.__FFM_API;
   const before = api.state().counts.perfect;
-  api.debugPress();
-  api.debugPress(); // second press must not double-grade
+  const q = api.qte();
+  api.debugPressAt(q.startedAt + 0.001);
+  api.debugPressAt(q.startedAt + 0.5); // must no-op: window already resolved
   return { before, after: api.state().counts.perfect };
 });
 assertEqual(double.after, double.before + 1, 'a second press does not re-grade the QTE');
@@ -173,6 +202,7 @@ const paused = await page.evaluate(() => {
   const api = window.__FFM_API;
   api.pause();
   api.debugPress(); // frozen runTime: must not grade
+  api.debugPressAt(api.qte().startedAt + 5); // explicit-time press: also must not grade
   const stillPending = api.qte() !== null;
   api.resume();
   return { stillPending };

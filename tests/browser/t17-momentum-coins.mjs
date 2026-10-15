@@ -24,7 +24,7 @@ const result = await page.evaluate(async () => {
     if (s.gauge >= 100 && s.runTime >= 60) break;
     if (api.gate()) {
       api.debugTeleportToRing(); // chain perfects: cross the mouth, press in the window
-      api.debugPress();
+      if (api.qte()) api.debugPress(); // only once the window is open — never into the charge spam
     }
   }
   const final = api.state();

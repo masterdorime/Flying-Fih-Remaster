@@ -56,7 +56,7 @@ New QTE math (pure, no three.js):
 
 ### 3.4 Tutorial — `js/game.js` `TUTORIAL_STEPS`
 
-Rewrite the gate beats: spawn → "Cross the ring, then hit SPACE inside the window!"; perfect → "Perfect timing — the gauge fills fastest!"; miss → "Window missed — the chain resets!". The gauge-full/launch beat stays.
+Rewrite the gate beats: spawn → "Cross the ring, then hit SPACE inside the window!"; perfect → "PERFECT! Right inside the window — speed and gauge jump up."; miss → "Window missed? Chain resets — cross the next ring and time your press!". The gauge-full/launch beat stays. (Copy is authoritative from the implementation plan; these strings match `TUTORIAL_STEPS` in `js/game.js`.)
 
 ## 4. Numeric constants
 

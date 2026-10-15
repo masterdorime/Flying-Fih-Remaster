@@ -23,7 +23,7 @@ const summary = await page.evaluate(async () => {
     coins = s.coins; perfects = s.counts.perfect;
     if (api.gate()) {
       api.debugTeleportToRing(); // park on the portal's center axis
-      api.debugPress();          // Phase 2: cross the mouth, then hit the window
+      if (api.qte()) api.debugPress(); // only once the window is open — never into the charge spam
     }
     if (s.runTime >= TARGET_SIM_SECONDS) break;
   }

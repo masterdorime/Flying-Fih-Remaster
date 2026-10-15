@@ -94,6 +94,9 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   }
 
   function toMenu() {
+    // the menu is not a run: no live gate/QTE may outlive it, or Escape mid-
+    // window leaves a phantom applyResult on the menu screen (SPACE there)
+    clearGate();
     state.phase = 'menu';
     bus.emit('ui:menu', null);
   }
@@ -481,8 +484,12 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     qte: () => activeQte,
     debugPress: () => queuePress(),
     // a press evaluated at an explicit run-time, so browser tests read the
-    // grade deterministically instead of racing frame pacing
-    debugPressAt: (t) => (activeQte && !activeQte.resolved ? resolveQte(evaluatePress(activeQte, t)) : null),
+    // grade deterministically instead of racing frame pacing. Pause-guarded
+    // for the same reason as queuePress: a frozen runTime must not grade.
+    debugPressAt: (t) => {
+      if (state.phase === 'paused') return null;
+      return (activeQte && !activeQte.resolved ? resolveQte(evaluatePress(activeQte, t)) : null);
+    },
     // test hook: park the fish on the live gate's plane at ±offsets from its
     // center, so the next crossing resolves deterministically
     debugTeleportToRing: (offX = 0, offY = 0) => {

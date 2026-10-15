@@ -15,8 +15,8 @@ export const TIMING = {
   recentPerfectSeconds: 2.5, // "recent perfect" stops the flying drain
 };
 
-// Momentum gates (ring portals the fish passes through — see
-// js/timing.js + js/gate-view.js; replaced the press-timing QTE 2026-10-14).
+// Ring portals the fish passes through — see js/timing.js + js/gate-view.js.
+// The mouth is geometry only; the press-timing QTE block below decides the grade.
 export const GATE = {
   mouthRadius: 3.0,   // the ring mouth (torus radius): inside = QTE eligible, outside = Miss
   outerRadius: 3.0,   // visual torus radius (matches the mouth)
