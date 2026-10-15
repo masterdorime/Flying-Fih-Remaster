@@ -205,6 +205,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   }
 
   function queuePress() {
+    // paused freezes runTime, so a press must not read the window at a frozen
+    // clock (it would grade a moment that never happened). It lives here, not
+    // in the keydown, because debug hooks press through queuePress too.
+    if (state.phase === 'paused') return;
     // a pending window grades on the first press: mash-tapping can't score twice
     // (evaluatePress is idempotent, and the gate resolves in the same call)
     if (activeQte && !activeQte.resolved) {

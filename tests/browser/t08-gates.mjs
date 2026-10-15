@@ -4,6 +4,8 @@
 // plain Miss with no window at all; a pending window owns its gate so the
 // behind-miss can't fire early; one live gate at a time, spaced by the
 // cooldown. Popups use the observer-recorder pattern (~850ms lifetime).
+// The #ffm-qte cue mirrors the window (grow, drain, hide), and a press while
+// paused must not grade.
 import { startServer, stopServer, openPage, closePage, assert, assertEqual } from './harness.mjs';
 
 const server = await startServer();
@@ -139,6 +141,44 @@ const double = await page.evaluate(() => {
 });
 assertEqual(double.after, double.before + 1, 'a second press does not re-grade the QTE');
 
+// 11. the cue shows while a window is open and hides when it resolves
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+await page.waitForFunction(() => {
+  const el = document.querySelector('#ffm-qte');
+  return el && !el.classList.contains('hidden');
+}, null, { timeout: 60000 });
+const cue = await page.evaluate(() => {
+  const el = document.querySelector('#ffm-qte');
+  const drain = document.querySelector('#ffm-qte-drain');
+  return { drainWidth: drain ? drain.style.width : '', label: el.textContent };
+});
+assert(cue.drainWidth.endsWith('%'), `the countdown ring drains (${cue.drainWidth})`);
+assert(cue.label.includes('SPACE'), `the prompt names the key (${cue.label})`);
+await page.evaluate(() => window.__FFM_API.debugPress());
+await page.waitForFunction(() => {
+  const el = document.querySelector('#ffm-qte');
+  return !el || el.classList.contains('hidden');
+}, null, { timeout: 60000 });
+// audio: the open blip fired through the counted synth path
+const stats = await page.evaluate(() => window.__FFM_API.debugAudioStats());
+assert((stats.calls.qte ?? 0) >= 1, `qte open cue counted (${stats.calls.qte})`);
+
+// 13. a SPACE press while paused does not resolve a pending window (runs before
+//     the run-ending section 12, which is terminal: no gate ever spawns after it)
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
+const paused = await page.evaluate(() => {
+  const api = window.__FFM_API;
+  api.pause();
+  api.debugPress(); // frozen runTime: must not grade
+  const stillPending = api.qte() !== null;
+  api.resume();
+  return { stillPending };
+});
+assert(paused.stillPending, 'a press while paused does not grade the window');
+
 // 12. a run ending with a QTE pending clears it (no stuck cue, no stale state)
 await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
 await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
@@ -147,6 +187,7 @@ await page.evaluate(() => window.__FFM_API.endRun());
 const postEnd = await page.evaluate(() => ({ qte: window.__FFM_API.qte(), phase: window.__FFM_API.state().phase }));
 assertEqual(postEnd.qte, null, 'ending a run clears a pending QTE');
 assertEqual(postEnd.phase, 'results', 'run ended');
+assertEqual(await page.evaluate(() => document.querySelector('#ffm-qte').classList.contains('hidden')), true, 'the cue hides when the run ends');
 
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 console.log('PASS  t08-gates');

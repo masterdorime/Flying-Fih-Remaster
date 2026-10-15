@@ -16,7 +16,7 @@ import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
 import { loadSkyfinModel } from './fish.js';
 import { MOMENTUM, FLIGHT } from './config.js';
-import { GATE, QTE } from './config.js';
+import { QTE } from './config.js';
 import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
@@ -229,6 +229,7 @@ function loop(now) {
   gateView.update(dt, game.gate(), game.player.state.position, game.state.runTime, game.player.state.locomotion);
 
   hud.update(game.state);
+  hud.updateQte(game.qte(), game.state.runTime); // press window cue (drains on runTime)
   const musicDbg = music.debugState();
   // full audio chain on one line: transport + rung, files, music slider,
   // controller bus, context state, master/sfx sliders — a silence report is

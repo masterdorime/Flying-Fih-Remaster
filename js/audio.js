@@ -186,6 +186,7 @@ export function createAudio(settings, bus) {
     splash() { noise({ dur: 0.3, gain: 0.35, cutoff: 2400 }); },
     ui() { tone({ freq: 700, dur: 0.06, type: 'sine', gain: 0.3 }); },
     runEnd() { tone({ freq: 300, slideTo: 120, dur: 0.6, type: 'triangle', gain: 0.4 }); },
+    qte() { tone({ freq: 880, dur: 0.08, type: 'sine', gain: 0.35 }); tone({ freq: 1320, dur: 0.06, delay: 0.05, gain: 0.25 }); },
   };
 
   const sfx = {
@@ -200,6 +201,7 @@ export function createAudio(settings, bus) {
     splash: () => fire('splash'),
     ui: () => fire('ui'),
     runEnd: () => fire('runEnd'),
+    qte: () => fire('qte'), // the window OPENING: synth-only, no file in the pack
     planeEnter: () => fire('planeEnter', { rate: 1.12 }), // no dedicated plane sting; pitch-lifted power-up
     planeExit: () => fire('planeExit'),
   };
@@ -293,6 +295,7 @@ export function createAudio(settings, bus) {
   // ---- event wiring ----
   if (bus) {
     bus.on('timing:result', ({ result }) => sfx[result]?.());
+    bus.on('qte:open', sfx.qte); // a window opened: cue the player to press
     bus.on('tier:up', sfx.tierUp);
     bus.on('tier:down', sfx.tierDown);
     bus.on('coin:collect', sfx.coin);

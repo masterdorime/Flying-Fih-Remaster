@@ -1,6 +1,9 @@
 import { GAUGE, GAMEOVER, FLIGHT } from './config.js';
+import { qteRemaining } from './timing.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
+// Also carries the ring-triggered QTE cue: a draining bar that lives exactly as
+// long as the press window (js/timing.js's qteRemaining is the single clock).
 
 export function createHud(root) {
   root.insertAdjacentHTML('beforeend', `
@@ -17,6 +20,10 @@ export function createHud(root) {
           <div class="ffm-charge-label" id="ffm-charge-label">MASH SPACE — OVERFILL THE GAUGE</div>
           <div class="ffm-charge-bar"><div class="ffm-charge-fill" id="ffm-charge-fill"></div></div>
         </div>
+      </div>
+      <div id="ffm-qte" class="ffm-qte hidden">
+        <div class="ffm-qte-ring"><div class="ffm-qte-drain" id="ffm-qte-drain"></div></div>
+        <div class="ffm-qte-key">SPACE</div>
       </div>
       <div class="ffm-stats">
         <div><span id="ffm-speed">0</span> <i>u/s</i></div>
@@ -54,6 +61,14 @@ export function createHud(root) {
       background: rgba(8, 30, 46, .72); border: 1px solid rgba(255, 140, 120, .55); overflow: hidden; }
     .ffm-charge-fill { height: 100%; width: 0%; border-radius: 6px;
       background: linear-gradient(90deg, #ffd54a, #ff9430, #ff4d6d); transition: width .08s linear; }
+    #ffm-qte { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); text-align: center;
+      pointer-events: none; }
+    .ffm-qte-ring { width: 64px; height: 8px; margin: 0 auto; border-radius: 6px;
+      background: rgba(8, 30, 46, .72); border: 1px solid rgba(160, 220, 255, .35); overflow: hidden; }
+    .ffm-qte-drain { height: 100%; width: 0%; border-radius: 6px;
+      background: linear-gradient(90deg, #4dd2ff, #7dff9a); transition: width .06s linear; }
+    .ffm-qte-key { margin-top: 5px; color: #eaf6ff; font-size: 11px; font-weight: 700;
+      letter-spacing: .22em; text-transform: uppercase; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
     @keyframes ffm-charge-pulse { from { opacity: .65; } to { opacity: 1; } }
   `;
   document.head.appendChild(style);
@@ -70,6 +85,8 @@ export function createHud(root) {
   const chargeMeter = root.querySelector('#ffm-charge-meter');
   const chargeFill = root.querySelector('#ffm-charge-fill');
   const chargeLabel = root.querySelector('#ffm-charge-label');
+  const qteEl = root.querySelector('#ffm-qte');
+  const drainEl = root.querySelector('#ffm-qte-drain');
   const WING_GLYPH = '✦'; // one per remaining wing; lost wings dim out
   const TIER_LABEL = { none: 'SWIMMING', low: 'LOW FLIGHT', medium: 'MEDIUM FLIGHT', high: 'HIGH FLIGHT', max: 'MAX FLIGHT' };
 
@@ -108,5 +125,19 @@ export function createHud(root) {
     }
   }
 
-  return { update };
+  // QTE cue: shows only while a press window is open, draining on the same
+  // runTime clock the auto-miss uses. Gold while the perfect zone is still
+  // live, then the HUD's cyan for the remainder of the good window.
+  function updateQte(qte, runTime) {
+    if (!qte) { qteEl.classList.add('hidden'); return; }
+    qteEl.classList.remove('hidden');
+    const t = Math.min(1, Math.max(0, 1 - qteRemaining(qte, runTime) / qte.goodWindow));
+    drainEl.style.width = (t * 100).toFixed(1) + '%';
+    const inPerfect = t <= qte.perfectWindow / qte.goodWindow;
+    drainEl.style.background = inPerfect
+      ? 'linear-gradient(90deg, #ffd54a, #ff9430)'
+      : 'linear-gradient(90deg, #4dd2ff, #7dff9a)';
+  }
+
+  return { update, updateQte };
 }
