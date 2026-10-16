@@ -6,7 +6,7 @@
 // mouth opens one SPACE window (QTE.perfectWindow / goodWindow) and the press
 // time picks the grade (assist multiplies both windows, never the geometry).
 
-import { GATE, ASSIST, QTE } from './config.js';
+import { GATE, ASSIST, QTE, WORLD } from './config.js';
 import { surfaceHeight } from './wave.js';
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
@@ -83,6 +83,24 @@ export function evaluatePress(qte, pressAt) {
 // so the overlay drains on exactly the deadline the auto-miss fires on.
 export function qteRemaining(qte, now) {
   return Math.max(0, qte.startedAt + qte.goodWindow - now);
+}
+
+// Nudge a freshly spawned gate out of obstacle footprints (Phase 3: the
+// center is occupiable now). Pure geometry: for each live obstacle disc near
+// the gate plane, push the gate x to the nearest side with GATE.nudgeMargin
+// clearance; clamp to the lane. Single nearest-first pass — best-effort, so a
+// pathological stack can still overlap; crossing the mouth stays possible.
+export function resolveGateOverlap(gateX, gateZ, discs) {
+  let x = gateX;
+  const near = discs
+    .filter(d => Math.abs(d.z - gateZ) <= 5)
+    .sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x));
+  for (const d of near) {
+    const need = d.radius + GATE.nudgeMargin;
+    const dx = x - d.x;
+    if (Math.abs(dx) < need) x = d.x + (dx >= 0 ? need : -need);
+  }
+  return clamp(x, -WORLD.laneHalfWidth, WORLD.laneHalfWidth);
 }
 
 // The player sailed past the gate without entering it.

@@ -29,7 +29,23 @@ export const GATE = {
   flightMin: 63,        // gate Y band while flying (inside the 57-110 flight band)
   flightMax: 104,
   flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
-  corridorX: 4,         // |x| bound for placement (obstacles never enter |x| < 5)
+  corridorX: 4,         // |x| bound for placement (inside the old safe corridor)
+  nudgeMargin: 1.6,    // gate-center clearance from obstacle centers (fish 1.1 + 0.5)
+  nudgeHalfRange: 6,   // obstacle query window around the gate z at spawn
+};
+
+// Obstacle patterns (Phase 3): freeform rows with a validated gap — see
+// js/worldgen.js. Rows scale with speed; shapes never unlock by tier.
+export const PATTERN = {
+  minGap: 3.0,        // minimum lateral gap per row (2 x 1.1 fish + 0.8 margin)
+  rowBand: 5,         // validator z-grouping window (generator keeps intra-row spread <= 4)
+  spacingSeconds: 0.35, // row spacing = clamp(speed * this, min, max)
+  spacingMin: 18,     // meters between rows (slow swim)
+  spacingMax: 40,     // meters between rows (fast arrival)
+  rowZ0: 20,          // rows placed within chunk-local z
+  rowZ1: 115,
+  wallMax: 6,         // max obstacles per wall row
+  maxAttempts: 8,     // validation re-rolls before the fallback row
 };
 
 // Ring-triggered QTE: crossing the mouth opens one SPACE window; the press
@@ -129,8 +145,6 @@ export const DIFFICULTY = {
   rampSeconds: 120,          // time over which difficulty reaches 1.0 (whichever comes first)
   promptIntervalStart: 2.4,
   promptIntervalEnd: 1.35,
-  obstacleDensityStart: 0.12,
-  obstacleDensityEnd: 0.85,
 };
 
 export const COLLISION = {

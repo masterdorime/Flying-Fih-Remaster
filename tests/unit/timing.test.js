@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate } from '../../js/timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGateOverlap } from '../../js/timing.js';
 import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -115,3 +115,14 @@ test('reseatSwimGate re-glues a swim gate to the live wave (grade = what is draw
 function gate(over = {}) {
   return { id: 1, x: 0, y: 0, z: 100, resolved: false, result: null, ...over };
 }
+
+test('resolveGateOverlap: inside footprint pushes to nearest clear side', () => {
+  const discs = [{ x: 2, z: 100, radius: 2.6 }];
+  assert.ok(Math.abs(resolveGateOverlap(2, 100, discs) - (2 + 2.6 + 1.6)) < 1e-9, 'pushed +x');
+  assert.equal(resolveGateOverlap(-3, 100, discs), -3);            // far: unchanged
+  assert.equal(resolveGateOverlap(0, 200, discs), 0);              // far in z: unchanged
+  assert.equal(resolveGateOverlap(13.5, 100, [{ x: 13, z: 100, radius: 2 }]), 14); // clamped
+  const two = [{ x: 1, z: 100, radius: 2 }, { x: -1, z: 100, radius: 2 }];
+  const out = resolveGateOverlap(0.2, 100, two);
+  assert.ok(Number.isFinite(out) && Math.abs(out) <= 14, `finite in-bounds result (${out})`);
+});
