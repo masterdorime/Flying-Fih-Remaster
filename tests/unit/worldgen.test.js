@@ -119,11 +119,23 @@ test('row budget scales with difficulty, capped by speed-spaced fit', () => {
 });
 
 test('obstacles stay within the lane bounds', () => {
+  // single-seed spot check (historical shape of this test)
   const chunk = generateChunk(9, 1, 3, 25);
   for (const o of chunk.obstacles) {
     assert.ok(Math.abs(o.x) <= WORLD.laneHalfWidth, 'x within lane');
     assert.ok(o.z > 0 && o.z <= WORLD.chunkLength, 'z within chunk');
     assert.ok(o.kind in { rock: 1, buoy: 1, boat: 1, container: 1 }, 'known kind');
+  }
+  // sweep: wall pieces must never land outside the lane (the fill cursor runs
+  // past ±14 while centers may not)
+  for (const speed of [8, 25, 110]) {
+    for (let d = 0; d <= 1.0001; d += 0.1) {
+      for (let i = 0; i < 40; i++) {
+        for (const o of generateChunk(i, d, 11, speed).obstacles) {
+          assert.ok(Math.abs(o.x) <= WORLD.laneHalfWidth, `chunk ${i} ${o.pattern} at x=${o.x.toFixed(2)} escapes the lane`);
+        }
+      }
+    }
   }
 });
 

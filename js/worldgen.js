@@ -120,6 +120,7 @@ function wallRow(rng, rowZ, d) {
     const kind = kinds[k % kinds.length];
     k++;
     const r = RADII[kind];
+    if (cursor + r > WORLD_HALF) break; // centers stay in the lane (fish clamps to ±14)
     if (cursor + 2 * r > gx - w / 2 && cursor < gx + w / 2) { cursor = gx + w / 2; continue; }
     const o = baseObstacle(kind, cursor + r, rowZ + (rng() * 2 - 1) * 2, 'wall');
     row.push(o);

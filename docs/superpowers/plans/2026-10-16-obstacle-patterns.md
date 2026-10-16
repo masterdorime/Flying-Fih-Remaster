@@ -17,7 +17,7 @@
 - Catalog (all four from the start, uniform pick): slalom (1 obstacle, alternating ±(5–10) via threaded `prevSlalomSign`), wall (gap center ∈ [−11, 11], width ∈ [3.2, 5.0], fill from ±14 cycling the kind list from an rng start index, `wallMax` 6), center block (1–2 obstacles, |x| ≤ 4), cluster (2–3 in an 8 m clump, z jitter ±2). Every spec records its `pattern` id.
 - Kinds/radii/grounding (`kindsFor`, rock 2.6 / buoy 1.1 / boat 3.4 / container 2.2, buoy y 1.2 else 0.7) and mover probability/formulas (`lerp(0, 0.55, d)`) unchanged; a mover is flagged only if both sweep extremes preserve the row gap (no extra rng draws on the static path).
 - Re-roll: up to 8 attempts (`seed + attempt`), then fallback single static rock at x = +10.
-- Gate nudge: `GATE.nudgeMargin = 1.6`, query window `GATE.nudgeHalfRange = 6`, overlap test `|dz| ≤ 5`; push to nearest clear side, clamp ±14, single nearest-first pass (best-effort, never fails a spawn).
+- Gate nudge: `GATE.nudgeMargin = 1.6`, query window `GATE.nudgeHalfRange = 6` (the overlap filter uses the same window); push to nearest clear side, clamp ±14, single nearest-first pass (best-effort, never fails a spawn).
 - TDD: every behavior change ships with a watched-RED test first. Retirements are grep-verified before commit.
 - Repo flow: commits to `main` directly, message style `feat:|fix:|docs: <summary> (suite: X/X unit, Y/Y browser)`.
 - Browser tests: poll with `page.waitForFunction(fn, null, {timeout})` — zero-arg predicates MUST pass `null` as the second argument; never fixed sleeps for sim assertions; generous wall budgets (software GL is slow); the harness binds :8123 itself, so stop any dev server before a run.
