@@ -34,7 +34,7 @@ Downstream of placement — overlap collision (minor/major), `applyResult`, gaug
   - **Center block** — 1–2 obstacles with `|x| ≤ 4` (the newly occupiable center), open water on both sides by construction.
   - **Staggered cluster** — 2–3 obstacles inside an 8 m-wide clump centered at a random `x ∈ [-10, 10]`, `z` jitter ±2.
 - **Kinds, radii, grounding unchanged.** `kindsFor`, `RADII`, y rules carry over verbatim. Intra-row `z` spread never exceeds ±2 (validator groups with `ROW_BAND 5`).
-- **Movers.** Flag probability `lerp(0, 0.55, d)`, `speed`/`range`/`phase` formulas unchanged — but a mover is assigned **only if both sweep extremes keep every row gap ≥ MIN_GAP** (checked at generation against the row's static layout; otherwise the obstacle stays static). No extra `rng()` draws on the static path, so determinism holds per seed. The validator (§3.2) re-checks extremes independently.
+- **Movers.** Flag probability `lerp(0, 0.55, d)`, `speed`/`range`/`phase` formulas unchanged — but a mover is assigned **only if its swept envelope preserves every row gap ≥ MIN_GAP** (same interval math as the validator; otherwise the obstacle stays static). No extra `rng()` draws on the static path, so determinism holds per seed. The validator (§3.2) re-checks extremes independently.
 - **Re-roll + fallback.** After composing, run `validateChunkGaps`. On failure, retry with `seed + attempt` (same index/difficulty/speed), up to 8 attempts. If all fail, emit the fallback row set: a single static rock at `x = +10` (always valid — proof: one 2.6-radius obstacle leaves a 22.8 m gap). Re-roll and fallback are pure and deterministic.
 
 ### 3.2 Validator — `js/worldgen.js`
@@ -42,7 +42,7 @@ Downstream of placement — overlap collision (minor/major), `applyResult`, gaug
 `validateChunkGaps(chunk) → boolean`. Pure, unit-tested, the single definition of "fair":
 
 1. Group obstacles into rows: sort by `z`, greedily group with `|dz| ≤ ROW_BAND` (5 m).
-2. Per row, collect blockers as lateral intervals `[x − r, x + r]`; **movers contribute two interval sets** (at `baseX − range` and `baseX + range`) and the row must pass under **both**.
+2. Per row, collect blockers as lateral intervals `[x − r, x + r]`; **movers contribute their full swept envelope** `[baseX − range − r, baseX + range + r]` — the gap must hold for every phase of the sweep, not just its endpoints (a controller ruling: strictly stronger than endpoint checks, and phase-independent).
 3. Sort intervals, sweep from `-laneHalfWidth` to `+laneHalfWidth`; the row passes iff the maximum open gap is `≥ MIN_GAP` (3.0 m = fish collision diameter 2 × 1.1 + 0.8 margin).
 4. The chunk passes iff every row passes. (Rows are ≥ 18 m apart by construction, so reachability between consecutive gaps needs no check — see §4.)
 
