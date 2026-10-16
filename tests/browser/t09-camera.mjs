@@ -6,6 +6,35 @@ const { browser, page, consoleErrors } = await openPage();
 // 1. FOV responds to tier (poll: FOV eases toward the target)
 await page.evaluate(() => window.__FFM_API.start());
 await page.waitForTimeout(150);
+// patterned water bites the unsteered (probe: gauge 105 -> capped 25 in 2.5s,
+// FOV never reaches tier target). Hold a clear line + moderate speed while the
+// camera measurements run — FOV/shake/kick never read position.
+await page.evaluate(() => {
+  const api = window.__FFM_API;
+  window.__DODGE = setInterval(() => {
+    try {
+      const s = api.state();
+      if (s.phase !== 'run' || s.locomotion !== 'swim') return;
+      api.debugSetSpeed(20);
+      const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+      const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
+      for (const d of discs) {
+        if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
+        let best = x, bd = 1e9;
+        for (let cx = -13; cx <= 13; cx += 1) {
+          let ok = true;
+          for (const e of discs) {
+            if (e.z < z0 - 6) continue;
+            if (Math.abs(e.x - cx) < e.radius + MARGIN) { ok = false; break; }
+          }
+          if (ok && Math.abs(cx - x) < bd) { bd = Math.abs(cx - x); best = cx; }
+        }
+        api.debugSetLateral(best);
+        break;
+      }
+    } catch (e) { /* test driver only */ }
+  }, 30);
+});
 await page.evaluate(() => window.__FFM_API.setGauge(105)); // max tier
 await page.waitForFunction(() => window.__FFM_API.debugCameraFov() >= 90, { timeout: 20000 });
 

@@ -7,26 +7,34 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 // Returns normalized template Groups keyed by obstacle kind.
 
 const TARGET_SIZE = {
-  'rock-small': 4.5, 'rock-medium': 6, 'rock-large': 8,
+  'rock-huge': 11, 'rock-medium': 6, 'rock-large': 8,
   buoy: 2.6, 'buoy-flag': 3.2,
-  'boat-speed': 9, 'boat-sail': 8, 'boat-tug': 7, ship: 12,
+  'boat-speed': 9, 'boat-speed-b': 9, 'boat-speed-c': 9,
+  'boat-sail': 8, 'boat-sail-b': 8,
+  'boat-tug': 7, 'boat-tug-b': 7, 'boat-fishing': 7,
+  ship: 18,
   container: 4.6,
 };
 
 const MODELS = [
-  ['rock-small', 'assets/models/rocks/small-rocks.fbx', TARGET_SIZE['rock-small']],
+  ['rock-huge', 'assets/models/rocks/extra-large-rocks.fbx', TARGET_SIZE['rock-huge']],
   ['rock-medium', 'assets/models/rocks/medium-rocks.fbx', TARGET_SIZE['rock-medium']],
   ['rock-large', 'assets/models/rocks/large-rocks.fbx', TARGET_SIZE['rock-large']],
   ['buoy', 'assets/models/watercraft/buoy.glb', TARGET_SIZE.buoy],
   ['buoy-flag', 'assets/models/watercraft/buoy-flag.glb', TARGET_SIZE['buoy-flag']],
   ['boat-speed', 'assets/models/watercraft/boat-speed-a.glb', TARGET_SIZE['boat-speed']],
+  ['boat-speed-b', 'assets/models/watercraft/boat-speed-b.glb', TARGET_SIZE['boat-speed-b']],
+  ['boat-speed-c', 'assets/models/watercraft/boat-speed-c.glb', TARGET_SIZE['boat-speed-c']],
   ['boat-sail', 'assets/models/watercraft/boat-sail-a.glb', TARGET_SIZE['boat-sail']],
+  ['boat-sail-b', 'assets/models/watercraft/boat-sail-b.glb', TARGET_SIZE['boat-sail-b']],
   ['boat-tug', 'assets/models/watercraft/boat-tug-a.glb', TARGET_SIZE['boat-tug']],
-  ['ship', 'assets/models/watercraft/ship-small.glb', TARGET_SIZE.ship],
+  ['boat-tug-b', 'assets/models/watercraft/boat-tug-b.glb', TARGET_SIZE['boat-tug-b']],
+  ['boat-fishing', 'assets/models/watercraft/boat-fishing-small.glb', TARGET_SIZE['boat-fishing']],
+  ['ship', 'assets/models/watercraft/ship-large.glb', TARGET_SIZE.ship],
   ['container', 'assets/models/watercraft/cargo-container-a.glb', TARGET_SIZE.container],
 ];
 
-const KIND_ALIASES = { rock: ['rock-small', 'rock-medium', 'rock-large'], buoy: ['buoy', 'buoy-flag'], boat: ['boat-speed', 'boat-sail', 'boat-tug'], container: ['container'] };
+const KIND_ALIASES = { rock: ['rock-huge', 'rock-medium', 'rock-large'], buoy: ['buoy', 'buoy-flag'], boat: ['boat-speed', 'boat-speed-b', 'boat-speed-c', 'boat-sail', 'boat-sail-b', 'boat-tug', 'boat-tug-b', 'boat-fishing'], container: ['container'], ship: ['ship'] };
 
 export async function loadModels() {
   const gltfLoader = new GLTFLoader();
@@ -84,6 +92,9 @@ function fallbackBox(size, color) {
 
 export function templateFor(templates, kind) {
   const options = KIND_ALIASES[kind] || [kind];
-  const key = options.find(k => templates[k]) || options[0];
-  return templates[key];
+  const loaded = options.filter(k => templates[k]);
+  if (!loaded.length) return templates[options[0]];
+  // random variant per spawn: identical silhouettes teach nothing about
+  // hitboxes. Rendering-only (Math.random) — gameplay radii live in worldgen.
+  return templates[loaded[Math.floor(Math.random() * loaded.length)]];
 }

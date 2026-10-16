@@ -27,12 +27,12 @@ export function difficultyAt(distanceMeters, runTimeSeconds) {
   return clamp01(Math.max(byDistance, byTime));
 }
 
-const RADII = { rock: 2.6, buoy: 1.1, boat: 3.4, container: 2.2 };
+const RADII = { rock: 4.0, buoy: 1.1, boat: 3.4, container: 2.2, ship: 6.5 };
 
 function kindsFor(difficulty, rng) {
   if (difficulty < 0.25) return ['rock', 'buoy'];
   if (difficulty < 0.6) return ['rock', 'buoy', 'boat'];
-  return ['rock', 'buoy', 'boat', 'container', 'buoy'];
+  return ['rock', 'buoy', 'boat', 'container', 'buoy', 'ship'];
 }
 
 function groundY(kind) { return kind === 'buoy' ? 1.2 : 0.7; }

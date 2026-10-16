@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateChunk, validateChunkGaps, difficultyAt, mulberry32, lerp } from '../../js/worldgen.js';
+import { generateChunk, validateChunkGaps, difficultyAt, mulberry32, lerp, RADIUS_TABLE } from '../../js/worldgen.js';
 import { WORLD, PATTERN } from '../../js/config.js';
 
 test('difficulty ramps by distance and time, capped at 1', () => {
@@ -124,7 +124,7 @@ test('obstacles stay within the lane bounds', () => {
   for (const o of chunk.obstacles) {
     assert.ok(Math.abs(o.x) <= WORLD.laneHalfWidth, 'x within lane');
     assert.ok(o.z > 0 && o.z <= WORLD.chunkLength, 'z within chunk');
-    assert.ok(o.kind in { rock: 1, buoy: 1, boat: 1, container: 1 }, 'known kind');
+    assert.ok(o.kind in { rock: 1, buoy: 1, boat: 1, container: 1, ship: 1 }, 'known kind');
   }
   // sweep: wall pieces must never land outside the lane (the fill cursor runs
   // past ±14 while centers may not)
@@ -153,4 +153,29 @@ test('lerp helper', () => {
 test('PATTERN config carries the fairness numbers', () => {
   assert.equal(PATTERN.minGap, 3.0);
   assert.equal(PATTERN.rowBand, 5);
+});
+
+test('hitbox radii match the readable-hazard roster (2026-10-16)', () => {
+  assert.equal(RADIUS_TABLE.rock, 4.0);      // huge rock visual: forgiving 8 m sphere
+  assert.equal(RADIUS_TABLE.ship, 6.5);      // 18 m hull: forgiving 13 m sphere
+  assert.equal(RADIUS_TABLE.boat, 3.4);
+  assert.equal(RADIUS_TABLE.buoy, 1.1);
+  assert.equal(RADIUS_TABLE.container, 2.2);
+});
+
+test('ships sail at high difficulty', () => {
+  let seen = false;
+  for (let i = 0; i < 60 && !seen; i++) {
+    for (const o of generateChunk(i, 1, 31, 40).obstacles) {
+      if (o.kind === 'ship') { seen = true; break; }
+    }
+  }
+  assert.ok(seen, 'a ship appears within 60 high-difficulty chunks');
+  let early = false;
+  for (let i = 0; i < 60 && !early; i++) {
+    for (const o of generateChunk(i, 0.2, 31, 25).obstacles) {
+      if (o.kind === 'ship') { early = true; break; }
+    }
+  }
+  assert.ok(!early, 'no ships below difficulty 0.6');
 });
