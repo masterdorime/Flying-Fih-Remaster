@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { WORLD } from './config.js';
-import { generateChunk, hasSafeCorridor } from './worldgen.js';
+import { generateChunk, validateChunkGaps } from './worldgen.js';
 import { templateFor } from './models.js';
 
 // Live world: chunk pool of instanced Kenney props + rock clusters, moving
@@ -11,11 +11,11 @@ export function createWorld(scene, templates) {
   let nextIndex = 0;
   let elapsed = 0;
 
-  function ensureChunks(playerZ, difficulty) {
+  function ensureChunks(playerZ, difficulty, speed) {
     const wantFrom = Math.floor((playerZ - WORLD.chunksBehind * WORLD.chunkLength) / WORLD.chunkLength);
     const wantTo = wantFrom + WORLD.chunksAhead + WORLD.chunksBehind;
     while (nextIndex < wantTo) {
-      chunks.set(nextIndex, buildChunk(nextIndex, difficulty));
+      chunks.set(nextIndex, buildChunk(nextIndex, difficulty, speed));
       nextIndex++;
     }
     for (const [i, chunk] of chunks) {
@@ -23,8 +23,8 @@ export function createWorld(scene, templates) {
     }
   }
 
-  function buildChunk(index, difficulty) {
-    const spec = generateChunk(index, difficulty, 1337);
+  function buildChunk(index, difficulty, speed) {
+    const spec = generateChunk(index, difficulty, 1337, speed);
     const group = new THREE.Group();
     const obstacles = [];
     for (const ob of spec.obstacles) {
@@ -40,18 +40,20 @@ export function createWorld(scene, templates) {
     return { group, obstacles, difficulty, z0: index * WORLD.chunkLength };
   }
 
-  function update(dt, playerPos, playerRadius, difficulty, onCollision) {
+  function update(dt, playerPos, playerRadius, difficulty, speed, onCollision) {
     elapsed += dt;
-    ensureChunks(playerPos.z, difficulty);
+    ensureChunks(playerPos.z, difficulty, speed);
 
     for (const chunk of chunks.values()) {
       for (const ob of chunk.obstacles) {
         const { spec, mesh } = ob;
         if (spec.moving) {
-          const sign = Math.sign(ob.baseX) || 1;
-          const mag = Math.abs(ob.baseX + Math.sin(elapsed * spec.speed + spec.phase) * spec.range);
-          const limit = WORLD.corridorHalfWidth + spec.radius;
-          mesh.position.x = sign * Math.min(WORLD.laneHalfWidth, Math.max(limit, mag));
+          // movers sweep the open water freely now (the generator + validator
+          // already guarantee the sweep never closes the row gap) — only the
+          // lane bounds still apply
+          const raw = ob.baseX + Math.sin(elapsed * spec.speed + spec.phase) * spec.range;
+          const sign = Math.sign(raw) || Math.sign(ob.baseX) || 1;
+          mesh.position.x = sign * Math.min(WORLD.laneHalfWidth, Math.abs(raw));
         }
         // collision test only for nearby props
         const dz = Math.abs(mesh.position.z - playerPos.z);
@@ -71,11 +73,6 @@ export function createWorld(scene, templates) {
         }
       }
     }
-  }
-
-  function clampX(x, radius) {
-    const limit = Math.max(WORLD.corridorHalfWidth + radius, 0.5);
-    return Math.min(WORLD.laneHalfWidth, Math.max(limit, x));
   }
 
   // ---- debug helpers (automated verification) ----
@@ -100,11 +97,37 @@ export function createWorld(scene, templates) {
     }
   }
 
-  function debugCorridorClear() {
+  // Live obstacle discs near a z-plane (gate spawn nudge reads these, so it
+  // sees movers where they are right now, not where the spec put them).
+  function obstaclesNear(z, halfRange) {
+    const discs = [];
     for (const chunk of chunks.values()) {
-      if (!hasSafeCorridor(chunk)) return false;
+      for (const ob of chunk.obstacles) {
+        if (Math.abs(ob.mesh.position.z - z) <= halfRange) {
+          discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: ob.spec.radius });
+        }
+      }
+    }
+    return discs;
+  }
+
+  function debugChunksValid() {
+    // spec.x is the layout base (only meshes move), so the pure validator
+    // reads the same sweep envelopes the generator promised
+    for (const chunk of chunks.values()) {
+      if (!validateChunkGaps({ obstacles: chunk.obstacles.map(ob => ob.spec) })) return false;
     }
     return true;
+  }
+
+  function debugCenterOccupied() {
+    // inside the retired corridor: proof the center is occupiable now
+    for (const chunk of chunks.values()) {
+      for (const ob of chunk.obstacles) {
+        if (Math.abs(ob.mesh.position.x) + ob.spec.radius < WORLD.corridorHalfWidth) return true;
+      }
+    }
+    return false;
   }
 
   function reset() {
@@ -113,5 +136,5 @@ export function createWorld(scene, templates) {
     nextIndex = 0;
   }
 
-  return { update, reset, chunks, debugCount, debugTeleport, debugCorridorClear };
+  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, debugCenterOccupied, obstaclesNear };
 }

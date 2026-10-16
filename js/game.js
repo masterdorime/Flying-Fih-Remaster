@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate } from './timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGateOverlap } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -147,6 +147,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       runTime: state.runTime,
       speed: state.speed,
     });
+    // the center is occupiable now: nudge the gate out of obstacle footprints
+    // (best-effort — a pathological stack can still overlap, and the QTE
+    // resolves normally there)
+    activeGate.x = resolveGateOverlap(activeGate.x, activeGate.z, world.obstaclesNear(activeGate.z, GATE.nudgeHalfRange));
     bus.emit('gate:spawn', activeGate);
     advanceTutorial('gate:spawn');
   }
@@ -286,7 +290,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     if (!locked) updateGates(prevPos, dt);
 
     // obstacle collisions: minor speed loss / major forced descent (PRD §11.3)
-    world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, (hit) => {
+    world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, state.speed, (hit) => {
       if (hit.major) {
         state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 20);
         state.gauge = Math.min(state.gauge, 25); // forced descent toward water
@@ -505,7 +509,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugObstacleCount: () => world.debugCount(),
     debugModelFailures: () => failures,
     debugTeleportToObstacle: () => world.debugTeleport(player),
-    debugCorridorClear: () => world.debugCorridorClear(),
+    debugChunksValid: () => world.debugChunksValid(),
+    debugCenterOccupied: () => world.debugCenterOccupied(),
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugCoins: () => coins.debugInfo(),
     debugFish: () => ({ skyfin: !fish.procedural }),

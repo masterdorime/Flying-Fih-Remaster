@@ -137,7 +137,7 @@ export const WORLD = {
   chunksAhead: 3,
   chunksBehind: 2,
   laneHalfWidth: 14,   // playable lateral bounds
-  corridorHalfWidth: 5 // obstacles never enter this central corridor (safety, PRD §12.4)
+  corridorHalfWidth: 5 // legacy width constant (the corridor is occupiable since Phase 3; reused as a measuring stick)
 };
 
 export const DIFFICULTY = {

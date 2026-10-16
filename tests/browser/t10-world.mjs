@@ -25,9 +25,20 @@ await page.waitForFunction((s) => window.__FFM_API.state().speed < s - 3, before
 const after = await page.evaluate(() => window.__FFM_API.state());
 assert(after.speed < before.speed - 3, `collision cuts speed (${before.speed.toFixed(1)} -> ${after.speed.toFixed(1)})`);
 
-// 4. obstacles never block the central corridor (safety by construction, worldgen-tested)
-const corridorClear = await page.evaluate(() => window.__FFM_API.debugCorridorClear());
-assert(corridorClear, 'central corridor stays passable');
+// 4. every live chunk validates: each obstacle row keeps a swimmable gap
+// (patterns replaced the always-clear corridor — validity is per-row now;
+// center-occupation is proven deterministically in unit tests, since an
+// unsteered fish is SUPPOSED to wreck itself on the new hazards now)
+let chunksValid = await page.evaluate(() => window.__FFM_API.debugChunksValid());
+assert(chunksValid, 'spawn chunks keep a >= 3 m gap per row');
+// run a while — or until the unsteered fish wrecks itself, which proves the
+// hazards bite — then re-validate the fresh chunks either way
+await page.waitForFunction(() => {
+  const s = window.__FFM_API.state();
+  return s.distance > 150 || (s.phase !== 'run' && s.phase !== 'tutorial');
+}, null, { timeout: 90000 });
+chunksValid = await page.evaluate(() => window.__FFM_API.debugChunksValid());
+assert(chunksValid, 'fresh chunks keep a >= 3 m gap per row');
 
 // 5. render loop keeps advancing with the loaded models
 const framesA = await page.evaluate(() => window.__FFM.frames);
