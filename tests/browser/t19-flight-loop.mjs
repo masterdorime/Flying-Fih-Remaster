@@ -20,6 +20,43 @@ await page.evaluate(() => {
 
   window.__FFM_API.start();
   window.__FFM_API.setTimeScale(3); // sim runs slow under software GL
+  // patterned water bites the unsteered: hold a clear lateral line while the
+  // ritual setups swim (x-only nudges — locomotion/gauge/FOV untouched).
+  // Cleared at charge (steering is measured there), restarted after, done at leap.
+  window.__DODGE = setInterval(() => {
+    try {
+      const api = window.__FFM_API;
+      const s = api.state();
+      if (s.phase !== 'run' && s.phase !== 'tutorial') return;
+      // swim, charge, leap: the ritual setups travel through patterned water.
+      // Fly/descend have no ocean hazards; results/menu freeze the sim.
+      // Never cleared except around the steering measurement below — after
+      // that it runs to end of test (inert outside swim/charge/leap, and the
+      // page dies with the test).
+      if (s.locomotion !== 'swim' && s.locomotion !== 'charge' && s.locomotion !== 'leap') return;
+      // hold a moderate swim speed (see t17): at 100+ u/s, software-GL frames
+      // advance tens of meters per tick and the fish tunnels through rows
+      // between decisions. No ritual assert measures speed values.
+      if (s.locomotion === 'swim') api.debugSetSpeed(20);
+      const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+      // query wide, land careful: the landing x must clear ABEAM hazards too
+      const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
+      for (const d of discs) {
+        if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
+        let best = x, bd = 1e9;
+        for (let cx = -13; cx <= 13; cx += 1) {
+          let ok = true;
+          for (const e of discs) {
+            if (e.z < z0 - 6) continue;
+            if (Math.abs(e.x - cx) < e.radius + MARGIN) { ok = false; break; }
+          }
+          if (ok && Math.abs(cx - x) < bd) { bd = Math.abs(cx - x); best = cx; }
+        }
+        api.debugSetLateral(best);
+        break;
+      }
+    } catch (e) { /* test driver only */ }
+  }, 30);
 });
 await page.waitForTimeout(300);
 
@@ -48,16 +85,22 @@ const gated = await page.evaluate(async () => {
   return api.state();
 });
 assertEqual(gated.locomotion, 'swim', 'full gauge without a chain does NOT launch (gate holds)');
+assertEqual(gated.phase, 'run', 'the setup swim survived the patterned water');
 
-// rebuild the chain (the gauge is already full), then the first flight opens
+// rebuild the chain AND refill the gauge: stray gate-misses and obstacle clips
+// during the poll above drain it, and 5 top-up perfects from a drained base
+// can't always reach the 100 launch threshold. Loop to BOTH conditions —
+// synchronous, so no frame can intervene before the charge check fires.
 await page.evaluate(() => {
   const api = window.__FFM_API;
-  for (let i = 0; i < 20 && api.state().chain < 5; i++) api.applyResult('perfect');
+  for (let i = 0; i < 40 && (api.state().chain < 5 || api.state().gauge < 100); i++) api.applyResult('perfect');
 });
 await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'charge', { timeout: 30000 });
 s = await page.evaluate(() => window.__FFM_API.state());
 assertEqual(s.locomotion, 'charge', 'first flight enters the SPAM charge phase');
 assert(await page.isVisible('#ffm-charge-meter'), 'charge meter shows during the QTE');
+// the dodger stands down while steering is measured, then resumes to the leap
+await page.evaluate(() => clearInterval(window.__DODGE));
 
 // the fish can still steer toward screen-right while charging (aim the launch)
 const cx0 = await page.evaluate(() => window.__FFM_API.state().position[0]);
@@ -66,9 +109,45 @@ await page.waitForFunction((x) => window.__FFM_API.state().position[0] < x - 1, 
 const steered = await page.evaluate(() => window.__FFM_API.state());
 await page.keyboard.up('KeyD');
 assert(steered.position[0] < cx0 - 1, `charge allows steering (x ${cx0.toFixed(1)} -> ${steered.position[0].toFixed(1)})`);
+// dodger back on: the rest of the charge swims straight through patterned water
+await page.evaluate(() => {
+  const api = window.__FFM_API;
+  window.__DODGE = setInterval(() => {
+    try {
+      const s = api.state();
+      if (s.phase !== 'run' && s.phase !== 'tutorial') return;
+      // swim, charge, leap: the ritual travels through patterned water the
+      // whole way up. Left running to end of test (inert elsewhere).
+      if (s.locomotion !== 'swim' && s.locomotion !== 'charge' && s.locomotion !== 'leap') return;
+      // hold a moderate swim speed (see t17): at 100+ u/s, software-GL frames
+      // advance tens of meters per tick and the fish tunnels through rows
+      // between decisions. No ritual assert measures speed values.
+      if (s.locomotion === 'swim') api.debugSetSpeed(20);
+      const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+      // query wide, land careful: the landing x must clear ABEAM hazards too
+      const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
+      for (const d of discs) {
+        if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
+        let best = x, bd = 1e9;
+        for (let cx = -13; cx <= 13; cx += 1) {
+          let ok = true;
+          for (const e of discs) {
+            if (e.z < z0 - 6) continue;
+            if (Math.abs(e.x - cx) < e.radius + MARGIN) { ok = false; break; }
+          }
+          if (ok && Math.abs(cx - x) < bd) { bd = Math.abs(cx - x); best = cx; }
+        }
+        api.debugSetLateral(best);
+        break;
+      }
+    } catch (e) { /* test driver only */ }
+  }, 30);
+});
 
-// mashing overfills the gauge; the 5s timer forces the blow either way
-await page.evaluate(() => { for (let i = 0; i < 6; i++) window.__FFM_API.debugSpam(); });
+// mashing overfills the gauge; the 5s timer forces the blow either way.
+// 20 spams overfill from any gauge value, so the blow lands on the next frame
+// instead of after seconds of unprotected charge swimming.
+await page.evaluate(() => { for (let i = 0; i < 20; i++) window.__FFM_API.debugSpam(); });
 await page.waitForFunction(() => window.__FFM_API.state().locomotion === 'leap', { timeout: 30000 });
 
 // the cinematic leap swells the FOV (60 -> 95) while the camera orbits.

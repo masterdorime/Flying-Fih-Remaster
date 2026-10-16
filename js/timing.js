@@ -85,22 +85,34 @@ export function qteRemaining(qte, now) {
   return Math.max(0, qte.startedAt + qte.goodWindow - now);
 }
 
-// Nudge a freshly spawned gate out of obstacle footprints (Phase 3: the
-// center is occupiable now). Pure geometry: for each live obstacle disc near
-// the gate plane, push the gate x to the nearest side with GATE.nudgeMargin
-// clearance; clamp to the lane. Single nearest-first pass — best-effort, so a
-// pathological stack can still overlap; crossing the mouth stays possible.
+// Nudge a freshly spawned gate to clear nearby water (Phase 3: the center is
+// occupiable now). Pure geometry: a spawn that already clears every live
+// obstacle disc near the gate plane by GATE.nudgeMargin never moves
+// (open-water gates stay exactly put — teleports and tests rely on it).
+// Otherwise take the CLEAREST available x, not merely the nearest passable
+// one: the fish teleports onto the gate and swims its departure line from
+// there, so the gap center (meters of margin) is the only safe target — a
+// margin-edge point clips the neighbor rock on the way out. Ties keep the
+// nearest candidate. Best-effort throughout: dense water may have no fully
+// clear point, but crossing the mouth always stays possible.
 export function resolveGateOverlap(gateX, gateZ, discs) {
-  let x = gateX;
-  const near = discs
-    .filter(d => Math.abs(d.z - gateZ) <= 5)
-    .sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x));
-  for (const d of near) {
-    const need = d.radius + GATE.nudgeMargin;
-    const dx = x - d.x;
-    if (Math.abs(dx) < need) x = d.x + (dx >= 0 ? need : -need);
+  const near = discs.filter(d => Math.abs(d.z - gateZ) <= GATE.nudgeHalfRange);
+  const clearance = (x) => {
+    let c = Infinity;
+    for (const d of near) c = Math.min(c, Math.abs(x - d.x) - d.radius);
+    return c;
+  };
+  if (clearance(gateX) >= GATE.nudgeMargin) return gateX;
+  const lane = WORLD.laneHalfWidth;
+  const candidates = [];
+  for (let x = -lane; x <= lane; x += 0.5) candidates.push(x);
+  candidates.sort((a, b) => Math.abs(a - gateX) - Math.abs(b - gateX) || a - b);
+  let best = gateX, bestScore = clearance(gateX);
+  for (const x of candidates) {
+    const s = clearance(x);
+    if (s > bestScore + 1e-9) { bestScore = s; best = x; }
   }
-  return clamp(x, -WORLD.laneHalfWidth, WORLD.laneHalfWidth);
+  return best;
 }
 
 // The player sailed past the gate without entering it.

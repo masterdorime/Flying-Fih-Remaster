@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT, GATE } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT, GATE, WORLD } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
@@ -510,7 +510,14 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugModelFailures: () => failures,
     debugTeleportToObstacle: () => world.debugTeleport(player),
     debugChunksValid: () => world.debugChunksValid(),
-    debugCenterOccupied: () => world.debugCenterOccupied(),
+    // test-driver visibility + steering for patterned water: read live hazard
+    // discs (movers included), and hold a lateral line. t15/t17/t19 drive
+    // these — an unsteered fish is SUPPOSED to wreck itself now.
+    debugObstaclesNear: (z, halfRange) => world.obstaclesNear(z, halfRange),
+    debugSetLateral: (x) => {
+      player.state.position.x = Math.min(WORLD.laneHalfWidth, Math.max(-WORLD.laneHalfWidth, x));
+      return player.state.position.x;
+    },
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugCoins: () => coins.debugInfo(),
     debugFish: () => ({ skyfin: !fish.procedural }),

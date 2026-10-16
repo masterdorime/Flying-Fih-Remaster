@@ -116,13 +116,43 @@ function gate(over = {}) {
   return { id: 1, x: 0, y: 0, z: 100, resolved: false, result: null, ...over };
 }
 
-test('resolveGateOverlap: inside footprint pushes to nearest clear side', () => {
+test('resolveGateOverlap: open water never moves the gate', () => {
   const discs = [{ x: 2, z: 100, radius: 2.6 }];
-  assert.ok(Math.abs(resolveGateOverlap(2, 100, discs) - (2 + 2.6 + 1.6)) < 1e-9, 'pushed +x');
-  assert.equal(resolveGateOverlap(-3, 100, discs), -3);            // far: unchanged
-  assert.equal(resolveGateOverlap(0, 200, discs), 0);              // far in z: unchanged
-  assert.equal(resolveGateOverlap(13.5, 100, [{ x: 13, z: 100, radius: 2 }]), 14); // clamped
-  const two = [{ x: 1, z: 100, radius: 2 }, { x: -1, z: 100, radius: 2 }];
-  const out = resolveGateOverlap(0.2, 100, two);
-  assert.ok(Number.isFinite(out) && Math.abs(out) <= 14, `finite in-bounds result (${out})`);
+  assert.equal(resolveGateOverlap(-3, 100, discs), -3); // far: unchanged
+  assert.equal(resolveGateOverlap(0, 200, discs), 0);   // far in z: unchanged
+  assert.equal(resolveGateOverlap(0, 100, []), 0);       // no hazards: unchanged
+});
+
+test('resolveGateOverlap: seeks the clearest water, never worse than spawn', () => {
+  const wall = [
+    { x: -6.5, z: 100, radius: 7.5 }, // footprint [-14, 1]
+    { x: 9.5, z: 100, radius: 4.5 },  // footprint [5, 14]: gap [1, 5]
+  ];
+  const clearance = (x, discs) => Math.min(...discs.map(d => Math.abs(x - d.x) - d.radius));
+  const out = resolveGateOverlap(0, 100, wall);
+  assert.ok(Math.abs(out - 3) <= 0.5, `gate settles into the wall gap (x=${out})`);
+  assert.ok(clearance(out, wall) >= 1.6, `gap clearance swimmable (${clearance(out, wall)})`);
+  // threatened spawn takes the GAP CENTER, not the nearest margin edge: the
+  // fish teleports onto the gate and swims out from there, so only meters of
+  // margin survive the departure (nearest-satisfactory would stop at 3.6)
+  const den = [
+    { x: 0, z: 100, radius: 2 },
+    { x: -9, z: 100, radius: 5 },
+    { x: 11, z: 100, radius: 3 },
+  ];
+  assert.ok(Math.abs(resolveGateOverlap(0, 100, den) - 5) <= 0.5, 'gap center, not margin edge');
+  // fuzz: the result is always in-bounds and never less clear than the spawn
+  let rngState = 12345;
+  const frand = () => (rngState = (rngState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = 0; i < 50; i++) {
+    const discs = [];
+    const n = Math.floor(frand() * 5);
+    for (let k = 0; k < n; k++) {
+      discs.push({ x: frand() * 28 - 14, z: 100 + (frand() * 2 - 1) * 5, radius: 1 + frand() * 2.5 });
+    }
+    const gx = frand() * 8 - 4;
+    const r = resolveGateOverlap(gx, 100, discs);
+    assert.ok(Number.isFinite(r) && Math.abs(r) <= 14, `finite in-bounds result (${r})`);
+    assert.ok(clearance(r, discs) >= clearance(gx, discs) - 1e-9, 'never less clear than spawn');
+  }
 });

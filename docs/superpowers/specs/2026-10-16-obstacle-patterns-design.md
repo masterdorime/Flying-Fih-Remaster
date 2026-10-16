@@ -53,7 +53,7 @@ Downstream of placement — overlap collision (minor/major), `applyResult`, gaug
 Gates spawn at `|x| ≤ 4`, which patterns may now occupy. At spawn, the gate is nudged to swimmable water:
 
 - `world.obstaclesNear(z, halfRange)` (new, live data): `{ x, z, radius }` for every live obstacle mesh with `|mesh.z − z| ≤ halfRange`, using **live mesh x** (includes mover offsets).
-- `resolveGateOverlap(gateX, gateZ, discs)` (new pure export in `js/timing.js`, beside the QTE math): for each disc with `|disc.z − gateZ| ≤ 5`, if `|gateX − disc.x| < disc.radius + GATE_NUDGE_MARGIN`, push `gateX` to the nearest side at exactly that distance; clamp to `±laneHalfWidth`. Single pass over discs nearest-first. If the pass still leaves an overlap (pathological stacking), the gate stays — crossing the mouth remains possible and the QTE resolves normally; the nudge is best-effort, never a spawn failure.
+- `resolveGateOverlap(gateX, gateZ, discs)` (new pure export in `js/timing.js`, beside the QTE math): scores candidate x positions by clearance (lateral distance past each footprint) over live discs with `|disc.z − gateZ| ≤ GATE.nudgeHalfRange`. A spawn that already clears everything by `GATE.nudgeMargin` never moves (open-water gates stay exactly put — teleports and tests rely on it). Otherwise the clearest available x wins, ties keeping the nearest: near a wall that is the wall's gap center, so the fish teleports onto the gate and swims its departure line with meters of margin rather than a margin-edge graze. Best-effort throughout — dense water may have no fully clear point — and crossing the mouth always stays possible.
 - `trySpawnGate` calls `createGate` as today, then applies `resolveGateOverlap` against `world.obstaclesNear(gate.z, 6)` before publishing. Note: on the very first frames chunks may not yet cover the gate's `z` (world builds in `update`, after gates) — `obstaclesNear` then returns `[]` and the gate spawns un-nudged. Acceptable: open water at run start.
 - Unit-tested: inside footprint → pushed to nearest clear side; far → unchanged; clamped at lane bounds; deterministic.
 
@@ -62,7 +62,7 @@ Gates spawn at `|x| ≤ 4`, which patterns may now occupy. At spawn, the gate is
 - `buildChunk(index, difficulty, speed)` — passes `speed` into `generateChunk`; seed constant 1337 unchanged.
 - `world.update(dt, pos, radius, difficulty, speed, onCollision)` gains the trailing `speed` param; `game.js:289` passes `state.speed`. (Trailing position keeps the diff minimal.)
 - Mover clamp (`:53-54`) drops the corridor floor: `mesh.position.x = sign × min(laneHalfWidth, mag)` — movers may now sweep the center; the generator + validator already guarantee the sweep never closes the gap. `clampX` (corridor-based) is updated to lane-only or retired if unreferenced (grep in implementation).
-- `debugCorridorClear` → `debugChunksValid` (every live chunk passes `validateChunkGaps`), through the same `game.js` → `main.js` → `__FFM_API` chain. Plus `debugCenterOccupied()` (any live obstacle with `|x| + radius < 5`, i.e. inside the old corridor) for the t10 proof that the center is occupiable.
+- `debugCorridorClear` → `debugChunksValid` (every live chunk passes `validateChunkGaps`), through the same `game.js` → `main.js` → `__FFM_API` chain. Plus `debugObstaclesNear(z, halfRange)` (live discs for test drivers) and `debugSetLateral(x)` (lane-clamped test steering).
 - Collision, `debugTeleport`, `reset`, chunk pooling: untouched.
 
 ### 3.5 Tutorial / HUD / audio
@@ -88,7 +88,8 @@ New `PATTERN` block in `js/config.js`; `GATE` gains `nudgeMargin`/`nudgeHalfRang
 ## 5. Debug / automation API
 
 - `debugChunksValid()` → bool (replaces `debugCorridorClear()` through `game`/`main`/`__FFM_API`)
-- `debugCenterOccupied()` → bool (any live obstacle inside the old corridor)
+- `debugObstaclesNear(z, halfRange)` → live `{ x, z, radius }` discs (movers at current positions)
+- `debugSetLateral(x)` → lane-clamped test steering, returns the set x
 - `debugObstacleCount()`, `debugTeleportToObstacle()` unchanged
 - Unit surface: `generateChunk`, `validateChunkGaps`, `resolveGateOverlap` (all pure)
 
@@ -100,12 +101,12 @@ Kept verbatim: determinism (now over `(index, difficulty, seed, speed)`), ground
 - `validateChunkGaps`: hand-built blocked row (full-width wall, no gap) → false; wall with 3.2 gap → true; boundary (exactly 3.0) → true; mover whose extreme closes the gap → false; mover clearing at both extremes → true.
 - Patterns: 200 seeded chunks per difficulty — every chunk valid (re-roll/fallback proof); wall rows have exactly one gap ≥ 3.2; slalom rows alternate sides when consecutive; center-block rows exist somewhere in the first 10 chunks (seed 1337); ≥ 2 distinct pattern ids across the first 10 chunks (deterministic — fixed seed).
 - `generateChunk` signature: old 3-arg calls updated; speed changes spacing (same seed, speed 8 vs 110 → different row z's, same validity).
-- `resolveGateOverlap` (timing.test.js): gate inside footprint → nearest clear side at `radius + 1.6`; far gate → unchanged; clamp at ±14; two discs → nearest-first single pass.
+- `resolveGateOverlap` (timing.test.js): open-water/far gates unchanged; threatened spawn settles into the wall gap (gap center, not margin edge); fuzz over 50 random layouts: result in-bounds and never less clear than spawn.
 - Retirements grep-verified: `hasSafeCorridor`, `debugCorridorClear`, `obstacleDensityStart/End`.
 
 ### Browser
 
-- **t10-world (rewritten §4 + additions)**: `debugChunksValid()` true after running; `debugCenterOccupied()` true within the run (center is occupiable now); collision section (§3) and population (§1) unchanged. All other sections byte-identical.
+- **t10-world (§4 rewritten)**: `debugChunksValid()` true at spawn and after travel-or-run-end (an unsteered fish is supposed to wreck itself on patterned water now — dodging is gameplay — so the section tolerates run end; center-occupation is proven deterministically in unit tests instead of by browser polling).
 - **t08/t13/t15/t17/t19**: gates nudge near obstacles — teleport hooks follow the live gate, grades unaffected. Must stay green unchanged (nudge is spawn-time only).
 - t01/t07–t09/t11/t12/t14/t16/t18/t20: green unchanged.
 

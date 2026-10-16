@@ -12,6 +12,30 @@ const result = await page.evaluate(async () => {
   const api = window.__FFM_API;
   api.start();
   api.setTimeScale(4);
+  // patterned water bites the unsteered: between gates, hold a clear lateral
+  // line (x-only nudges, like the teleports — gauge economy untouched).
+  // The landing x must clear ABEAM hazards too (|dz| <= 6): jumping blind
+  // sideways is how you teleport into a neighbor rock.
+  const dodge = () => {
+    const s = api.state();
+    if (s.phase !== 'run' || s.locomotion !== 'swim') return;
+    const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+    const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
+    for (const d of discs) {
+      if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
+      let best = x, bd = 1e9;
+      for (let cx = -13; cx <= 13; cx += 1) {
+        let ok = true;
+        for (const e of discs) {
+          if (e.z < z0 - 6) continue;
+          if (Math.abs(e.x - cx) < e.radius + MARGIN) { ok = false; break; }
+        }
+        if (ok && Math.abs(cx - x) < bd) { bd = Math.abs(cx - x); best = cx; }
+      }
+      api.debugSetLateral(best);
+      break;
+    }
+  };
   let maxTier = 'none';
   let filledAt = null;
   const deadline = Date.now() + 120000;
@@ -24,8 +48,17 @@ const result = await page.evaluate(async () => {
     if (s.gauge >= 100 && s.runTime >= 60) break;
     if (api.gate()) {
       api.debugTeleportToRing(); // chain perfects: cross the mouth, press in the window
-      if (api.qte()) api.debugPress(); // only once the window is open — never into the charge spam
+      const q = api.qte();
+      // deterministic grade: press inside the perfect window no matter how slow
+      // the frames are (CDP latency at 4x sim would otherwise eat perfects)
+      if (q) api.debugPressAt(q.startedAt + 0.05);
+    } else {
+      dodge(); // cooldown gaps: stay in clear water so chains survive to MAX
     }
+    // hold a moderate speed: at 100+ u/s, software-GL frames advance tens of
+    // meters per tick and the fish tunnels through rows between decisions.
+    // Speed is not measured here (gauge chains are) — this isolates the economy.
+    api.debugSetSpeed(20);
   }
   const final = api.state();
   api.setTimeScale(1);

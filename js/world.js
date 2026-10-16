@@ -120,21 +120,11 @@ export function createWorld(scene, templates) {
     return true;
   }
 
-  function debugCenterOccupied() {
-    // inside the retired corridor: proof the center is occupiable now
-    for (const chunk of chunks.values()) {
-      for (const ob of chunk.obstacles) {
-        if (Math.abs(ob.mesh.position.x) + ob.spec.radius < WORLD.corridorHalfWidth) return true;
-      }
-    }
-    return false;
-  }
-
   function reset() {
     for (const chunk of chunks.values()) scene.remove(chunk.group);
     chunks.clear();
     nextIndex = 0;
   }
 
-  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, debugCenterOccupied, obstaclesNear };
+  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, obstaclesNear };
 }
