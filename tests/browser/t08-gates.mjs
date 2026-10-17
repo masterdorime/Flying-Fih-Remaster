@@ -4,7 +4,7 @@
 // plain Miss with no window at all; a pending window owns its gate so the
 // behind-miss can't fire early; one live gate at a time, spaced by the
 // cooldown. Popups use the observer-recorder pattern (~850ms lifetime).
-// The #ffm-qte cue mirrors the window (grow, drain, hide), and a press while
+// The #ffm-qte cue mirrors the window (ring prompt, drain, hide), and a press while
 // paused must not grade.
 import { startServer, stopServer, openPage, closePage, assert, assertEqual } from './harness.mjs';
 
@@ -180,9 +180,9 @@ await page.waitForFunction(() => {
 const cue = await page.evaluate(() => {
   const el = document.querySelector('#ffm-qte');
   const drain = document.querySelector('#ffm-qte-drain');
-  return { drainWidth: drain ? drain.style.width : '', label: el.textContent };
+  return { progress: drain ? drain.dataset.progress : '', label: el.textContent };
 });
-assert(cue.drainWidth.endsWith('%'), `the countdown ring drains (${cue.drainWidth})`);
+assert(Number.isFinite(Number(cue.progress)), `the countdown arc tracks the window (${cue.progress})`);
 assert(cue.label.includes('SPACE'), `the prompt names the key (${cue.label})`);
 await page.evaluate(() => window.__FFM_API.debugPress());
 await page.waitForFunction(() => {

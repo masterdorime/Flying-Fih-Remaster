@@ -2,8 +2,9 @@ import { GAUGE, GAMEOVER, FLIGHT } from './config.js';
 import { qteRemaining } from './timing.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
-// Also carries the ring-triggered QTE cue: a draining bar that lives exactly as
-// long as the press window (js/timing.js's qteRemaining is the single clock).
+// Also carries the ring-triggered QTE cue: a circular key prompt whose ring
+// drains exactly as long as the press window (js/timing.js's qteRemaining is
+// the single clock).
 
 export function createHud(root) {
   root.insertAdjacentHTML('beforeend', `
@@ -22,7 +23,10 @@ export function createHud(root) {
         </div>
       </div>
       <div id="ffm-qte" class="ffm-qte hidden">
-        <div class="ffm-qte-ring"><div class="ffm-qte-drain" id="ffm-qte-drain"></div></div>
+        <svg class="ffm-qte-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="ffm-qte-track" cx="50" cy="50" r="44"></circle>
+          <circle id="ffm-qte-drain" class="ffm-qte-arc" cx="50" cy="50" r="44"></circle>
+        </svg>
         <div class="ffm-qte-key">SPACE</div>
       </div>
       <div class="ffm-stats">
@@ -61,14 +65,18 @@ export function createHud(root) {
       background: rgba(8, 30, 46, .72); border: 1px solid rgba(255, 140, 120, .55); overflow: hidden; }
     .ffm-charge-fill { height: 100%; width: 0%; border-radius: 6px;
       background: linear-gradient(90deg, #ffd54a, #ff9430, #ff4d6d); transition: width .08s linear; }
-    #ffm-qte { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); text-align: center;
+    #ffm-qte { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+      width: 112px; height: 112px; display: flex; align-items: center; justify-content: center;
       pointer-events: none; }
-    .ffm-qte-ring { width: 64px; height: 8px; margin: 0 auto; border-radius: 6px;
-      background: rgba(8, 30, 46, .72); border: 1px solid rgba(160, 220, 255, .35); overflow: hidden; }
-    .ffm-qte-drain { height: 100%; width: 0%; border-radius: 6px;
-      background: linear-gradient(90deg, #4dd2ff, #7dff9a); transition: width .06s linear; }
-    .ffm-qte-key { margin-top: 5px; color: #eaf6ff; font-size: 11px; font-weight: 700;
-      letter-spacing: .22em; text-transform: uppercase; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .ffm-qte-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .ffm-qte-track { fill: none; stroke: rgba(8, 30, 46, .72); stroke-width: 8; }
+    .ffm-qte-arc { fill: none; stroke: #4dd2ff; stroke-width: 8; stroke-linecap: round;
+      stroke-dasharray: 276.5; transform: rotate(-90deg); transform-origin: 50% 50%;
+      transition: stroke-dashoffset .06s linear;
+      filter: drop-shadow(0 0 7px rgba(77, 210, 255, .5)); }
+    .ffm-qte-key { position: relative; color: #eaf6ff; font-size: 14px; font-weight: 700;
+      letter-spacing: .22em; text-indent: .22em; text-transform: uppercase;
+      text-shadow: 0 2px 8px rgba(0,0,0,.55); }
     @keyframes ffm-charge-pulse { from { opacity: .65; } to { opacity: 1; } }
   `;
   document.head.appendChild(style);
@@ -128,15 +136,18 @@ export function createHud(root) {
   // QTE cue: shows only while a press window is open, draining on the same
   // runTime clock the auto-miss uses. Gold while the perfect zone is still
   // live, then the HUD's cyan for the remainder of the good window.
+  const QTE_ARC = 276.5; // 2πr for the r-44 prompt ring
   function updateQte(qte, runTime) {
     if (!qte) { qteEl.classList.add('hidden'); return; }
     qteEl.classList.remove('hidden');
     const t = Math.min(1, Math.max(0, 1 - qteRemaining(qte, runTime) / qte.goodWindow));
-    drainEl.style.width = (t * 100).toFixed(1) + '%';
+    drainEl.style.strokeDashoffset = (QTE_ARC * t).toFixed(1);
+    drainEl.dataset.progress = (t * 100).toFixed(1);
     const inPerfect = t <= qte.perfectWindow / qte.goodWindow;
-    drainEl.style.background = inPerfect
-      ? 'linear-gradient(90deg, #ffd54a, #ff9430)'
-      : 'linear-gradient(90deg, #4dd2ff, #7dff9a)';
+    drainEl.style.stroke = inPerfect ? '#ffd54a' : '#4dd2ff';
+    drainEl.style.filter = inPerfect
+      ? 'drop-shadow(0 0 7px rgba(255, 213, 74, .55))'
+      : 'drop-shadow(0 0 7px rgba(77, 210, 255, .5))';
   }
 
   return { update, updateQte };
