@@ -29,7 +29,9 @@ assertEqual(s.tier, 'max', 'full gauge is max tier in flight');
 
 // 2. flight holds a fixed altitude above the cloud curtain
 await page.waitForFunction(() => window.__FFM_API.state().position[1] > 70, null, { timeout: 40000 });
-await page.waitForTimeout(1500); // let it settle
+// settle: condition-wait, not a fixed nap — the decaying software-GL rig can
+// take tens of wall-seconds to climb the last 15 m
+await page.waitForFunction(() => Math.abs(window.__FFM_API.state().position[1] - 85) < 8, null, { timeout: 120000 });
 s = await page.evaluate(() => window.__FFM_API.state());
 assert(Math.abs(s.position[1] - 85) < 8, `flight altitude settles near 85, above the clouds (y=${s.position[1].toFixed(1)})`);
 assert(s.speed > 8, `fish keeps flying forward (speed=${s.speed.toFixed(1)})`);

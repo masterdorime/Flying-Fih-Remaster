@@ -140,7 +140,7 @@ await page.evaluate(() => { window.__FFM_API.debugSetSpeed(40); window.__FFM_API
 const descentMisses = await page.evaluate(async () => {
   const api = window.__FFM_API;
   let sawGateWhileDescending = false;
-  const until = Date.now() + 40000;
+  const until = Date.now() + 120000; // decaying software-GL rig: sim runs ~0.05x real late in a page
   while (Date.now() < until) {
     await new Promise(r => setTimeout(r, 25));
     const s = api.state();
@@ -210,9 +210,10 @@ const paused = await page.evaluate(() => {
 assert(paused.stillPending, 'a press while paused does not grade the window');
 
 // 12. a run ending with a QTE pending clears it (no stuck cue, no stale state)
-await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+// (decayed-rig headroom: deep in a long page the sim runs ~0.05x real)
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 120000 });
 await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
-await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
+await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
 await page.evaluate(() => window.__FFM_API.endRun());
 const postEnd = await page.evaluate(() => ({ qte: window.__FFM_API.qte(), phase: window.__FFM_API.state().phase }));
 assertEqual(postEnd.qte, null, 'ending a run clears a pending QTE');
