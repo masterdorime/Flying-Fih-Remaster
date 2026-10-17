@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateChunk, validateChunkGaps, difficultyAt, mulberry32, lerp, RADIUS_TABLE } from '../../js/worldgen.js';
+import { generateChunk, validateChunkGaps, difficultyAt, mulberry32, lerp, RADIUS_TABLE, findClearLane } from '../../js/worldgen.js';
 import { WORLD, PATTERN } from '../../js/config.js';
 
 test('difficulty ramps by distance and time, capped at 1', () => {
@@ -178,4 +178,23 @@ test('ships sail at high difficulty', () => {
     }
   }
   assert.ok(!early, 'no ships below difficulty 0.6');
+});
+
+test('findClearLane: the coin trail starts on the clearest line through its span', () => {
+  assert.deepEqual(findClearLane([], 100, 124), { x: 0, clearance: Infinity });
+
+  // a fenced row mid-span with a 4 m gap centered at x 4
+  const wall = [
+    { x: -10, z: 110, radius: 2 }, { x: -6, z: 110, radius: 2 },
+    { x: 0, z: 110, radius: 2 }, { x: 8, z: 110, radius: 2 }, { x: 13, z: 110, radius: 1.5 },
+  ];
+  const lane = findClearLane(wall, 100, 124);
+  assert.ok(Math.abs(lane.x - 4) <= 0.5, `gap center wins (x=${lane.x})`);
+  assert.ok(lane.clearance >= 2 - 1e-9, `gap clearance reported (${lane.clearance})`);
+
+  // sweep envelope: a fat disc fences its whole range — the lane clears it
+  const sweep = [{ x: 0, z: 110, radius: 10 }];
+  const l2 = findClearLane(sweep, 100, 124);
+  assert.ok(l2.clearance >= 4, `lane clears the full sweep (${l2.clearance})`);
+  assert.ok(Math.abs(l2.x) >= 13, `pushed to the lane edge (x=${l2.x})`);
 });

@@ -85,34 +85,50 @@ export function qteRemaining(qte, now) {
   return Math.max(0, qte.startedAt + qte.goodWindow - now);
 }
 
-// Nudge a freshly spawned gate to clear nearby water (Phase 3: the center is
-// occupiable now). Pure geometry: a spawn that already clears every live
-// obstacle disc near the gate plane by GATE.nudgeMargin never moves
-// (open-water gates stay exactly put — teleports and tests rely on it).
-// Otherwise take the CLEAREST available x, not merely the nearest passable
-// one: the fish teleports onto the gate and swims its departure line from
-// there, so the gap center (meters of margin) is the only safe target — a
-// margin-edge point clips the neighbor rock on the way out. Ties keep the
-// nearest candidate. Best-effort throughout: dense water may have no fully
-// clear point, but crossing the mouth always stays possible.
-export function resolveGateOverlap(gateX, gateZ, discs) {
-  const near = discs.filter(d => Math.abs(d.z - gateZ) <= GATE.nudgeHalfRange);
-  const clearance = (x) => {
+// Place a freshly spawned gate in clear water (Phase 3 + 2026-10-17 overlap
+// fix). Pure geometry, best-effort throughout, three stages:
+//   1. clean water — the spawn clears every disc whose reach touches the gate
+//      plane by the mouth radius: nothing moves (teleports and tests pin this)
+//   2. blocked laterally — the clearest x at the ideal plane (the gap center,
+//      ties nearest), so the fish teleports onto the gate with meters of margin
+//   3. the mouth still clips a hull — walk FORWARD in 4 m steps (max +20) to
+//      the first plane between obstacle rows where the 6 m mouth fits. Forward
+//      only: the ring never lands behind the fish.
+// Discs are matched by per-disc reach (radius + slack), not a fixed z window:
+// big hulls (ship radius 6.5) constrain the plane from farther off than small
+// buoys, and movers arrive as sweep-envelope discs (world.obstaclesNear).
+const MOUTH_PLANE_SLACK = 1.2; // torus visual depth: separation beyond this reads as clear
+export function resolveGatePlacement(gateX, gateZ, discs) {
+  const near = (z) => discs.filter(d => Math.abs(d.z - z) <= d.radius + MOUTH_PLANE_SLACK);
+  const clearance = (z, x) => {
     let c = Infinity;
-    for (const d of near) c = Math.min(c, Math.abs(x - d.x) - d.radius);
+    for (const d of near(z)) c = Math.min(c, Math.abs(x - d.x) - d.radius);
     return c;
   };
-  if (clearance(gateX) >= GATE.nudgeMargin) return gateX;
-  const lane = WORLD.laneHalfWidth;
-  const candidates = [];
-  for (let x = -lane; x <= lane; x += 0.5) candidates.push(x);
-  candidates.sort((a, b) => Math.abs(a - gateX) - Math.abs(b - gateX) || a - b);
-  let best = gateX, bestScore = clearance(gateX);
-  for (const x of candidates) {
-    const s = clearance(x);
-    if (s > bestScore + 1e-9) { bestScore = s; best = x; }
+  const clearestX = (z, fromX) => {
+    if (clearance(z, fromX) >= GATE.mouthRadius) return fromX;
+    const lane = WORLD.laneHalfWidth;
+    const candidates = [];
+    for (let x = -lane; x <= lane; x += 0.5) candidates.push(x);
+    candidates.sort((a, b) => Math.abs(a - fromX) - Math.abs(b - fromX) || a - b);
+    let best = fromX, bestScore = clearance(z, fromX);
+    for (const x of candidates) {
+      const s = clearance(z, x);
+      if (s > bestScore + 1e-9) { bestScore = s; best = x; }
+    }
+    return best;
+  };
+  if (clearance(gateZ, gateX) >= GATE.mouthRadius) return { x: gateX, z: gateZ };
+  const x = clearestX(gateZ, gateX);
+  if (clearance(gateZ, x) >= GATE.mouthRadius) return { x, z: gateZ };
+  for (let dz = 4; dz <= GATE.zShiftMax; dz += 4) {
+    const z = gateZ + dz;
+    if (clearance(z, gateX) >= GATE.mouthRadius) return { x: gateX, z };
+    const cx = clearestX(z, gateX);
+    if (clearance(z, cx) >= GATE.mouthRadius) return { x: cx, z };
   }
-  return best;
+  // dense water: clearest x at the ideal plane — the fish still fits the mouth
+  return { x, z: gateZ };
 }
 
 // The player sailed past the gate without entering it.

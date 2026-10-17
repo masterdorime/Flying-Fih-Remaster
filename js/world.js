@@ -97,14 +97,19 @@ export function createWorld(scene, templates) {
     }
   }
 
-  // Live obstacle discs near a z-plane (gate spawn nudge reads these, so it
-  // sees movers where they are right now, not where the spec put them).
+  // Live obstacle discs near a z-plane (gate placement, coin lanes, dodge
+  // probes read these). Movers report their FULL SWEEP ENVELOPE from the base
+  // x (radius + range): callers stay clear at every phase, not just this one.
   function obstaclesNear(z, halfRange) {
     const discs = [];
     for (const chunk of chunks.values()) {
       for (const ob of chunk.obstacles) {
         if (Math.abs(ob.mesh.position.z - z) <= halfRange) {
-          discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: ob.spec.radius });
+          if (ob.spec.moving) {
+            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: ob.spec.radius + (ob.spec.range || 0), moving: true });
+          } else {
+            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: ob.spec.radius });
+          }
         }
       }
     }

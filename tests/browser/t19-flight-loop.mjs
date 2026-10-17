@@ -38,13 +38,13 @@ await page.evaluate(() => {
       // advance tens of meters per tick and the fish tunnels through rows
       // between decisions. No ritual assert measures speed values.
       if (s.locomotion === 'swim') api.debugSetSpeed(20);
-      const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+      const z0 = s.position[2], x = s.position[0], MARGIN = 1.3, AHEAD = 45;
       // query wide, land careful: the landing x must clear ABEAM hazards too
       const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
       for (const d of discs) {
         if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
         let best = x, bd = 1e9;
-        for (let cx = -13; cx <= 13; cx += 1) {
+        for (let cx = -13; cx <= 13; cx += 0.5) {
           let ok = true;
           for (const e of discs) {
             if (e.z < z0 - 6) continue;
@@ -130,13 +130,13 @@ await page.evaluate(() => {
       // advance tens of meters per tick and the fish tunnels through rows
       // between decisions. No ritual assert measures speed values.
       if (s.locomotion === 'swim') api.debugSetSpeed(20);
-      const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+      const z0 = s.position[2], x = s.position[0], MARGIN = 1.3, AHEAD = 45;
       // query wide, land careful: the landing x must clear ABEAM hazards too
       const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
       for (const d of discs) {
         if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
         let best = x, bd = 1e9;
-        for (let cx = -13; cx <= 13; cx += 1) {
+        for (let cx = -13; cx <= 13; cx += 0.5) {
           let ok = true;
           for (const e of discs) {
             if (e.z < z0 - 6) continue;

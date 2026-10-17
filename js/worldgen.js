@@ -199,3 +199,27 @@ function composeRows(rng, d, rows, spacing) {
 }
 
 export const RADIUS_TABLE = RADII;
+
+// Clearest lateral line for a length of water (coin trails): the candidate x
+// whose WORST clearance to every disc reaching the span is the largest. Pure
+// scoring — callers use the clearance to shrink the weave and skip coins that
+// would sit inside a hull. Never null: hopeless water returns the best
+// available x with its (possibly negative) clearance. Ties keep the x closest
+// to the lane center (deterministic; open water stays center).
+export function findClearLane(discs, z0, z1) {
+  const rel = discs.filter(d => d.z + d.radius >= z0 && d.z - d.radius <= z1);
+  const clearance = (x) => {
+    let c = Infinity;
+    for (const d of rel) c = Math.min(c, Math.abs(x - d.x) - d.radius);
+    return c;
+  };
+  const lane = WORLD.laneHalfWidth;
+  const candidates = [0];
+  for (let k = 1; k <= lane; k++) candidates.push(k, -k);
+  let best = { x: 0, clearance: clearance(0) };
+  for (const x of candidates) {
+    const c = clearance(x);
+    if (c > best.clearance + 1e-9) best = { x, clearance: c };
+  }
+  return best;
+}

@@ -30,8 +30,8 @@ export const GATE = {
   flightMax: 104,
   flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
   corridorX: 4,         // |x| bound for placement (inside the old safe corridor)
-  nudgeMargin: 1.6,    // gate-center clearance that guarantees no collision on crossing/departure (fish 1.1 + 0.5)
-  nudgeHalfRange: 6,   // obstacle query window around the gate z at spawn
+  zShiftMax: 20,        // max forward z-shift when the mouth clips a wall row
+  placementRange: 28,   // obstacle query window around the gate z (zShiftMax + biggest hull reach)
 };
 
 // Obstacle patterns (Phase 3): freeform rows with a validated gap — see

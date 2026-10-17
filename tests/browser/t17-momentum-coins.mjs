@@ -19,12 +19,12 @@ const result = await page.evaluate(async () => {
   const dodge = () => {
     const s = api.state();
     if (s.phase !== 'run' || s.locomotion !== 'swim') return;
-    const z0 = s.position[2], x = s.position[0], MARGIN = 2.5, AHEAD = 45;
+    const z0 = s.position[2], x = s.position[0], MARGIN = 1.3, AHEAD = 45;
     const discs = api.debugObstaclesNear(z0 + AHEAD, AHEAD + 6);
     for (const d of discs) {
       if (d.z < z0 + 4 || Math.abs(d.x - x) >= d.radius + MARGIN) continue;
       let best = x, bd = 1e9;
-      for (let cx = -13; cx <= 13; cx += 1) {
+      for (let cx = -13; cx <= 13; cx += 0.5) {
         let ok = true;
         for (const e of discs) {
           if (e.z < z0 - 6) continue;

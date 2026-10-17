@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGateOverlap } from '../../js/timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement } from '../../js/timing.js';
 import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -116,43 +116,79 @@ function gate(over = {}) {
   return { id: 1, x: 0, y: 0, z: 100, resolved: false, result: null, ...over };
 }
 
-test('resolveGateOverlap: open water never moves the gate', () => {
-  const discs = [{ x: 2, z: 100, radius: 2.6 }];
-  assert.equal(resolveGateOverlap(-3, 100, discs), -3); // far: unchanged
-  assert.equal(resolveGateOverlap(0, 200, discs), 0);   // far in z: unchanged
-  assert.equal(resolveGateOverlap(0, 100, []), 0);       // no hazards: unchanged
+// clearance the way placement reads it: min edge distance over discs whose
+// reach touches the plane (same per-disc filter the implementation uses)
+function mouthClearance(z, x, discs) {
+  const near = discs.filter(d => Math.abs(d.z - z) <= d.radius + 1.2);
+  return near.length ? Math.min(...near.map(d => Math.abs(x - d.x) - d.radius)) : Infinity;
+}
+
+test('resolveGatePlacement: open water keeps the gate exactly put', () => {
+  const discs = [{ x: 2, z: 100, radius: 1 }];
+  assert.deepEqual(resolveGatePlacement(-3, 100, discs), { x: -3, z: 100 }); // clear: unchanged
+  assert.deepEqual(resolveGatePlacement(0, 200, discs), { x: 0, z: 200 });   // far in z: unchanged
+  assert.deepEqual(resolveGatePlacement(0, 100, []), { x: 0, z: 100 });      // no hazards: unchanged
 });
 
-test('resolveGateOverlap: seeks the clearest water, never worse than spawn', () => {
+test('resolveGatePlacement: a wall row the mouth cannot fit shifts the ring forward', () => {
+  // fenced row at z 100, single 3 m gap at (2, 5): a 6 m mouth cannot fit it
   const wall = [
-    { x: -6.5, z: 100, radius: 7.5 }, // footprint [-14, 1]
-    { x: 9.5, z: 100, radius: 4.5 },  // footprint [5, 14]: gap [1, 5]
+    { x: -12, z: 100, radius: 2 }, { x: -8, z: 100, radius: 2 },
+    { x: -4, z: 100, radius: 2 }, { x: 0, z: 100, radius: 2 },
+    { x: 7.7, z: 100, radius: 2.7 }, { x: 12.3, z: 100, radius: 1.7 },
   ];
-  const clearance = (x, discs) => Math.min(...discs.map(d => Math.abs(x - d.x) - d.radius));
-  const out = resolveGateOverlap(0, 100, wall);
-  assert.ok(Math.abs(out - 3) <= 0.5, `gate settles into the wall gap (x=${out})`);
-  assert.ok(clearance(out, wall) >= 1.6, `gap clearance swimmable (${clearance(out, wall)})`);
-  // threatened spawn takes the GAP CENTER, not the nearest margin edge: the
-  // fish teleports onto the gate and swims out from there, so only meters of
-  // margin survive the departure (nearest-satisfactory would stop at 3.6)
-  const den = [
-    { x: 0, z: 100, radius: 2 },
-    { x: -9, z: 100, radius: 5 },
-    { x: 11, z: 100, radius: 3 },
+  assert.ok(mouthClearance(100, 3.5, wall) < 3, 'precondition: gap too tight for the mouth');
+  const out = resolveGatePlacement(3.5, 100, wall);
+  assert.ok(out.z > 100, `ring moves to the first plane the mouth clears (z=${out.z})`);
+  assert.ok(out.z - 100 <= 20 + 1e-9, `shift bounded (dz=${out.z - 100})`);
+  assert.ok(mouthClearance(out.z, out.x, wall) >= 3,
+    `mouth clears at the landed plane (${mouthClearance(out.z, out.x, wall)})`);
+});
+
+test('resolveGatePlacement: hulls reach the plane from farther off than a fixed window', () => {
+  // ship hull (radius 6.5) 7 m off the plane: outside the old fixed ±6 window,
+  // inside its own reach — the mouth must not ignore it
+  const ship = [{ x: 0, z: 107, radius: 6.5 }];
+  const out = resolveGatePlacement(0, 100, ship);
+  assert.ok(out.z > 100 || Math.abs(out.x) > 9.5, `gate clears the hull (x=${out.x}, z=${out.z})`);
+});
+
+test('resolveGatePlacement: mover sweeps are respected via envelope discs', () => {
+  // two sweepers (hull 2 + range 6 -> the world reports radius 8) fence the
+  // whole lane at z 100; the first mouth-clear plane is past their reach
+  const movers = [
+    { x: -9, z: 100, radius: 8, moving: true },
+    { x: 9, z: 100, radius: 8, moving: true },
   ];
-  assert.ok(Math.abs(resolveGateOverlap(0, 100, den) - 5) <= 0.5, 'gap center, not margin edge');
-  // fuzz: the result is always in-bounds and never less clear than the spawn
+  const out = resolveGatePlacement(0, 100, movers);
+  assert.ok(out.z > 108, `ring lands past the sweep reach (z=${out.z})`);
+  assert.ok(mouthClearance(out.z, out.x, movers) >= 3,
+    `mouth clears the sweeps (${mouthClearance(out.z, out.x, movers)})`);
+});
+
+test('resolveGatePlacement: best effort in hopeless water — hold the ideal plane', () => {
+  const fat = [{ x: 0, z: 100, radius: 30 }];
+  const out = resolveGatePlacement(0, 100, fat);
+  assert.equal(out.z, 100); // nothing clears anywhere: no wandering
+  assert.ok(Number.isFinite(out.x) && Math.abs(out.x) <= 14, `in-bounds fallback (${out.x})`);
+});
+
+test('resolveGatePlacement: fuzz — in bounds, bounded, deterministic', () => {
   let rngState = 12345;
   const frand = () => (rngState = (rngState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 60; i++) {
     const discs = [];
-    const n = Math.floor(frand() * 5);
+    const n = Math.floor(frand() * 6);
     for (let k = 0; k < n; k++) {
-      discs.push({ x: frand() * 28 - 14, z: 100 + (frand() * 2 - 1) * 5, radius: 1 + frand() * 2.5 });
+      discs.push({ x: frand() * 28 - 14, z: 100 + (frand() * 2 - 1) * 9, radius: 1 + frand() * 5.5 });
     }
     const gx = frand() * 8 - 4;
-    const r = resolveGateOverlap(gx, 100, discs);
-    assert.ok(Number.isFinite(r) && Math.abs(r) <= 14, `finite in-bounds result (${r})`);
-    assert.ok(clearance(r, discs) >= clearance(gx, discs) - 1e-9, 'never less clear than spawn');
+    const r = resolveGatePlacement(gx, 100, discs);
+    assert.ok(Number.isFinite(r.x) && Math.abs(r.x) <= 14, `x in bounds (${r.x})`);
+    assert.ok(r.z >= 100 && r.z <= 120 + 1e-9, `z within [ideal, ideal+20] (${r.z})`);
+    if (mouthClearance(100, gx, discs) >= 3) {
+      assert.deepEqual(r, { x: gx, z: 100 }, 'a spawn the mouth already clears never moves');
+    }
+    assert.deepEqual(resolveGatePlacement(gx, 100, discs), r, 'deterministic');
   }
 });

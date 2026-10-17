@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGateOverlap } from './timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -147,10 +147,12 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       runTime: state.runTime,
       speed: state.speed,
     });
-    // the center is occupiable now: nudge the gate out of obstacle footprints
-    // (best-effort — a pathological stack can still overlap, and the QTE
-    // resolves normally there)
-    activeGate.x = resolveGateOverlap(activeGate.x, activeGate.z, world.obstaclesNear(activeGate.z, GATE.nudgeHalfRange));
+    // place the gate in clear water: clean spawns stay exactly put, mouths a
+    // wall row would clip shift forward to the first plane between rows
+    // (best-effort — dense water keeps today's clearest-x nudge)
+    const placed = resolveGatePlacement(activeGate.x, activeGate.z, world.obstaclesNear(activeGate.z, GATE.placementRange));
+    activeGate.x = placed.x;
+    activeGate.z = placed.z;
     bus.emit('gate:spawn', activeGate);
     advanceTutorial('gate:spawn');
   }
@@ -318,7 +320,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       state.coins += 1;
       state.score += coinValue();
       bus.emit('coin:collect', { coins: state.coins, x: player.state.position.x });
-    }, airborne, state.runTime); // runTime phase-locks shrimp to the water shader
+    }, airborne, state.runTime, // runTime phase-locks shrimp to the water shader
+      (z, half) => world.obstaclesNear(z, half)); // trails ride the clear lane
 
     // sustained momentum bonus (PRD §14.2)
     if (TIER_ORDER.indexOf(state.tier) >= TIER_ORDER.indexOf(SCORING.sustainedTier)) {

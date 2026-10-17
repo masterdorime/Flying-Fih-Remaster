@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { COINS, WORLD } from './config.js';
 import { surfaceHeight } from './wave.js';
+import { findClearLane } from './worldgen.js';
 
 // Shrimp coins (player-requested mechanic): the shrimp_low_poly.glb model.
 // Coins spawn as CONTINUOUS trails along the safe corridor — like the coin
@@ -35,14 +36,26 @@ export function createCoins(scene, coinTemplate) {
   let elapsed = 0;
   let nextTrailZ = 20;
 
-  function spawnTrail(z0, high, time) {
-    const startX = (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * (WORLD.corridorHalfWidth - 2.5));
+  function spawnTrail(z0, high, time, queryDiscs) {
+    // swim trails start on the clearest lateral line through their span
+    // (obstacle discs from the live world); airborne trails keep the free pick
+    const discs = (!high && queryDiscs) ? queryDiscs(z0 + TRAIL_GAP / 2, TRAIL_GAP / 2 + 8) : null;
+    const lane = discs ? findClearLane(discs, z0 - 4, z0 + TRAIL_GAP + 4) : null;
+    const startX = lane
+      ? lane.x
+      : (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * (WORLD.corridorHalfWidth - 2.5));
+    // a tight line weaves less — the clearance is edge distance to the hulls
+    const weave = lane ? Math.min(1.8, Math.max(0.2, lane.clearance - 1.2)) : 1.8;
     const baseY = 1.8 + Math.random() * 6;          // high-trail base only...
     const highTrail = high && Math.random() < 0.4;  // ...elevated trails only when airborne
     const count = Math.floor(TRAIL_GAP / SPACING);  // length matches the gap -> no holes
     for (let i = 0; i < count; i++) {
       const z = z0 + i * SPACING;
-      const x = startX + Math.sin(z * 0.08) * 1.8;               // gentle lateral weave
+      const x = startX + Math.sin(z * 0.08) * weave;             // gentle lateral weave
+      // a wall row owns this water: skip coins that would sit inside a hull
+      // (trail continuity holds — at most a couple of coins vanish per row)
+      if (discs && discs.some(d =>
+        Math.abs(d.z - z) <= d.radius + 1 && Math.abs(x - d.x) < d.radius + 1)) continue;
       // ocean shrimp skim the live wave surface (same field the fish rides);
       // airborne trails keep the old elevated band
       const low = !highTrail;
@@ -58,7 +71,7 @@ export function createCoins(scene, coinTemplate) {
 
   let playerZ = 0;
 
-  function update(dt, playerPos, onCollect, high = false, time = null) {
+  function update(dt, playerPos, onCollect, high = false, time = null, queryDiscs = null) {
     elapsed += dt;
     playerZ = playerPos.z;
     const t = time ?? elapsed; // game clock keeps coins phase-locked to the water shader
@@ -76,7 +89,7 @@ export function createCoins(scene, coinTemplate) {
 
     // keep a continuous river of coins ahead of the fish
     while (nextTrailZ < playerPos.z + AHEAD) {
-      spawnTrail(nextTrailZ, high, t);
+      spawnTrail(nextTrailZ, high, t, queryDiscs);
       nextTrailZ += TRAIL_GAP;
     }
 
