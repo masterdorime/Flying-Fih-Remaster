@@ -7,7 +7,9 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 // Returns normalized template Groups keyed by obstacle kind.
 
 const TARGET_SIZE = {
-  'rock-huge': 11, 'rock-medium': 6, 'rock-large': 8,
+  // the rock class kept its gameplay numbers (worldgen radius 4.0); its slots
+  // render as ship hulls since 2026-10-17 — the rock FBX packs are unloaded
+  'ship-liner': 16, 'ship-cargo-b': 9, 'ship-cargo-c': 13,
   buoy: 2.6, 'buoy-flag': 3.2,
   'boat-speed': 9, 'boat-speed-b': 9, 'boat-speed-c': 9,
   'boat-sail': 8, 'boat-sail-b': 8,
@@ -17,9 +19,9 @@ const TARGET_SIZE = {
 };
 
 const MODELS = [
-  ['rock-huge', 'assets/models/rocks/extra-large-rocks.fbx', TARGET_SIZE['rock-huge']],
-  ['rock-medium', 'assets/models/rocks/medium-rocks.fbx', TARGET_SIZE['rock-medium']],
-  ['rock-large', 'assets/models/rocks/large-rocks.fbx', TARGET_SIZE['rock-large']],
+  ['ship-liner', 'assets/models/watercraft/ship-ocean-liner.glb', TARGET_SIZE['ship-liner']],
+  ['ship-cargo-b', 'assets/models/watercraft/ship-cargo-b.glb', TARGET_SIZE['ship-cargo-b']],
+  ['ship-cargo-c', 'assets/models/watercraft/ship-cargo-c.glb', TARGET_SIZE['ship-cargo-c']],
   ['buoy', 'assets/models/watercraft/buoy.glb', TARGET_SIZE.buoy],
   ['buoy-flag', 'assets/models/watercraft/buoy-flag.glb', TARGET_SIZE['buoy-flag']],
   ['boat-speed', 'assets/models/watercraft/boat-speed-a.glb', TARGET_SIZE['boat-speed']],
@@ -34,7 +36,10 @@ const MODELS = [
   ['container', 'assets/models/watercraft/cargo-container-a.glb', TARGET_SIZE.container],
 ];
 
-const KIND_ALIASES = { rock: ['rock-huge', 'rock-medium', 'rock-large'], buoy: ['buoy', 'buoy-flag'], boat: ['boat-speed', 'boat-speed-b', 'boat-speed-c', 'boat-sail', 'boat-sail-b', 'boat-tug', 'boat-tug-b', 'boat-fishing'], container: ['container'], ship: ['ship'] };
+// kind -> visual variants. The rock GAMEPLAY class (radius 4.0, every
+// difficulty tier) renders as ship hulls now: liners at huge size, bulk
+// carriers at medium/large. `ship` stays the exclusive giant-ship endgame kind.
+const KIND_ALIASES = { rock: ['ship-liner', 'ship-cargo-b', 'ship-cargo-c'], buoy: ['buoy', 'buoy-flag'], boat: ['boat-speed', 'boat-speed-b', 'boat-speed-c', 'boat-sail', 'boat-sail-b', 'boat-tug', 'boat-tug-b', 'boat-fishing'], container: ['container'], ship: ['ship'] };
 
 export async function loadModels() {
   const gltfLoader = new GLTFLoader();
@@ -49,7 +54,7 @@ export async function loadModels() {
       templates[key] = normalize(loaded, target);
     } catch (err) {
       failures.push(`${key}: ${err.message}`);
-      templates[key] = fallbackBox(target, key.includes('rock') ? 0x8a8f98 : 0xd8623a);
+      templates[key] = fallbackBox(target, 0xd8623a);
     }
   }));
 
