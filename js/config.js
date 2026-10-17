@@ -151,6 +151,7 @@ export const COLLISION = {
   minorSpeedLoss: 8,
   majorSpeedLoss: 20,
   graceSeconds: 0.5, // global crash grace (2026-10-17, was per-obstacle): i-frames + fish invisibility share this window
+  blinkPeriod: 0.1,  // recovery-flash on/off period while the grace window is open
 };
 
 export const COINS = {

@@ -527,7 +527,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     },
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugCoins: () => coins.debugInfo(),
-    debugFish: () => ({ skyfin: !fish.procedural, visible: fish.group.visible, z: player.state.position.z }),
+    debugFish: () => ({ skyfin: !fish.procedural, visible: fish.group.visible, crashHide: player.state.crashHide, z: player.state.position.z }),
     debugLoseWing: () => {
       state.wings -= 1;
       bus.emit('life:lost', state.wings);

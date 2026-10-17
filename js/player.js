@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MOMENTUM, WORLD, RECOVERY, PLANE, ASSIST, FLIGHT, WATER, TIER_PROFILE } from './config.js';
+import { MOMENTUM, WORLD, RECOVERY, PLANE, ASSIST, FLIGHT, WATER, TIER_PROFILE, COLLISION } from './config.js';
 import { integrateSpeed } from './momentum.js';
 import { profileFor } from './flight-state.js';
 import { surfaceHeight, waveSlopes } from './wave.js';
@@ -148,9 +148,12 @@ export function createPlayer(scene, fish) {
 
     // water splash bookkeeping
     if (state.waterEntryCooldown > 0) state.waterEntryCooldown -= dt;
-    // crash invisibility: hidden for the grace window, then back on show
+    // crash recovery flash: the fish blinks (on/off at COLLISION.blinkPeriod,
+    // starting hidden) while the grace window runs, then stays visible
     if (state.crashHide > 0) {
       state.crashHide -= dt;
+      const phase = Math.floor((COLLISION.graceSeconds - state.crashHide) / COLLISION.blinkPeriod);
+      fish.group.visible = phase % 2 === 1;
       if (state.crashHide <= 0) { state.crashHide = 0; fish.group.visible = true; }
     }
     if (state.position.y <= waterY + 0.05 && state.verticalVel < -6 && state.waterEntryCooldown <= 0) {
