@@ -60,8 +60,25 @@ function rowGapOk(obstacles) {
   return maxRowGap(rowIntervals(obstacles)) >= PATTERN.minGap;
 }
 
+// No-tangle rule (2026-10-17): no two swept envelopes may interpenetrate —
+// 9-18 m hulls that fuse read as one indecipherable mass. Exact 2D separation
+// (z distance can legitimately rescue a narrow x gap); movers count by their
+// full sweep, so hulls never collide mid-sweep either.
+function rowClash(row, margin = 0.5) {
+  for (let i = 0; i < row.length; i++) {
+    for (let j = i + 1; j < row.length; j++) {
+      const a = row[i], b = row[j];
+      const dx = Math.abs(a.x - b.x) - (a.moving ? a.range : 0) - (b.moving ? b.range : 0);
+      const need = a.radius + b.radius + margin;
+      if (Math.hypot(Math.max(0, dx), a.z - b.z) < need) return true;
+    }
+  }
+  return false;
+}
+
 // Safety validator (Phase 3, replaces hasSafeCorridor): every z-row of the
-// chunk must keep a lateral gap of at least PATTERN.minGap.
+// chunk must keep a lateral gap of at least PATTERN.minGap AND hull-separated
+// envelopes (2026-10-17 no-tangle rule).
 export function validateChunkGaps(chunk) {
   const sorted = [...chunk.obstacles].sort((a, b) => a.z - b.z);
   let row = [], prevZ = -1e9;
@@ -72,7 +89,7 @@ export function validateChunkGaps(chunk) {
     prevZ = o.z;
   }
   if (row.length) rows.push(row);
-  return rows.every(rowGapOk);
+  return rows.every(row => rowGapOk(row) && !rowClash(row));
 }
 
 function pickKind(kinds, rng) { return kinds[Math.floor(rng() * kinds.length)]; }
@@ -98,7 +115,7 @@ function flagMovers(row, difficulty, rng) {
     if (rng() >= p) continue;
     o.moving = true;
     o.range = range;
-    if (!rowGapOk(row)) { o.moving = false; o.range = 0; }
+    if (!rowGapOk(row) || rowClash(row)) { o.moving = false; o.range = 0; }
   }
   return row;
 }
@@ -124,7 +141,7 @@ function wallRow(rng, rowZ, d) {
     if (cursor + 2 * r > gx - w / 2 && cursor < gx + w / 2) { cursor = gx + w / 2; continue; }
     const o = baseObstacle(kind, cursor + r, rowZ + (rng() * 2 - 1) * 2, 'wall');
     row.push(o);
-    cursor += 2 * r + rng() * 1.5;
+    cursor += 2 * r + 0.5 + rng(); // 0.5-1.5 m hull clearance between wall pieces
   }
   return { row };
 }
@@ -133,13 +150,17 @@ function centerRow(rng, rowZ, d) {
   const n = 1 + Math.floor(rng() * 2);
   const row = [];
   for (let i = 0; i < n; i++) {
-    const o = baseObstacle(
-      pickKind(kindsFor(d, rng), rng),
-      (rng() * 2 - 1) * (WORLD.corridorHalfWidth - 1),
-      rowZ + (rng() * 2 - 1) * 2,
-      'center',
-    );
-    row.push(o);
+    // ship-sized discs can't always share the 8 m corridor: re-roll the dice
+    // a few times, then drop an unplaceable member instead of fusing hulls
+    for (let t = 0; t < 6; t++) {
+      const o = baseObstacle(
+        pickKind(kindsFor(d, rng), rng),
+        (rng() * 2 - 1) * (WORLD.corridorHalfWidth - 1),
+        rowZ + (rng() * 2 - 1) * 2,
+        'center',
+      );
+      if (!rowClash([...row, o])) { row.push(o); break; }
+    }
   }
   return { row };
 }
@@ -149,13 +170,15 @@ function clusterRow(rng, rowZ, d) {
   const cx = (rng() * 2 - 1) * 10;
   const row = [];
   for (let i = 0; i < n; i++) {
-    const o = baseObstacle(
-      pickKind(kindsFor(d, rng), rng),
-      clamp(cx + (rng() * 2 - 1) * 4, -WORLD_HALF, WORLD_HALF),
-      rowZ + (rng() * 2 - 1) * 2,
-      'cluster',
-    );
-    row.push(o);
+    for (let t = 0; t < 6; t++) {
+      const o = baseObstacle(
+        pickKind(kindsFor(d, rng), rng),
+        clamp(cx + (rng() * 2 - 1) * 4, -WORLD_HALF, WORLD_HALF),
+        rowZ + (rng() * 2 - 1) * 2,
+        'cluster',
+      );
+      if (!rowClash([...row, o])) { row.push(o); break; }
+    }
   }
   return { row };
 }

@@ -36,8 +36,8 @@ test('validator: blocked row fails, gapped rows pass, exact boundary holds', () 
     at(-10.5, 3.5), at(-3.5, 3.5), at(3.5, 3.5), at(10.5, 3.5),
   ] }), false); // fully fenced: every gap is 0
   assert.equal(validateChunkGaps({ obstacles: [
-    at(-11, 3), at(-5, 3), at(5, 3), at(11, 3),
-  ] }), true); // 4 m center gap
+    at(-11.5, 3), at(-5, 3), at(5, 3), at(11.5, 3),
+  ] }), true); // 4 m center gap; neighbours clear each other's hulls by 0.5 m
   assert.equal(validateChunkGaps({ obstacles: [at(-8, 6), at(7, 6)] }), true); // max gap exactly 3.0
   assert.equal(validateChunkGaps({ obstacles: [at(-8, 6), at(6.9, 6)] }), false); // max gap 2.9
 });
@@ -197,4 +197,54 @@ test('findClearLane: the coin trail starts on the clearest line through its span
   const l2 = findClearLane(sweep, 100, 124);
   assert.ok(l2.clearance >= 4, `lane clears the full sweep (${l2.clearance})`);
   assert.ok(Math.abs(l2.x) >= 13, `pushed to the lane edge (x=${l2.x})`);
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-17 — no-tangle rule: swept envelopes must never interpenetrate.
+// Ships are 9-18 m hulls on 4 m hitboxes; random yaw made them lie across the
+// lane and fuse into neighbours. The validator now rejects fused rows, and the
+// generators must place discs that can actually separate.
+// ---------------------------------------------------------------------------
+
+test('validator: interpenetrating envelopes fail even when a gap exists elsewhere', () => {
+  const at = (x, r, z = 50) => ({ x, radius: r, z, moving: false });
+  const mov = (x, r, range, z = 50) => ({ x, radius: r, z, moving: true, range });
+  // two fused hulls at the left, 10 m of open water to the right — the gap
+  // rule alone passes this; the no-tangle rule must reject it
+  assert.equal(validateChunkGaps({ obstacles: [at(-6, 4), at(0, 4), at(13, 1)] }), false);
+  // a mover's sweep plows into a static neighbour mid-sweep
+  assert.equal(validateChunkGaps({ obstacles: [mov(1, 2, 5), at(8, 2), at(-13, 1)] }), false);
+  // exact 2D separation: z distance can legitimately rescue a narrow x gap
+  assert.equal(validateChunkGaps({ obstacles: [at(-3.5, 4, 47.5), at(3.5, 4, 52.5), at(-13, 1)] }), true);
+});
+
+test('no generated row ever interpenetrates (pairwise envelope clearance)', () => {
+  const sweepOf = (o) => (o.moving ? o.range : 0);
+  const minPairDist = (a, b) =>
+    Math.hypot(Math.max(0, Math.abs(a.x - b.x) - sweepOf(a) - sweepOf(b)), a.z - b.z);
+  for (const speed of [18, 30]) {
+    for (let d = 0; d <= 1.0001; d += 0.25) {
+      for (let i = 0; i < 60; i++) {
+        const chunk = generateChunk(i, d, i * 7 + 3, speed);
+        assert.ok(validateChunkGaps(chunk), `chunk ${i} d=${d.toFixed(2)} speed=${speed} must validate`);
+        const sorted = [...chunk.obstacles].sort((a, b) => a.z - b.z);
+        let row = [], prevZ = -1e9;
+        const checkRow = () => {
+          for (let a = 0; a < row.length; a++) {
+            for (let b = a + 1; b < row.length; b++) {
+              const need = row[a].radius + row[b].radius;
+              const dist = minPairDist(row[a], row[b]);
+              assert.ok(dist >= need - 1e-9,
+                `chunk ${i} d=${d.toFixed(2)}: ${row[a].kind}@(${row[a].x.toFixed(1)},${row[a].z.toFixed(1)}) fuses ${row[b].kind}@(${row[b].x.toFixed(1)},${row[b].z.toFixed(1)}) dist=${dist.toFixed(2)} need=${need}`);
+            }
+          }
+        };
+        for (const o of sorted) {
+          if (o.z - prevZ > PATTERN.rowBand) { checkRow(); row = []; }
+          row.push(o); prevZ = o.z;
+        }
+        checkRow();
+      }
+    }
+  }
 });

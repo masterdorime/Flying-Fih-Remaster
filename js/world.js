@@ -6,6 +6,14 @@ import { templateFor } from './models.js';
 // Live world: chunk pool of instanced Kenney props + rock clusters, moving
 // hazards, and deterministic overlap collision against the player (PRD §11).
 
+// Watercraft (the rock class renders ship hulls since 2026-10-17, plus the
+// boat/ship kinds) sail the river: bow toward the swimmer with a small
+// deterministic yaw jitter. Random spin made 9-18 m hulls lie across the lane
+// and fuse into neighbours; bow-forward keeps the x-footprint at the beam
+// width, inside the hitbox disc. Buoys/containers keep a random spin.
+const WATERCRAFT = new Set(['rock', 'boat', 'ship']);
+const BOW_YAW = Math.PI; // verified in probe: native bow +z -> point at the fish
+
 export function createWorld(scene, templates) {
   const chunks = new Map(); // index -> { group, obstacles:|{spec, mesh, baseX, lastHit}[], difficulty }
   let nextIndex = 0;
@@ -32,7 +40,9 @@ export function createWorld(scene, templates) {
       if (!tpl) continue;
       const mesh = tpl.clone(true);
       mesh.position.set(ob.x, ob.y, index * WORLD.chunkLength + ob.z);
-      mesh.rotation.y = (ob.phase * 3) % (Math.PI * 2);
+      mesh.rotation.y = WATERCRAFT.has(ob.kind)
+        ? BOW_YAW + (ob.phase % 0.24) - 0.12
+        : (ob.phase * 3) % (Math.PI * 2);
       group.add(mesh);
       obstacles.push({ spec: ob, mesh, baseX: ob.x, lastHit: -99 });
     }
