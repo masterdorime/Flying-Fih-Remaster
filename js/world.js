@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD } from './config.js';
+import { WORLD, COLLISION } from './config.js';
 import { generateChunk, validateChunkGaps } from './worldgen.js';
 import { templateFor } from './models.js';
 
@@ -15,9 +15,10 @@ const WATERCRAFT = new Set(['rock', 'boat', 'ship']);
 const BOW_YAW = Math.PI; // verified in probe: native bow +z -> point at the fish
 
 export function createWorld(scene, templates) {
-  const chunks = new Map(); // index -> { group, obstacles:|{spec, mesh, baseX, lastHit}[], difficulty }
+  const chunks = new Map(); // index -> { group, obstacles:|{spec, mesh, baseX}[], difficulty }
   let nextIndex = 0;
   let elapsed = 0;
+  let lastCrash = -99; // global crash-grace clock (i-frames, COLLISION.graceSeconds)
 
   function ensureChunks(playerZ, difficulty, speed) {
     const wantFrom = Math.floor((playerZ - WORLD.chunksBehind * WORLD.chunkLength) / WORLD.chunkLength);
@@ -44,7 +45,7 @@ export function createWorld(scene, templates) {
         ? BOW_YAW + (ob.phase % 0.24) - 0.12
         : (ob.phase * 3) % (Math.PI * 2);
       group.add(mesh);
-      obstacles.push({ spec: ob, mesh, baseX: ob.x, lastHit: -99 });
+      obstacles.push({ spec: ob, mesh, baseX: ob.x });
     }
     scene.add(group);
     return { group, obstacles, difficulty, z0: index * WORLD.chunkLength };
@@ -72,8 +73,8 @@ export function createWorld(scene, templates) {
         const dy = Math.abs(mesh.position.y - playerPos.y);
         const reach = spec.radius + playerRadius;
         if (dx < reach && dz < reach + 2 && dy < reach) {
-          if (elapsed - ob.lastHit > 0.5) { // grace window, PRD collision recovery
-            ob.lastHit = elapsed;
+          if (elapsed - lastCrash > COLLISION.graceSeconds) { // global crash grace (PRD collision recovery)
+            lastCrash = elapsed;
             onCollision?.({
               kind: spec.kind,
               major: spec.kind === 'boat' || spec.kind === 'container' || spec.radius > 2.5,
@@ -92,18 +93,20 @@ export function createWorld(scene, templates) {
     return n;
   }
 
-  function debugTeleport(player) {
-    // put the fish exactly on the nearest upcoming obstacle
+  function debugTeleport(player, nth = 0) {
+    // put the fish just before the nth-nearest obstacle ahead (0 = nearest)
     const pz = player.state.position.z;
-    let best = null;
+    const ahead = [];
     for (const chunk of chunks.values()) {
       for (const ob of chunk.obstacles) {
         const z = ob.mesh.position.z;
-        if (z > pz && (!best || z < best.z)) best = { x: ob.mesh.position.x, y: ob.mesh.position.y, z };
+        if (z > pz) ahead.push(ob);
       }
     }
-    if (best) {
-      player.state.position.set(best.x, best.y, best.z - 4);
+    ahead.sort((a, b) => a.mesh.position.z - b.mesh.position.z);
+    const ob = ahead[Math.min(nth, ahead.length - 1)];
+    if (ob) {
+      player.state.position.set(ob.mesh.position.x, ob.mesh.position.y, ob.mesh.position.z - 4);
     }
   }
 

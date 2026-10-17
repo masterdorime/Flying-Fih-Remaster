@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT, GATE, WORLD } from './config.js';
+import { MOMENTUM, GAUGE, RECOVERY, DIFFICULTY, SCORING, TIER_ORDER, TIMING, COINS, GAMEOVER, FLIGHT, GATE, WORLD, COLLISION } from './config.js';
 import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
@@ -293,6 +293,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
 
     // obstacle collisions: minor speed loss / major forced descent (PRD §11.3)
     world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, state.speed, (hit) => {
+      player.hide(COLLISION.graceSeconds); // crash invisibility + i-frame window
       if (hit.major) {
         state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 20);
         state.gauge = Math.min(state.gauge, 25); // forced descent toward water
@@ -441,6 +442,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     state.endReason = reason;
     state.phase = 'results';
     activeQte = null; // no window outlives a run: no stuck cue, no stale grade
+    player.state.crashHide = 0;
+    fish.group.visible = true; // no crash-hide leaks onto the results screen
     bus.emit('run:end', { ...state, endReason: reason });
   }
 
@@ -464,8 +467,9 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       position: new THREE.Vector3(0, RECOVERY.waterY, 0), lateralVel: 0, verticalVel: 0,
       speed: MOMENTUM.minSpeed, planeExitDamp: 0, leapT: 0, chargeShake: 0,
       airborneTimeAtMin: 0, squashDip: 0, pitch: 0, waveRoll: 0,
-      launchBaseY: RECOVERY.waterY,
+      launchBaseY: RECOVERY.waterY, crashHide: 0,
     });
+    fish.group.visible = true; // a crash-hide must not leak into the next run
     camera.position.set(0, RECOVERY.waterY + 3.6, -9);
     bus.emit('run:start', null);
   }
@@ -511,7 +515,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     onLanded: () => player.setLocomotion('swim'),
     debugObstacleCount: () => world.debugCount(),
     debugModelFailures: () => failures,
-    debugTeleportToObstacle: () => world.debugTeleport(player),
+    debugTeleportToObstacle: (nth) => world.debugTeleport(player, nth),
     debugChunksValid: () => world.debugChunksValid(),
     // test-driver visibility + steering for patterned water: read live hazard
     // discs (movers included), and hold a lateral line. t15/t17/t19 drive
@@ -523,7 +527,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     },
     debugTeleportToCoin: () => coins.debugTeleport(player),
     debugCoins: () => coins.debugInfo(),
-    debugFish: () => ({ skyfin: !fish.procedural }),
+    debugFish: () => ({ skyfin: !fish.procedural, visible: fish.group.visible, z: player.state.position.z }),
     debugLoseWing: () => {
       state.wings -= 1;
       bus.emit('life:lost', state.wings);

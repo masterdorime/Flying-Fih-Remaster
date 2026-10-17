@@ -34,6 +34,7 @@ export function createPlayer(scene, fish) {
     squashDip: 0,
     waterEntryCooldown: 0,
     chargeShake: 0,
+    crashHide: 0,         // seconds of post-crash invisibility left (COLLISION.graceSeconds)
   };
 
   function capFor(tier, assist) {
@@ -147,6 +148,11 @@ export function createPlayer(scene, fish) {
 
     // water splash bookkeeping
     if (state.waterEntryCooldown > 0) state.waterEntryCooldown -= dt;
+    // crash invisibility: hidden for the grace window, then back on show
+    if (state.crashHide > 0) {
+      state.crashHide -= dt;
+      if (state.crashHide <= 0) { state.crashHide = 0; fish.group.visible = true; }
+    }
     if (state.position.y <= waterY + 0.05 && state.verticalVel < -6 && state.waterEntryCooldown <= 0) {
       state.waterEntryCooldown = 0.8;
       state.squashDip = Math.min(1, Math.abs(state.verticalVel) / 12);
@@ -168,6 +174,12 @@ export function createPlayer(scene, fish) {
     fish.group.rotation.z = state.banking * 0.6 + (state.locomotion === 'swim' ? state.waveRoll : 0);
   }
 
+  function hide(seconds) {
+    // post-crash invisibility: the fish vanishes for the grace window
+    state.crashHide = seconds;
+    fish.group.visible = false;
+  }
+
   function setLocomotion(next) {
     // leaving the water: record the takeoff waterline so charge/leap continue
     // from the actual surface instead of snapping to a fixed height
@@ -180,5 +192,5 @@ export function createPlayer(scene, fish) {
     if (next === 'fly') state.cruiseY = FLIGHT.altitude; // each flight starts at the gate altitude
   }
 
-  return { state, update, setLocomotion };
+  return { state, update, setLocomotion, hide };
 }

@@ -150,7 +150,7 @@ export const DIFFICULTY = {
 export const COLLISION = {
   minorSpeedLoss: 8,
   majorSpeedLoss: 20,
-  graceSeconds: 0.5, // same obstacle can't re-hit within this window
+  graceSeconds: 0.5, // global crash grace (2026-10-17, was per-obstacle): i-frames + fish invisibility share this window
 };
 
 export const COINS = {

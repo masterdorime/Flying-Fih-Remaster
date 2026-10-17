@@ -1,4 +1,4 @@
-import { startServer, stopServer, openPage, closePage, assert } from './harness.mjs';
+import { startServer, stopServer, openPage, closePage, assert, assertEqual } from './harness.mjs';
 
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
@@ -24,6 +24,37 @@ const before = await page.evaluate(() => {
 await page.waitForFunction((s) => window.__FFM_API.state().speed < s - 3, before.speed, { timeout: 20000 });
 const after = await page.evaluate(() => window.__FFM_API.state());
 assert(after.speed < before.speed - 3, `collision cuts speed (${before.speed.toFixed(1)} -> ${after.speed.toFixed(1)})`);
+
+// 3b. crash grace (2026-10-17): a crash hides the fish for 0.5 s and starts
+// global i-frames — a second hull touched inside the window cannot land a hit.
+// Rides §3's crash (no settle): the crash just landed, its window is open NOW.
+const pre = await page.evaluate(() => {
+  const api = window.__FFM_API;
+  const c = api.debugAudioStats().calls;
+  return { wings: api.state().wings, crashes: (c.collision ?? 0) + (c.collisionMajor ?? 0) };
+});
+const hit1 = await page.evaluate(() => ({
+  visible: window.__FFM_API.debugFish().visible,
+}));
+assertEqual(hit1.visible, false, 'the fish is invisible right after the §3 crash');
+// touch the next hull inside the grace window at low speed (stays overlapping):
+// with i-frames no second crash may land during the window
+await page.evaluate(() => {
+  const api = window.__FFM_API;
+  api.debugSetSpeed(8);
+  api.debugTeleportToObstacle(1);
+});
+await page.waitForTimeout(250); // read ~0.4 s into the 0.5 s grace
+const inside = await page.evaluate(() => {
+  const c = window.__FFM_API.debugAudioStats().calls;
+  return { crashes: (c.collision ?? 0) + (c.collisionMajor ?? 0), wings: window.__FFM_API.state().wings };
+});
+assertEqual(inside.crashes, pre.crashes, `no second crash inside the grace window (${inside.crashes})`);
+assertEqual(inside.wings, pre.wings, 'no wing stacking inside the grace window');
+// the fish reappears when the window ends — hop clear of all hulls first so
+// the restore isn't raced by a re-hide on the hull we are still inside of
+await page.evaluate(() => window.__FFM_API.debugTeleportFar(window.__FFM_API.debugFish().z + 14));
+await page.waitForFunction(() => window.__FFM_API.debugFish().visible === true, null, { timeout: 20000 });
 
 // 4. every live chunk validates: each obstacle row keeps a swimmable gap
 // (patterns replaced the always-clear corridor — validity is per-row now;
