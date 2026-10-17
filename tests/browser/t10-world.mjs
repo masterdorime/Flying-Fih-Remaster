@@ -61,10 +61,21 @@ const pre = await page.evaluate(() => {
   const c = api.debugAudioStats().calls;
   return { wings: api.state().wings, crashes: (c.collision ?? 0) + (c.collisionMajor ?? 0) };
 });
-await page.waitForFunction((n) => {
-  const c = window.__FFM_API.debugAudioStats().calls;
-  return ((c.collision ?? 0) + (c.collisionMajor ?? 0)) > n;
-}, pre.crashes, { timeout: 25000 });
+let crashBDump = null;
+try {
+  await page.waitForFunction((n) => {
+    const c = window.__FFM_API.debugAudioStats().calls;
+    return ((c.collision ?? 0) + (c.collisionMajor ?? 0)) > n;
+  }, pre.crashes, { timeout: 25000 });
+} catch (e) {
+  crashBDump = await page.evaluate(() => {
+    const s = window.__FFM_API.state();
+    const f = window.__FFM_API.debugFish();
+    const c = window.__FFM_API.debugAudioStats();
+    return { phase: s.phase, ended: s.ended, endReason: s.endReason, wings: s.wings, speed: s.speed, runTime: s.runTime, fish: f, calls: { ...c.calls }, ctx: c.contextState };
+  });
+  throw new Error(`crash B never landed: ${JSON.stringify(crashBDump)}`);
+}
 const afterCrash = await page.evaluate(() => window.__FFM_API.state().wings);
 // touch the next hull inside the grace window (stays overlapping)
 await page.evaluate(() => {
@@ -91,6 +102,56 @@ await page.waitForFunction(() => {
   const f = window.__FFM_API.debugFish();
   return f.crashHide === 0 && f.visible === true;
 }, null, { timeout: 25000 });
+
+// 3c. same-obstacle immunity (2026-10-17, user call "cant get hit by a same
+// obstacle"): a hull that already hit you is dead for the rest of the run —
+// pinned inside it past the window's end, the crash count must never move.
+// Fresh run first: under the old wing rule the earlier sections' crashes end
+// the run before this contract can be observed at all.
+await page.evaluate(() => window.__FFM_API.debugRestart());
+await page.waitForFunction(() => window.__FFM_API.debugObstacleCount() > 0, null, { timeout: 15000 });
+const preC = await page.evaluate(() => {
+  const api = window.__FFM_API;
+  api.debugSetSpeed(25);
+  api.debugTeleportToObstacle(0);
+  const c = api.debugAudioStats().calls;
+  return { wings: api.state().wings, crashes: (c.collision ?? 0) + (c.collisionMajor ?? 0) };
+});
+await page.waitForFunction((n) => {
+  const c = window.__FFM_API.debugAudioStats().calls;
+  return ((c.collision ?? 0) + (c.collisionMajor ?? 0)) > n;
+}, preC.crashes, { timeout: 25000 });
+// crawl at min speed and keep re-pinning onto the same hull so the overlap
+// outlives the 0.5 s grace; the sampler exits early the moment a re-hit lands
+const steady = await page.evaluate(() => new Promise(resolve => {
+  const api = window.__FFM_API;
+  api.debugSetSpeed(8);
+  let baseline = null;
+  let armed = false;
+  let t0 = 0;
+  const samples = [];
+  const iv = setInterval(() => {
+    api.debugTeleportToObstacle(0); // stay overlapping the same hull
+    const f = api.debugFish();
+    const s = api.state();
+    const c = api.debugAudioStats().calls;
+    const crashes = (c.collision ?? 0) + (c.collisionMajor ?? 0);
+    if (baseline === null) baseline = crashes;
+    if (!armed && f.crashHide === 0) { armed = true; t0 = s.runTime; }
+    samples.push(crashes);
+    if ((armed && s.runTime - t0 >= 0.8) || crashes !== baseline) {
+      clearInterval(iv);
+      resolve({ armed, baseline, samples });
+    }
+  }, 150);
+  setTimeout(() => { clearInterval(iv); resolve({ armed, baseline, samples }); }, 15000);
+}));
+assert(steady.armed && steady.samples.every(n => n === steady.baseline),
+  `a hull can never hit twice (armed=${steady.armed}, crash counts: ${[...new Set(steady.samples)].join(',')})`);
+// collisions never cost wings (2026-10-17, user call): only the debug hook may
+const postC = await page.evaluate(() => window.__FFM_API.state().wings);
+assertEqual(postC, preC.wings, 'collisions never cost wings');
+await page.evaluate(() => window.__FFM_API.debugSetSpeed(25)); // §4 wants the fish moving
 
 // 4. every live chunk validates: each obstacle row keeps a swimmable gap
 // (patterns replaced the always-clear corridor — validity is per-row now;

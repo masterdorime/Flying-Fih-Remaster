@@ -300,12 +300,8 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
         player.state.speed = state.speed;
         player.state.squashDip = Math.min(1, player.state.squashDip + 0.6);
         bus.emit('collision:major', hit);
-        // a big crash while fragile costs a wing; three and the run is over
-        if (TIER_ORDER.indexOf(state.tier) <= GAMEOVER.fragileTierIndex) {
-          state.wings -= 1;
-          bus.emit('life:lost', state.wings);
-          if (state.wings <= 0 && !state.ended) endRun('CRASHED');
-        }
+        // crashes never cost wings (2026-10-17, user call): only speed/gauge
+        // consequences remain; the wing rule lives on through debugLoseWing
       } else {
         state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 8);
         player.state.speed = state.speed;

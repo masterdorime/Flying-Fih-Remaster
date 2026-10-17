@@ -45,7 +45,7 @@ export function createWorld(scene, templates) {
         ? BOW_YAW + (ob.phase % 0.24) - 0.12
         : (ob.phase * 3) % (Math.PI * 2);
       group.add(mesh);
-      obstacles.push({ spec: ob, mesh, baseX: ob.x });
+      obstacles.push({ spec: ob, mesh, baseX: ob.x, hit: false });
     }
     scene.add(group);
     return { group, obstacles, difficulty, z0: index * WORLD.chunkLength };
@@ -73,7 +73,10 @@ export function createWorld(scene, templates) {
         const dy = Math.abs(mesh.position.y - playerPos.y);
         const reach = spec.radius + playerRadius;
         if (dx < reach && dz < reach + 2 && dy < reach) {
-          if (elapsed - lastCrash > COLLISION.graceSeconds) { // global crash grace (PRD collision recovery)
+          // a hull that has already hit you is dead for the rest of the run;
+          // the global grace still shields freshly-crashed fish from OTHER hulls
+          if (!ob.hit && elapsed - lastCrash > COLLISION.graceSeconds) {
+            ob.hit = true;
             lastCrash = elapsed;
             onCollision?.({
               kind: spec.kind,
