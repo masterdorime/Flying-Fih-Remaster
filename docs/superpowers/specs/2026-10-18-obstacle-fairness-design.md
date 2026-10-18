@@ -156,3 +156,49 @@ complexity (Stage 2), never via invisible reach.
   cleverly) — acceptable: the budget explicitly buys recognition time.
 - Smaller hitboxes widen every gap; wall rows re-assemble with more cursor
   spacing — visual density shifts are a Stage 2 formation task.
+
+## 7. Gate clearance ruling (2026-10-18 follow-up -- ring QTE spawns inside/near hulls)
+
+### 7.1 Report and root cause (audited, not guessed)
+
+Player report: rings appear "really near obstacles or overlapping them".
+
+`resolveGatePlacement` (js/timing.js) z-scoped discs by
+`|d.z - plane| <= d.radius + 1.2 (MOUTH_PLANE_SLACK)`. Since Stage 1,
+`world.obstaclesNear` reports honest capsules: `radius = rx` (lateral
+half-beam 2.0--3.6) and `rz` (z half-length up to 9.4). The filter therefore
+read a 16--18 m hull as a ~2 m dot in z: any gate plane landing 4.8--12.4 m
+off a hull anchor (body actually spanning +-9.4 m) passed the clearance check
+and spawned the ring inside the hull, or accepted a plane at exactly
+mouth-radius edge distance (ring grazing the hull edge). Two audited
+non-causes: the compose horizon (~360 m ahead) always covers gate lead
+(clamped 45--90 m), and `GATE.placementRange 30` sizing is correct. The latent
+defect predates Stage 1 (legacy sphere radii 4.0/6.5 accidentally covered
+more band); honest capsules exposed it.
+
+### 7.2 The ruling (contract)
+
+A placed ring is legal only if, evaluated for the clean spawn, every
+clearest-x slide, and every z-shift candidate (<= zShiftMax 20, 4 m steps):
+
+1. **Z-band scope:** a disc is in scope iff
+   `|d.z - plane.z| <= (d.rz ?? d.radius) + GATE.mouthRadius` -- the ring's
+   plane may never sit inside a hull's z-capsule reach.
+2. **Acceptance bar:** for every in-scope disc,
+   `|gate.x - d.x| - (d.rx ?? d.radius) >= GATE.mouthRadius + GATE.clearanceMargin`
+   (margin 0.8, new config key). Rings never graze at mouth distance.
+3. **Fallback stays best-effort:** when no in-scope position satisfies the
+   bar anywhere in [ideal, ideal + 20], the resolver holds the clearest x at
+   the ideal plane (documented in-code). Composed water rarely saturates:
+   row legality (>= one true 3 m gap per row) plus stage-1 spacing gives the
+   4 m shift grid a legal between-rows plane.
+
+Movers keep the sweep-envelope encoding (`radius = rx + range` at
+world.obstaclesNear); the corrected z-band and bar close their side too.
+
+### 7.3 Guard rails preserved
+
+No QTE loop, timing, speed, scoring, or chain rule changes: placement is a
+spawn-time nudge with the same corridor, lead, and zShiftMax. Unit ruling
+tests use numeric fixtures mirroring real hulls (rx 3.6 / rz 9.4 ship);
+browser t19 phase 4 samples every live spawn for zero footprint-overlaps.
