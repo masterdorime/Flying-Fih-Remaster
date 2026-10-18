@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { KIND_VARIANTS } from './config.js';
 
 // Loads the player's asset packs and normalizes each model to a known size,
 // so authored scale differences (FBX vs GLB packs) don't affect gameplay.
@@ -17,7 +18,6 @@ const TARGET_SIZE = {
   ship: 18,
   container: 4.6,
 };
-
 const MODELS = [
   ['ship-liner', 'assets/models/watercraft/ship-ocean-liner.glb', TARGET_SIZE['ship-liner']],
   ['ship-cargo-b', 'assets/models/watercraft/ship-cargo-b.glb', TARGET_SIZE['ship-cargo-b']],
@@ -39,7 +39,10 @@ const MODELS = [
 // kind -> visual variants. The rock GAMEPLAY class (radius 4.0, every
 // difficulty tier) renders as ship hulls now: liners at huge size, bulk
 // carriers at medium/large. `ship` stays the exclusive giant-ship endgame kind.
-const KIND_ALIASES = { rock: ['ship-liner', 'ship-cargo-b', 'ship-cargo-c'], buoy: ['buoy', 'buoy-flag'], boat: ['boat-speed', 'boat-speed-b', 'boat-speed-c', 'boat-sail', 'boat-sail-b', 'boat-tug', 'boat-tug-b', 'boat-fishing'], container: ['container'], ship: ['ship'] };
+// The roster itself lives in config.KIND_VARIANTS (single source of truth —
+// worldgen binds a deterministic variant per spawn so the collision capsule
+// and the rendered silhouette are provably the same object).
+const KIND_ALIASES = KIND_VARIANTS;
 
 export async function loadModels() {
   const gltfLoader = new GLTFLoader();
@@ -95,8 +98,12 @@ function fallbackBox(size, color) {
   return g;
 }
 
-export function templateFor(templates, kind) {
-  const options = KIND_ALIASES[kind] || [kind];
+export function templateFor(templates, kind, variant = null) {
+  // deterministic variant binding (2026-10-18): worldgen picks the variant per
+  // spawn; collision dims (config.HULLS) describe that same object. A null
+  // variant keeps the legacy random rendering pick (fallbacks/probes).
+  const options = KIND_VARIANTS[kind] || [kind];
+  if (variant && templates[variant]) return templates[variant];
   const loaded = options.filter(k => templates[k]);
   if (!loaded.length) return templates[options[0]];
   // random variant per spawn: identical silhouettes teach nothing about

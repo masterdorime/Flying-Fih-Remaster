@@ -84,8 +84,10 @@ test('patterns: walls hold a swimmable gap, slaloms alternate, center gets occup
   assert.ok(seen.size >= 2, `at least two pattern shapes appear (${[...seen]})`);
   assert.ok(totalSlalom >= 2, 'slalom rows occurred');
   assert.ok(centerSeen, 'the old corridor gets occupied');
-  // every wall row keeps a swimmable gap (a wallMax-truncated wall may show a
-  // second gap — fairer, not a failure — so this asserts max gap, not exactly one)
+  // every wall row keeps a swimmable gap — measured with the honest capsule
+  // beams (rx ?? radius), the same clearance the fish actually crosses (a
+  // wallMax-truncated wall may show a second gap — fairer, not a failure —
+  // so this asserts max gap, not exactly one)
   for (let i = 0; i < 60; i++) {
     const walls = generateChunk(i, 0.8, 21, 40).obstacles.filter(o => o.pattern === 'wall');
     const rows = [];
@@ -94,7 +96,7 @@ test('patterns: walls hold a swimmable gap, slaloms alternate, center gets occup
       (row ?? rows[rows.push([]) - 1]).push(o);
     }
     for (const row of rows) {
-      const iv = row.map(o => [o.x - o.radius, o.x + o.radius]).sort((a, b) => a[0] - b[0]);
+      const iv = row.map(o => { const r = o.rx ?? o.radius; return [o.x - r, o.x + r]; }).sort((a, b) => a[0] - b[0]);
       let maxGap = Math.max(0, iv[0][0] + 14);
       for (let k = 1; k < iv.length; k++) maxGap = Math.max(maxGap, iv[k][0] - iv[k - 1][1]);
       maxGap = Math.max(maxGap, 14 - iv[iv.length - 1][1]);
@@ -103,16 +105,25 @@ test('patterns: walls hold a swimmable gap, slaloms alternate, center gets occup
   }
 });
 
-test('row budget scales with difficulty, capped by speed-spaced fit', () => {
+test('rows obey the fairness window, capped by the chunk fit (2026-10-18)', () => {
   const rowsOf = (c) => {
     const zs = [...c.obstacles].sort((a, b) => a.z - b.z).map(o => o.z);
     let n = 0, last = -1e9;
     for (const z of zs) { if (z - last > 5) { n++; last = z; } }
     return n;
   };
-  assert.equal(rowsOf(generateChunk(1, 0, 5, 25)), 2);   // min(round(lerp(2,7,0)), fit) = 2
-  assert.equal(rowsOf(generateChunk(1, 1, 5, 25)), 6);   // 7 capped by fit at spacing 18
-  assert.equal(rowsOf(generateChunk(1, 1, 5, 110)), 3);  // 1 + floor(95 / 38.5)
+  // row windows: speed × 1.2 s with the 22 m floor — chunk-local and cursor
+  // threaded, so counts follow the window, not a difficulty-driven quota
+  const windowAt = (speed) => Math.max(speed * PATTERN.rowWindowSeconds, PATTERN.spacingMin);
+  for (const speed of [25, 50, 110]) {
+    const w = windowAt(speed);
+    for (const d of [0, 0.5, 1]) {
+      const c = generateChunk(1, d, 5, speed);
+      const fits = 1 + Math.floor((WORLD.chunkLength - PATTERN.rowZ0) / w);
+      assert.ok(rowsOf(c) <= fits, `chunk rows stay within the window fit (speed ${speed} d ${d}: ${rowsOf(c)} ≤ ${fits})`);
+    }
+  }
+  assert.ok(rowsOf(generateChunk(1, 1, 5, 25)) >= 2, 'dense swimming keeps patterned rows');
   const slow = generateChunk(2, 0.5, 9, 8).obstacles.map(o => o.z.toFixed(2)).join();
   const fast = generateChunk(2, 0.5, 9, 110).obstacles.map(o => o.z.toFixed(2)).join();
   assert.notEqual(slow, fast); // spacing follows speed at fixed seed
@@ -155,9 +166,9 @@ test('PATTERN config carries the fairness numbers', () => {
   assert.equal(PATTERN.rowBand, 5);
 });
 
-test('hitbox radii match the readable-hazard roster (2026-10-16)', () => {
-  assert.equal(RADIUS_TABLE.rock, 4.0);      // huge rock visual: forgiving 8 m sphere
-  assert.equal(RADIUS_TABLE.ship, 6.5);      // 18 m hull: forgiving 13 m sphere
+test('legacy sphere roster retained; honest HULLS capsule table governs collision (2026-10-18)', () => {
+  assert.equal(RADIUS_TABLE.rock, 4.0); // legacy/debug surface (spec.radius fallback)
+  assert.equal(RADIUS_TABLE.ship, 6.5);
   assert.equal(RADIUS_TABLE.boat, 3.4);
   assert.equal(RADIUS_TABLE.buoy, 1.1);
   assert.equal(RADIUS_TABLE.container, 2.2);
@@ -218,10 +229,16 @@ test('validator: interpenetrating envelopes fail even when a gap exists elsewher
   assert.equal(validateChunkGaps({ obstacles: [at(-3.5, 4, 47.5), at(3.5, 4, 52.5), at(-13, 1)] }), true);
 });
 
-test('no generated row ever interpenetrates (pairwise envelope clearance)', () => {
+test('no generated row ever interpenetrates (pairwise honest-hull clearance)', () => {
   const sweepOf = (o) => (o.moving ? o.range : 0);
-  const minPairDist = (a, b) =>
-    Math.hypot(Math.max(0, Math.abs(a.x - b.x) - sweepOf(a) - sweepOf(b)), a.z - b.z);
+  // capsule-aware separation (2026-10-18): lateral needs rx; z clearance may
+  // absorb the hull half-lengths; radius-only fixtures degrade to spheres
+  const minPairDist = (a, b) => {
+    const dx = Math.max(0, Math.abs(a.x - b.x) - sweepOf(a) - sweepOf(b));
+    const rzA = a.rz ?? a.radius, rzB = b.rz ?? b.radius;
+    const dz = Math.max(0, Math.abs(a.z - b.z) - rzA - rzB);
+    return Math.hypot(dx, dz);
+  };
   for (const speed of [18, 30]) {
     for (let d = 0; d <= 1.0001; d += 0.25) {
       for (let i = 0; i < 60; i++) {
@@ -232,10 +249,11 @@ test('no generated row ever interpenetrates (pairwise envelope clearance)', () =
         const checkRow = () => {
           for (let a = 0; a < row.length; a++) {
             for (let b = a + 1; b < row.length; b++) {
-              const need = row[a].radius + row[b].radius;
+              const rxA = row[a].rx ?? row[a].radius, rxB = row[b].rx ?? row[b].radius;
+              const need = rxA + rxB;
               const dist = minPairDist(row[a], row[b]);
               assert.ok(dist >= need - 1e-9,
-                `chunk ${i} d=${d.toFixed(2)}: ${row[a].kind}@(${row[a].x.toFixed(1)},${row[a].z.toFixed(1)}) fuses ${row[b].kind}@(${row[b].x.toFixed(1)},${row[b].z.toFixed(1)}) dist=${dist.toFixed(2)} need=${need}`);
+                `chunk ${i} d=${d.toFixed(2)}: ${row[a].kind}@(${row[a].x.toFixed(1)},${row[a].z.toFixed(1)}) fuses ${row[b].kind}@(${row[b].x.toFixed(1)},${row[b].z.toFixed(1)}) dist=${dist.toFixed(2)} need=${need.toFixed(2)}`);
             }
           }
         };

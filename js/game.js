@@ -292,7 +292,13 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     if (!locked) updateGates(prevPos, dt);
 
     // obstacle collisions: minor speed loss / major forced descent (PRD §11.3)
-    world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, state.speed, (hit) => {
+    // Row windows are budgeted in meters at compose time using this speed —
+    // rows near a fresh run were being measured at the instant (still-ramping)
+    // speed, then arrived-at later at a much higher speed: 23 m budgeted at
+    // 14 u/s is 1.66 s, but 1.08 s at 21.5 — under the 1.2 s fairness window.
+    // Budget at max(instant, tier ceiling) so both compose and arrival obey.
+    const speedBudget = Math.max(state.speed, profileFor(state.tier).maxSpeed);
+    world.update(dt, player.state.position, PLAYER_RADIUS, state.difficulty, speedBudget, (hit) => {
       player.hide(COLLISION.graceSeconds); // crash invisibility + i-frame window
       if (hit.major) {
         state.speed = Math.max(MOMENTUM.minSpeed, state.speed - 20);

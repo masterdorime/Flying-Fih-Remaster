@@ -31,21 +31,62 @@ export const GATE = {
   flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
   corridorX: 4,         // |x| bound for placement (inside the old safe corridor)
   zShiftMax: 20,        // max forward z-shift when the mouth clips a wall row
-  placementRange: 28,   // obstacle query window around the gate z (zShiftMax + biggest hull reach)
+  placementRange: 30,   // obstacle query window around the gate z (zShiftMax 20 + biggest hull reach 9.4 + margin)
 };
 
 // Obstacle patterns (Phase 3): freeform rows with a validated gap — see
 // js/worldgen.js. Rows scale with speed; shapes never unlock by tier.
+// 2026-10-18 fairness budget (approved): rows sit ≥1.2 s apart at every speed
+// (walls ≥1.35 s — extra read time for multi-gap rows), spacing = speed ×
+// seconds with a 22 m floor; z-jitter only ever ADDS time; the generator
+// validates the steering-reachable chain between consecutive rows.
 export const PATTERN = {
-  minGap: 3.0,        // minimum lateral gap per row (2 x 1.1 fish + 0.8 margin)
-  rowBand: 5,         // validator z-grouping window (generator keeps intra-row spread <= 4)
-  spacingSeconds: 0.35, // row spacing = clamp(speed * this, min, max)
-  spacingMin: 18,     // meters between rows (slow swim)
-  spacingMax: 40,     // meters between rows (fast arrival)
-  rowZ0: 20,          // rows placed within chunk-local z
-  rowZ1: 115,
-  wallMax: 6,         // max obstacles per wall row
-  maxAttempts: 8,     // validation re-rolls before the fallback row
+  minGap: 3.0,          // minimum lateral gap per row (2 x 1.1 fish + 0.8 margin)
+  rowBand: 5,           // validator z-grouping window (members stay within ±2)
+  rowWindowSeconds: 1.2,     // window between rows (was spacingSeconds 0.35)
+  wallWindowSeconds: 1.35,   // window after wall-type rows
+  spacingMin: 22,       // meters between rows at the slowest swim
+  zJitterMax: 4,        // add-only nominal-row jitter (never subtracts time)
+  rowZ0: 20,            // first row (chunk 0, absolute)
+  wallMax: 6,           // max obstacles per wall row
+  maxAttempts: 8,       // validation re-rolls before a breather skip
+  reaction: 0.25,       // human reaction allowance in the chain check
+  chainMargin: 0.15,    // chain-check safety margin
+};
+
+// Honest hull collision dims (2026-10-18): measured from the live normalized
+// templates (Box3 after models.js normalize GAME-sized geometry), wrapped
+// with the approved grace — rx = half-beam + 0.3 m, rz = half-length + 0.4 m
+// tip slack. Watercraft sail bow-forward along z, so the long axis is z.
+// The giant-ship mast (sky 13.7 m) is vertical; horizontal collision is what
+// the capsule governs.
+export const HULLS = {
+  'ship-liner':   { rx: 3.58 / 2 + 0.3, rz: 16 / 2 + 0.4, beam: 3.58, length: 16 },
+  'ship-cargo-b': { rx: 3.34 / 2 + 0.3, rz: 9 / 2 + 0.4,  beam: 3.34, length: 9 },
+  'ship-cargo-c': { rx: 4.83 / 2 + 0.3, rz: 13 / 2 + 0.4, beam: 4.83, length: 13 },
+  buoy:           { rx: 1.31 / 2 + 0.3, rz: 1.31 / 2 + 0.4, beam: 1.31, length: 1.31 },
+  'buoy-flag':    { rx: 1.09 / 2 + 0.3, rz: 1.52 / 2 + 0.4, beam: 1.09, length: 1.52 },
+  'boat-speed':   { rx: 4.77 / 2 + 0.3, rz: 9 / 2 + 0.4,  beam: 4.77, length: 9 },
+  'boat-speed-b': { rx: 4.88 / 2 + 0.3, rz: 9 / 2 + 0.4,  beam: 4.88, length: 9 },
+  'boat-speed-c': { rx: 5.07 / 2 + 0.3, rz: 9 / 2 + 0.4,  beam: 5.07, length: 9 },
+  'boat-sail':    { rx: 3.01 / 2 + 0.3, rz: 6.36 / 2 + 0.4, beam: 3.01, length: 6.36 },
+  'boat-sail-b':  { rx: 3.19 / 2 + 0.3, rz: 7.27 / 2 + 0.4, beam: 3.19, length: 7.27 },
+  'boat-tug':     { rx: 3.6 / 2 + 0.3,  rz: 7 / 2 + 0.4,  beam: 3.6,  length: 7 },
+  'boat-tug-b':   { rx: 4.35 / 2 + 0.3, rz: 7 / 2 + 0.4,  beam: 4.35, length: 7 },
+  'boat-fishing': { rx: 3.23 / 2 + 0.3, rz: 7 / 2 + 0.4,  beam: 3.23, length: 7 },
+  ship:           { rx: 6.6 / 2 + 0.3,  rz: 18 / 2 + 0.4, beam: 6.6,  length: 18 },
+  container:      { rx: 2.3 / 2 + 0.3,  rz: 4.6 / 2 + 0.4, beam: 2.3, length: 4.6 },
+};
+
+// Gameplay kind -> visual variant roster (single source of truth; models.js
+// renders from this and worldgen binds the variant deterministically per
+// spawn so collision and silhouette are provably the same object).
+export const KIND_VARIANTS = {
+  rock: ['ship-liner', 'ship-cargo-b', 'ship-cargo-c'],
+  buoy: ['buoy', 'buoy-flag'],
+  boat: ['boat-speed', 'boat-speed-b', 'boat-speed-c', 'boat-sail', 'boat-sail-b', 'boat-tug', 'boat-tug-b', 'boat-fishing'],
+  container: ['container'],
+  ship: ['ship'],
 };
 
 // Ring-triggered QTE: crossing the mouth opens one SPACE window; the press
