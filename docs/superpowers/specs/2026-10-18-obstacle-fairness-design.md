@@ -202,3 +202,56 @@ No QTE loop, timing, speed, scoring, or chain rule changes: placement is a
 spawn-time nudge with the same corridor, lead, and zShiftMax. Unit ruling
 tests use numeric fixtures mirroring real hulls (rx 3.6 / rz 9.4 ship);
 browser t19 phase 4 samples every live spawn for zero footprint-overlaps.
+
+## 8. Per-run world seed (2026-10-18 stage A)
+
+**Root cause (audited):** `js/world.js buildChunk` passes the literal seed
+`1337` to `composeChunk` for every chunk of every run. The whole obstacle
+layout replays identically run-to-run; only tier-driven spacing and the
+difficulty ramp vary. The pure layer already varies layout per seed
+(`streamKey(seed, index, …)` jitter/shape/piece streams) — the defect is the
+wiring, not the generator. `gateRng` (game.js module rng) continues its stream
+across restarts, so gate placement was never pinned.
+
+**Contract:**
+1. `world.reset(seed = 1337)` stores a per-run seed; every chunk composes
+   through it. Default keeps the historical pin for probes.
+2. `game.js restart()` draws `state.runSeed` per run: `?seed=<n>` URL param
+   (reproducible pins for tests/probes) wins when positive, else a fresh
+   32-bit draw. `__FFM_API.seed()` reports it.
+3. Every exploration/verification test stays live-read driven; the corpus
+   (`worldgen.test.js` / `-fairness.test.js`) uses explicit seeds and is
+   unaffected. Added: pure-layer cross-seed contract pin + browser t21 phase A
+   (two restarts compose different layouts; `?seed` control pins them equal).
+
+No fairness floor, window, chain rule, or QTE rule changes.
+
+## 9. Formation library (2026-10-18 stage B)
+
+Variety is the approved difficulty growth axis: pattern complexity, never
+ease-up. Replacing the uniform 4-shape pick (`PATTERNS[Math.floor(rng()*4)]`)
+with a weighted, difficulty-gated, no-immediate-repeat formation selector.
+
+**Roster (config `FORMATIONS`):** basics stay (slalom / wall / center /
+cluster 0–0.25 minD) + new: breather 0.15, wideGate 0.35, offsetTurn 0.40,
+fork 0.55, chicane 0.55, riskLane 0.70 (minDifficulty gates). Weights tilt
+with compose speed (wide paths + breathers at faster tiers) via
+`1 + tilt * speedT`; `speedT` normalizes t 25→110.
+
+**Mechanics:** formation state (`{id, seq, last}`) threads through
+`composeChunk` → `formOut` → generateChunk replay AND world.js genState.
+Multi-window formations lock their role sequence (offsetTurn/fork/chicane
+span 2 windows); retries re-jitter the locked role, never re-pick. The
+no-repeat guard blocks the same id twice in a row (breather participates).
+Enforced breathers (all attempts fail) clear the form state.
+
+**Tags:** `o.pattern` stays the shape class (spacing/wall floors derive from
+the builder ROLE — a fork's wall continuation counts as wall for the 1.35 s
+after-spacing); `o.form` carries the formation id for observability and tests
+(plus `pattern`+`form` passthrough on world.obstaclesNear discs).
+
+**Out of scope:** QTE/gate rules, coin module (risk lanes pay via the
+existing `findClearLane` trail), flight, SFX. Research basis: r/gamedesign
+Endless-Runner pattern-pool practice (~12 patterns randomly spawned, Jetpack
+Joyride) and Game Developer's two-level generation (Sure Footing) — variety
+per run over difficulty-gated pools, which stage gating handles here.
