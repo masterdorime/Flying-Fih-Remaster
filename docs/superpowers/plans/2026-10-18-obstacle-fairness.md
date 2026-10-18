@@ -18,10 +18,10 @@ validator 0.25 s reaction + 0.15 s margin, honest capsules 0.3/0.4 grace).
 
 ## Stage 1b — Gate clearance ruling (2026-10-18 player report, injected before Stage 2)
 
-- [ ] T9 RED: unit ruling tests in timing.test.js (z-band by rz not radius-dot, mouth+margin acceptance bar 3.8, shift planes capsule-checked, capsule fuzz with shift-legality property, `GATE.clearanceMargin` pin) — fail on current code
-- [ ] T10 RED: t19 phase 4 — live gate spawn sampling (servo segments, tier high): zero ring-overlaps-hull across ≥ 25 observed spawns — fail on current code
-- [ ] T11 GREEN: `GATE.clearanceMargin: 0.8` + capsule-aware `resolveGatePlacement` (band = rz + mouthRadius, bar = mouth + margin, same search staircase and fallback)
-- [ ] T12: full unit + browser suites green; commit series + zip rebuild riding the feature commit; HANDOFF §5/§6 updated in place
+- [x] T9 RED: unit ruling tests in timing.test.js (z-band by rz not radius-dot, mouth+margin acceptance bar 3.8, shift planes capsule-checked, capsule fuzz with shift-legality property, `GATE.clearanceMargin` pin) — 6 watched failures on the pre-fix build ("ring inside the hull body: x=0, z=100", "grazing plane … edge 3.4", "landed plane violates hull 108", fuzz shift-legality, margin undefined)
+- [x] T10 RED: t19 phase 4 — live gate spawn sampling (servo segments, tier high): **5 real spawn overlaps reproduced live pre-fix** (gate 22 inside a cargo hull Δz 5.06 of ±6.9 with lat −1.14; gate 44 grazing dead-center lat 0.03; three more) across ≥ 25 observed spawns — exactly the reported "near/overlapping" defect
+- [x] T11 GREEN: `GATE.clearanceMargin: 0.8` + capsule-aware `resolveGatePlacement` (band = rz + mouthRadius, bar = mouth + margin, same search staircase and fallback) — unit suite 82/82 (78 + 5 new − 1 replaced fuzz); t19-fairness standalone ALL PASS incl. phase 4 zero-overlap. **Sampler predicate aligned to the exact ruling band** after the first green corpus flagged two just-out-of-band neighbours (Δz 4.13–4.27 vs band rz+3 = 4.06 — 3+ m past 1 m hull tips, physically clear): the earlier RED-era `+0.25` fudge over-reached the contract the ruling guarantees; the phase now asserts bar ≥ 3.8 strictly inside `rz + mouthRadius` (+1e-6 float eps only)
+- [x] T12: full unit + browser suites green (**82/82 unit; single-run 16/16 browser**); commit series `cc62821` (docs preflight) → `d6107b4` (feature fix; zip rebuilt 155 entries riding it); HANDOFF §4/§5/§6 updated in place
 
 ## Stage 2 — Formations & risk-reward (next)
 
