@@ -32,6 +32,11 @@ export const GATE = {
   corridorX: 4,         // |x| bound for placement (inside the old safe corridor)
   zShiftMax: 20,        // max forward z-shift when the mouth clips a wall row
   placementRange: 30,   // obstacle query window around the gate z (zShiftMax 20 + biggest hull reach 9.4 + margin)
+  // 2026-10-18 gate-clearance ruling: an accepted ring keeps a mouth+margin
+  // edge gap to every hull in its z-band — never grazes a hull at mouth
+  // distance (the old bar accepted exactly mouth-radius edges: ring grazing
+  // the hull edge, reported as "really near").
+  clearanceMargin: 0.8,
 };
 
 // Obstacle patterns (Phase 3): freeform rows with a validated gap — see

@@ -1,7 +1,8 @@
 // t19 — obstacle fairness in the running game (2026-10-18 spec §4):
 // live row windows at multiple speeds, steering-driven zero-crash passes at
-// 25 and 70 u/s, and the honest side-pass regression (grazing just outside a
-// hull capsule misses; the old 4-6.5 m spheres would have hit).
+// 25 and 70 u/s, the honest side-pass regression (grazing just outside a
+// hull capsule misses; the old 4-6.5 m spheres would have hit), and the
+// gate-clearance ruling: every spawned ring must not overlap/enclose a hull.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, stopServer, openPage, closePage } from './harness.mjs';
@@ -205,6 +206,106 @@ test('t19: fairness in the running game', async () => {
     });
     assert.equal(sidePass.collided, false, 'side pass outside the hull capsule must miss');
     assert.equal(sidePass.crossed, true, 'the fish crossed the hull plane during the probe');
+
+    // ---- 4: gate-clearance ruling in the live game (2026-10-18 ruling) ----
+    // Every spawned ring must not overlap/enclose a hull: for each observed
+    // spawn, no obstacle disc may sit within (rz + mouth) of the gate plane AND
+    // within (rx + mouth) of the gate center. Servo keeps the fish alive; the
+    // sample is per-spawn (post-placement), so restart segments are composable.
+    await page.evaluate(() => __FFM_API.debugRestart());
+    await page.waitForFunction(() => __FFM_API.debugObstacleCount() > 0, null, { timeout: 8000 });
+    const gateRuling = await page.evaluate(async ({ segBudgetS, segments, speed, capSpeed }) => {
+      const sampled = [];
+      const violations = [];
+      const groupRows = (discs) => {
+        const sorted = [...discs].sort((a, b) => a.z - b.z);
+        const rows = [];
+        for (const d of sorted) {
+          const r = rows[rows.length - 1];
+          if (r && d.z - r.anchor <= 5) r.members.push(d);
+          else rows.push({ anchor: d.z, members: [d] });
+        }
+        return rows;
+      };
+      const widestSpan = (members) => {
+        const iv = members.map(d => [d.x - (d.radius ?? 0), d.x + (d.radius ?? 0)]).sort((a, b) => a[0] - b[0]);
+        let best = null, end = -14;
+        for (const [lo, hi] of iv) {
+          if (lo > end && (!best || lo - end > best[1] - best[0])) best = [end, lo];
+          if (hi > end) end = hi;
+        }
+        if (14 - end > (best ? best[1] - best[0] : -1)) best = [end, 14];
+        return best;
+      };
+      const ctx = { rtLast: null, dtSim: 0.017, targetX: 0, committedZ: -99, committedTail: 9 };
+      const steer = (want, cap) => {
+        const st0 = __FFM_API.state();
+        if (ctx.rtLast != null && st0.runTime > ctx.rtLast) {
+          ctx.dtSim = Math.max(0.008, Math.min(0.08, st0.runTime - ctx.rtLast));
+        }
+        ctx.rtLast = st0.runTime;
+        const x = st0.position[0];
+        const step = Math.max(-cap * ctx.dtSim, Math.min(cap * ctx.dtSim, (want - x) * 0.5));
+        __FFM_API.debugSetLateral(Math.max(-14, Math.min(14, x + step)));
+      };
+      const sampleGate = (g) => {
+        const discs = __FFM_API.debugObstaclesNear(g.z, 30);
+        for (const d of discs) {
+          // the ruling band itself (rz + mouth), float eps only: production
+          // guarantees the bar within it — discs beyond it are past the hull
+          // tip by design and physically clear. An earlier +0.25 fudge
+          // over-flagged just-out-of-band neighbours (delta-z 4.13-4.27 vs
+          // band 4.06, 3+ m past 1 m hulls) as false overlaps.
+          const inBand = Math.abs(d.z - g.z) <= (d.rz ?? d.radius) + 3.0 + 1e-6;
+          const lat = Math.abs(d.x - g.x) - (d.rx ?? d.radius);
+          if (inBand && lat < 3.8 - 1e-6) {
+            violations.push({
+              gate: { id: g.id, x: +g.x.toFixed(2), z: +g.z.toFixed(2) },
+              disc: { x: +d.x.toFixed(2), z: +d.z.toFixed(2), rx: +(d.rx ?? d.radius).toFixed(2), rz: +(d.rz ?? d.radius).toFixed(2), moving: !!d.moving },
+              lat: +lat.toFixed(2),
+            });
+          }
+        }
+        sampled.push(g.id);
+      };
+      for (let seg = 0; seg < segments && sampled.length < 30; seg++) {
+        __FFM_API.debugRestart();
+        await new Promise(r => setTimeout(r, 400));
+        __FFM_API.setGauge(75); // tier high: hull-dense rows, gates spawn into capsules
+        const cap = capSpeed;   // settle cap mirroring phase 2's high-tier servo
+        __FFM_API.debugSetSpeed(speed);
+        const stats = () => __FFM_API.debugAudioStats().calls;
+        const t0 = stats().collision ?? 0;
+        const rt0 = __FFM_API.state().runTime;
+        ctx.rtLast = null; ctx.committedZ = -99; ctx.committedTail = 9;
+        let lastGateId = null;
+        while (__FFM_API.state().runTime - rt0 < segBudgetS && (stats().collision ?? 0) === t0) {
+          __FFM_API.setGauge(75);
+          const st = __FFM_API.state();
+          const fz = st.position[2];
+          const all = __FFM_API.debugObstaclesNear(fz + 45, 45);
+          if (fz > ctx.committedZ + ctx.committedTail) {
+            const rowsAhead = groupRows(all.filter(d => d.z > fz - 1));
+            if (!rowsAhead.length) { ctx.committedZ = fz + 70; ctx.committedTail = 9; ctx.targetX = 0; }
+            else {
+              ctx.committedZ = rowsAhead[0].anchor;
+              ctx.committedTail = Math.max(...rowsAhead[0].members.map(d => d.rz ?? d.radius)) + 1.2;
+              const span = widestSpan(rowsAhead[0].members);
+              ctx.targetX = span ? (span[0] + span[1]) / 2 : 0;
+            }
+          }
+          steer(ctx.targetX, cap);
+          const g = __FFM_API.gate();
+          if (g && g.id !== lastGateId) { lastGateId = g.id; sampleGate(g); }
+          await new Promise(r => setTimeout(r, 60));
+        }
+      }
+      return { sampledCount: sampled.length, sampledUnique: new Set(sampled).size, violations };
+    }, { segBudgetS: 45, segments: 3, speed: 70, capSpeed: 99 });
+    assert.ok(gateRuling.sampledCount >= 25,
+      `gate spawns observed (${gateRuling.sampledCount}, unique ${gateRuling.sampledUnique}) — sampling too thin`);
+    assert.equal(gateRuling.violations.length, 0,
+      `gate spawn overlaps: ${JSON.stringify(gateRuling.violations.slice(0, 6))}`);
 
     assert.deepEqual(consoleErrors, [], `console errors: ${JSON.stringify(consoleErrors)}`);
   } finally {

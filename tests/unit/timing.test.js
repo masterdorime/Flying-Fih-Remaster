@@ -116,11 +116,13 @@ function gate(over = {}) {
   return { id: 1, x: 0, y: 0, z: 100, resolved: false, result: null, ...over };
 }
 
-// clearance the way placement reads it: min edge distance over discs whose
-// reach touches the plane (same per-disc filter the implementation uses)
+// clearance the way placement reads it (2026-10-18 capsule contract): edge gap
+// over every disc whose z-band (rz — the honest hull half-length, not the
+// anchor dot) touches the plane by the mouth radius. Mirrors the
+// implementation's in-scope + edge math.
 function mouthClearance(z, x, discs) {
-  const near = discs.filter(d => Math.abs(d.z - z) <= d.radius + 1.2);
-  return near.length ? Math.min(...near.map(d => Math.abs(x - d.x) - d.radius)) : Infinity;
+  const near = discs.filter(d => Math.abs(d.z - z) <= (d.rz ?? d.radius) + GATE.mouthRadius);
+  return near.length ? Math.min(...near.map(d => Math.abs(x - d.x) - (d.rx ?? d.radius))) : Infinity;
 }
 
 test('resolveGatePlacement: open water keeps the gate exactly put', () => {
@@ -130,7 +132,46 @@ test('resolveGatePlacement: open water keeps the gate exactly put', () => {
   assert.deepEqual(resolveGatePlacement(0, 100, []), { x: 0, z: 100 });      // no hazards: unchanged
 });
 
-test('resolveGatePlacement: a wall row the mouth cannot fit shifts the ring forward', () => {
+test('resolveGatePlacement: gate-clearance ruling §1 — capsules reach the plane by rz', () => {
+  // A ship-class hull (rx 3.6, rz 9.4) anchored 6.5 m OFF the plane: the old
+  // radius-dot filter (3.6 + 1.2 = 4.8) never saw it and spawned the ring
+  // inside the hull body. The band is rz + mouth, so the plane must dodge it.
+  const hull = [{ x: 0, z: 106.5, radius: 3.6, rz: 9.4 }];
+  const out = resolveGatePlacement(0, 100, hull);
+  const inBand = Math.abs(out.z - 106.5) <= 9.4 + 3.0 + 1e-9;
+  assert.ok(!inBand || Math.abs(out.x - 0) - 3.6 >= 3.8 - 1e-9,
+    `ring inside the hull body: x=${out.x}, z=${out.z}`);
+});
+
+test('resolveGatePlacement: gate-clearance ruling §2 — accepted planes clear mouth+margin, never graze', () => {
+  // hull in-band of the ideal plane, offset 7 m: the old bar accepted a 3.4 m
+  // edge gap (ring 0.4 m off the hull edge — "really near"); the ruling raises
+  // the acceptance bar to mouth + clearanceMargin = 3.8.
+  const hull = [{ x: -7, z: 100.5, radius: 3.6, rz: 9.4 }];
+  const out = resolveGatePlacement(0, 100, hull);
+  const inBand = Math.abs(out.z - 100.5) <= 9.4 + 3.0 + 1e-9;
+  const edge = Math.abs(out.x + 7) - 3.6;
+  assert.ok(!inBand || edge >= 3.8 - 1e-9, `grazing plane: x=${out.x}, z=${out.z}, edge ${edge}`);
+});
+
+test('resolveGatePlacement: shift planes are capsule-checked — no landing inside a hull band', () => {
+  // ideal plane blocked by a row hull; a FORWARD hull's BODY covers the ideal
+  // plane's x on the lane edge the old clearestX would pick. The old
+  // radius-dot filter never saw that hull (|dz| 8 > 3.4 + 1.2) and returned a
+  // ring standing inside it.
+  const blockers = [
+    { x: 0, z: 100, radius: 2, rz: 4 },      // ideal-plane blocker
+    { x: -13, z: 108, radius: 3.4, rz: 8 },  // body spans z 100..116, covers x -14
+  ];
+  const out = resolveGatePlacement(0, 100, blockers);
+  for (const d of blockers) {
+    const inBand = Math.abs(out.z - d.z) <= d.rz + 3.0 + 1e-9;
+    assert.ok(!inBand || Math.abs(out.x - d.x) - (d.rx ?? d.radius) >= 3.8 - 1e-9,
+      `landed plane violates hull ${d.z}: x=${out.x}, z=${out.z}`);
+  }
+});
+
+test('resolveGatePlacement: wall row the mouth cannot fit shifts the ring forward at the ruling bar', () => {
   // fenced row at z 100, single 3 m gap at (2, 5): a 6 m mouth cannot fit it
   const wall = [
     { x: -12, z: 100, radius: 2 }, { x: -8, z: 100, radius: 2 },
@@ -141,7 +182,7 @@ test('resolveGatePlacement: a wall row the mouth cannot fit shifts the ring forw
   const out = resolveGatePlacement(3.5, 100, wall);
   assert.ok(out.z > 100, `ring moves to the first plane the mouth clears (z=${out.z})`);
   assert.ok(out.z - 100 <= 20 + 1e-9, `shift bounded (dz=${out.z - 100})`);
-  assert.ok(mouthClearance(out.z, out.x, wall) >= 3,
+  assert.ok(mouthClearance(out.z, out.x, wall) >= 3.8,
     `mouth clears at the landed plane (${mouthClearance(out.z, out.x, wall)})`);
 });
 
@@ -162,7 +203,7 @@ test('resolveGatePlacement: mover sweeps are respected via envelope discs', () =
   ];
   const out = resolveGatePlacement(0, 100, movers);
   assert.ok(out.z > 108, `ring lands past the sweep reach (z=${out.z})`);
-  assert.ok(mouthClearance(out.z, out.x, movers) >= 3,
+  assert.ok(mouthClearance(out.z, out.x, movers) >= 3.8,
     `mouth clears the sweeps (${mouthClearance(out.z, out.x, movers)})`);
 });
 
@@ -173,21 +214,34 @@ test('resolveGatePlacement: best effort in hopeless water — hold the ideal pla
   assert.ok(Number.isFinite(out.x) && Math.abs(out.x) <= 14, `in-bounds fallback (${out.x})`);
 });
 
-test('resolveGatePlacement: fuzz — in bounds, bounded, deterministic', () => {
+test('config: gate clearance margin is 0.8 (accepted planes clear mouth+margin)', () => {
+  assert.equal(GATE.clearanceMargin, 0.8);
+});
+
+test('resolveGatePlacement: fuzz — capsules, in bounds, shifts land only on legal planes', () => {
   let rngState = 12345;
   const frand = () => (rngState = (rngState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   for (let i = 0; i < 60; i++) {
     const discs = [];
     const n = Math.floor(frand() * 6);
     for (let k = 0; k < n; k++) {
-      discs.push({ x: frand() * 28 - 14, z: 100 + (frand() * 2 - 1) * 9, radius: 1 + frand() * 5.5 });
+      const radius = 1 + frand() * 5.5;
+      const disc = { x: frand() * 28 - 14, z: 100 + (frand() * 2 - 1) * 9, radius };
+      if (frand() < 0.5) { disc.rx = radius; disc.rz = radius * (1 + frand() * 1.5); }
+      discs.push(disc);
     }
     const gx = frand() * 8 - 4;
     const r = resolveGatePlacement(gx, 100, discs);
     assert.ok(Number.isFinite(r.x) && Math.abs(r.x) <= 14, `x in bounds (${r.x})`);
     assert.ok(r.z >= 100 && r.z <= 120 + 1e-9, `z within [ideal, ideal+20] (${r.z})`);
-    if (mouthClearance(100, gx, discs) >= 3) {
-      assert.deepEqual(r, { x: gx, z: 100 }, 'a spawn the mouth already clears never moves');
+    if (mouthClearance(100, gx, discs) >= 3.8) {
+      assert.deepEqual(r, { x: gx, z: 100 }, 'a spawn the mouth+margin already clears never moves');
+    }
+    if (r.z > 100 + 1e-9) {
+      // the ruling's core: a chosen shift plane is capsule-legal, never an
+      // overlap or graze the old radius-dot check would have blessed
+      const edge = mouthClearance(r.z, r.x, discs);
+      assert.ok(edge >= 3.8 - 1e-9, `shift landed at a near/overlapping plane (edge ${edge})`);
     }
     assert.deepEqual(resolveGatePlacement(gx, 100, discs), r, 'deterministic');
   }

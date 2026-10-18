@@ -86,27 +86,38 @@ export function qteRemaining(qte, now) {
 }
 
 // Place a freshly spawned gate in clear water (Phase 3 + 2026-10-17 overlap
-// fix). Pure geometry, best-effort throughout, three stages:
-//   1. clean water — the spawn clears every disc whose reach touches the gate
-//      plane by the mouth radius: nothing moves (teleports and tests pin this)
-//   2. blocked laterally — the clearest x at the ideal plane (the gap center,
-//      ties nearest), so the fish teleports onto the gate with meters of margin
+// fix + 2026-10-18 gate-clearance ruling). Pure geometry, best-effort, three
+// stages:
+//   1. clean water — the spawn clears every hull capsule whose z-band touches
+//      the gate plane by the mouth radius, with a mouth+margin edge gap:
+//      nothing moves (teleports and tests pin this)
+//   2. blocked laterally — the clearest x at the ideal plane under the same
+//      bar (the gap center, ties nearest), so the fish teleports onto the
+//      gate with meters of margin
 //   3. the mouth still clips a hull — walk FORWARD in 4 m steps (max +20) to
-//      the first plane between obstacle rows where the 6 m mouth fits. Forward
-//      only: the ring never lands behind the fish.
-// Discs are matched by per-disc reach (radius + slack), not a fixed z window:
-// big hulls (ship radius 6.5) constrain the plane from farther off than small
-// buoys, and movers arrive as sweep-envelope discs (world.obstaclesNear).
-const MOUTH_PLANE_SLACK = 1.2; // torus visual depth: separation beyond this reads as clear
+//      the first plane between rows where the bar clears. Forward only: the
+//      ring never lands behind the fish.
+// Discs are matched per-disc, capsule-honest: z-band = (rz ?? radius) +
+// mouthRadius and lateral reach = (rx ?? radius). Honest capsules
+// (config.HULLS) reach ±9.4 m in z while their rx is 2.0–3.6 — matching a
+// hull by its radius read it as a ~2 m dot in z, which is exactly how rings
+// used to spawn inside 16–18 m hulls (2026-10-18 player report, reproduced
+// live in t19 phase 4 before the fix). Movers arrive as sweep-envelope discs
+// (world.obstaclesNear): radius = rx + range already encodes worst-phase
+// lateral reach.
+// Hopeless water keeps the clearest x at the ideal plane — documented
+// best-effort fallback (row-legality validation gives every row a true ≥3 m
+// gap, so saturating water is rare in composed layouts).
+const MIN_CLEAR = GATE.mouthRadius + GATE.clearanceMargin;
 export function resolveGatePlacement(gateX, gateZ, discs) {
-  const near = (z) => discs.filter(d => Math.abs(d.z - z) <= d.radius + MOUTH_PLANE_SLACK);
+  const near = (z) => discs.filter(d => Math.abs(d.z - z) <= (d.rz ?? d.radius) + GATE.mouthRadius);
   const clearance = (z, x) => {
     let c = Infinity;
-    for (const d of near(z)) c = Math.min(c, Math.abs(x - d.x) - d.radius);
+    for (const d of near(z)) c = Math.min(c, Math.abs(x - d.x) - (d.rx ?? d.radius));
     return c;
   };
   const clearestX = (z, fromX) => {
-    if (clearance(z, fromX) >= GATE.mouthRadius) return fromX;
+    if (clearance(z, fromX) >= MIN_CLEAR) return fromX;
     const lane = WORLD.laneHalfWidth;
     const candidates = [];
     for (let x = -lane; x <= lane; x += 0.5) candidates.push(x);
@@ -118,14 +129,14 @@ export function resolveGatePlacement(gateX, gateZ, discs) {
     }
     return best;
   };
-  if (clearance(gateZ, gateX) >= GATE.mouthRadius) return { x: gateX, z: gateZ };
+  if (clearance(gateZ, gateX) >= MIN_CLEAR) return { x: gateX, z: gateZ };
   const x = clearestX(gateZ, gateX);
-  if (clearance(gateZ, x) >= GATE.mouthRadius) return { x, z: gateZ };
+  if (clearance(gateZ, x) >= MIN_CLEAR) return { x, z: gateZ };
   for (let dz = 4; dz <= GATE.zShiftMax; dz += 4) {
     const z = gateZ + dz;
-    if (clearance(z, gateX) >= GATE.mouthRadius) return { x: gateX, z };
+    if (clearance(z, gateX) >= MIN_CLEAR) return { x: gateX, z };
     const cx = clearestX(z, gateX);
-    if (clearance(z, cx) >= GATE.mouthRadius) return { x: cx, z };
+    if (clearance(z, cx) >= MIN_CLEAR) return { x: cx, z };
   }
   // dense water: clearest x at the ideal plane — the fish still fits the mouth
   return { x, z: gateZ };

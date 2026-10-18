@@ -157,14 +157,26 @@ await page.evaluate(() => window.__FFM_API.debugSetSpeed(25)); // §4 wants the 
 // (patterns replaced the always-clear corridor — validity is per-row now;
 // center-occupation is proven deterministically in unit tests, since an
 // unsteered fish is SUPPOSED to wreck itself on the new hazards now)
+// 2026-10-18 calibration: the old distance>150 wall-budget wait is
+// decay-fragile at the rig floor measured today (fresh pages idle at
+// 1.5–1.8 fps — HANDOFF §5 floor class): ~6 sim-s needed reads ~80 s wall,
+// over the 90 s budget once one hull hit eats ~2.5 sim-s of recovery
+// (measured: pre-fix run passed by a few wall-seconds; identical wait
+// failed twice on an equally-built branch at the same fps floor). t15's
+// teleport router is the established decay-proof composition: jump ahead
+// (chunksAhead => ensureChunks composes immediately), let the fish drift
+// two frames, then validate the fresh span.
 let chunksValid = await page.evaluate(() => window.__FFM_API.debugChunksValid());
 assert(chunksValid, 'spawn chunks keep a >= 3 m gap per row');
 // run a while — or until the unsteered fish wrecks itself, which proves the
 // hazards bite — then re-validate the fresh chunks either way
-await page.waitForFunction(() => {
+const zFresh = await page.evaluate(() => {
   const s = window.__FFM_API.state();
-  return s.distance > 150 || (s.phase !== 'run' && s.phase !== 'tutorial');
-}, null, { timeout: 90000 });
+  window.__FFM_API.debugSetSpeed(25); // §4 wants the fish moving
+  window.__FFM_API.debugTeleportFar(s.position[2] + 160);
+  return s.position[2];
+});
+await page.waitForFunction((z0) => window.__FFM_API.state().position[2] > z0 + 2, zFresh, { timeout: 60000 });
 chunksValid = await page.evaluate(() => window.__FFM_API.debugChunksValid());
 assert(chunksValid, 'fresh chunks keep a >= 3 m gap per row');
 
