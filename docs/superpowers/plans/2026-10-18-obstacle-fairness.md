@@ -13,8 +13,8 @@ validator 0.25 s reaction + 0.15 s margin, honest capsules 0.3/0.4 grace).
 - [x] T4 GREEN: config PATTERN (1.2/1.35/22/jitter 4, no ceiling) + cursor-based composeRows with cross-chunk cursor replay + chain validator + breather skip
 - [x] T5 GREEN: variant binding in worldgen + capsule dims on specs; world.js renders the bound variant; world.js capsule hit test (depth pre-cull rz; discs feed rx); capsule-aware rowClash + rowIntervals
 - [x] T6 GREEN: full unit suite green; t10/t18 regression check
-- [ ] T7 RED→GREEN: t19-fairness browser suite (row windows live, auto-driver zero-crash at 25/70, side-pass no-hit regression) — phases 1+3 re-earned with the positional servo driver; phase-2 rerun pending. NOTE: the earlier "MPC phase-2 pass" was a false positive: the driver's evaluate args omitted `cap` (undefined → NaN scores → setLateral(NaN) → fish x NaN → incollidable fish + NaN baked into the wake ribbon = the THREE computeBoundingSphere console warning). The NaN land is a driver artifact, not a game path.
-- [ ] T8: commit series + rebuild flying-fish-momentum.zip riding the feature commit; update HANDOFF §3/§6
+- [x] T7 RED→GREEN: t19-fairness browser suite (row windows live, auto-driver zero-crash at 25/70, side-pass no-hit regression) — driver rebuilt as a positional servo (settle-cap bounded); NOTE: the earlier "MPC phase-2 pass" was a false positive: the driver's evaluate args omitted `cap` (undefined → NaN scores → setLateral(NaN) → fish x NaN → incollidable fish + NaN baked into the wake ribbon = the THREE computeBoundingSphere console warning). The NaN land is a driver artifact, not a game path.
+- [x] T8: commit series (e8fda10 docs, b1e4bb9 feat) + rebuild flying-fish-momentum.zip (155 entries) riding the feature commit; update HANDOFF §3/§5/§6
 
 ## Stage 2 — Formations & risk-reward (next)
 
