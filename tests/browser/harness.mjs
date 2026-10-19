@@ -33,7 +33,12 @@ export async function openPage(query = '') {
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => consoleErrors.push(String(e)));
   await page.goto(`http://127.0.0.1:${PORT}/index.html${query}`);
-  await page.waitForFunction(() => window.__FFM && window.__FFM.ready === true, { timeout: 20000 });
+  // 3-arg form: a bare {timeout} object is read as the predicate ARG and the timeout
+  // silently becomes Playwright's 30 s default (AGENTS §5.4). This site was missed by
+  // the 2026-10-14 sweep — and boot itself can exceed 30 s on the software-GL rig
+  // (measured 2026-10-19: window.__FFM.ready at ~34 s), which failed whole t-files at
+  // openPage with no page error to explain it.
+  await page.waitForFunction(() => window.__FFM && window.__FFM.ready === true, null, { timeout: 120000 });
   return { browser, page, consoleErrors };
 }
 

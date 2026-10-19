@@ -73,6 +73,20 @@ const rig = await page.evaluate(() => {
 const hemi = rig.find(l => l.type === 'hemi');
 assert(hemi && hemi.intensity >= 1.5, `hemisphere lifts the character (intensity ${hemi?.intensity})`);
 assert(rig.filter(l => l.type === 'dir').length >= 2, `key + fill directionals present (${rig.length} lights)`);
+// 5. ONE fog owner (2026-10-18 ocean-cohesion spec §4.1/T4): the air is defined once
+// in config.ATMOSPHERE. createSky used to set a second, identical Fog — a silent
+// last-writer-wins duplicate, and because createSky runs AFTER the scene is built it
+// was the assignment that won. This boot assertion therefore has full teeth: a
+// re-added duplicate with any other value fails it here (proved RED by temporarily
+// re-adding a diverged duplicate). The plan also wanted an "after an environment swap"
+// re-check; that is dropped deliberately — updateEnvironment only touches the
+// background and group visibility, so a ~60 s simulated flight buys no extra coverage.
+const fogAtBoot = await page.evaluate(() => window.__FFM_API.debugFog());
+assert(fogAtBoot.scene, 'the scene owns a fog');
+assertEqual(fogAtBoot.scene.color, fogAtBoot.config.color, 'fog colour comes from ATMOSPHERE');
+assertEqual(fogAtBoot.scene.near, fogAtBoot.config.near, 'fog near comes from ATMOSPHERE');
+assertEqual(fogAtBoot.scene.far, fogAtBoot.config.far, 'fog far comes from ATMOSPHERE');
+
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 
 console.log('PASS  t07-scene-player');

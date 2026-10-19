@@ -15,7 +15,7 @@ import { createAudio } from './audio.js';
 import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
 import { loadSkyfinModel } from './fish.js';
-import { MOMENTUM, FLIGHT } from './config.js';
+import { MOMENTUM, FLIGHT, ATMOSPHERE } from './config.js';
 import { QTE } from './config.js';
 import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
@@ -35,7 +35,10 @@ renderer.toneMappingExposure = 1.0;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xcfe8f5, 120, 480);
+// ONE fog owner (2026-10-19 spec §4.1/T4): the air is defined in config.ATMOSPHERE
+// and read by the water shader, the sky dome and the props. createSky used to set a
+// second, identical Fog — a silent last-writer-wins duplicate; it no longer does.
+scene.fog = new THREE.Fog(ATMOSPHERE.fog.color, ATMOSPHERE.fog.near, ATMOSPHERE.fog.far);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1200);
 camera.position.set(0, 4, -9);
@@ -444,6 +447,14 @@ window.__FFM_API = {
   debugForceFlight: () => game.debugForceFlight(),
   debugSpam: () => game.debugSpam(),
   debugEnvironment: () => environment,
+  // live fog vs the config it must come from (T4): reported together so a browser
+  // test can prove the ONE owner without duplicating the numbers in the test.
+  debugFog: () => ({
+    scene: scene.fog
+      ? { color: scene.fog.color.getHex(), near: scene.fog.near, far: scene.fog.far }
+      : null,
+    config: { color: ATMOSPHERE.fog.color, near: ATMOSPHERE.fog.near, far: ATMOSPHERE.fog.far },
+  }),
   debugVisibility: () => ({
     sky: skyWorld.group.visible,
     water: water.mesh.visible,

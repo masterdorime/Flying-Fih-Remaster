@@ -132,7 +132,11 @@ export async function createSky(scene) {
     tex.mapping = THREE.EquirectangularReflectionMapping;
     tex.colorSpace = THREE.SRGBColorSpace;
     scene.background = tex;
-    scene.fog = new THREE.Fog(0xcfe8f5, 120, 480);
+    // NOTE (2026-10-19, spec §4.1/T4): this used to set a second, identical
+    // `scene.fog` here. It was a silent last-writer-wins duplicate of main.js's fog
+    // — harmless only while the two literals agreed, and because createSky runs AFTER
+    // the scene is built it was the assignment that actually won. The fog now has ONE
+    // owner (config.ATMOSPHERE, applied in main.js), so the sky must not set it.
     return { update() {} };
   } catch {
     return createFallbackDome(scene);
