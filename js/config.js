@@ -254,3 +254,29 @@ export const ASSIST = {
   windowScale: 1.6,    // widens the QTE press windows (perfect 0.48, good 1.12)
   speedScale: 0.85,    // top speed multiplier
 };
+
+// The atmosphere (2026-10-19 ocean-cohesion spec §4.1): ONE home for the air, read
+// by js/atmosphere.js and every visual layer from it — water shader, sky dome,
+// scene fog, prop tint. Values are the pre-existing literals relocated here
+// (main.js fog/sun, water.js palette, wake.js FADE) so nothing changes by default
+// and the AGENTS §3 "every number, one home" rule holds.
+export const ATMOSPHERE = {
+  // key light: the sun direction is shared by the direction light, the water's
+  // specular term and the sky dome's sun glow, so all three agree on where it is
+  sun: { dir: [40, 80, 30], color: 0xfff2dd, intensity: 2.3 },
+  // horizon IS the fog colour — that is the seam: the dome paints the fog colour
+  // at the horizon and the sea fades to it, so they meet by construction
+  sky: { zenith: 0x2f8fc4, horizon: 0xcfe8f5 },
+  // one fade curve, matching three's linear fog: smoothstep(near, far, depth)
+  fog: { color: 0xcfe8f5, near: 120, far: 480 },
+  // water palette + shape (formerly literals in js/water.js:12-15)
+  water: { deep: 0x063a7a, ocean: 0x0d5cb0, aqua: 0x3ec3f0, foam: 0xffffff, amplitude: 0.93, specular: 0, crestFoam: 0.45 },
+  // wake foam dissolve colour (formerly js/wake.js:14)
+  wake: { fade: 0x0a3f7a },
+  // prop grounding decals (T11) — inert until then
+  contact: { radius: 0, opacity: 0 },
+  // horizon depth layer (T12) — inert until then
+  horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },
+  // per-frame prop surface-sampling radius (T10) — inert until then
+  props: { sampleRange: 200 },
+};
