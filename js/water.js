@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { profileFor } from './flight-state.js';
 import { ATMOSPHERE } from './config.js';
 import { sunVector } from './atmosphere.js';
-import { WAVE_AMPLITUDE } from './wave.js';
+import { WAVE_AMPLITUDE, WATER_BASE_Y } from './wave.js';
 
 // Animated low-poly water + gradient sky. Purely environmental.
 
@@ -31,7 +31,6 @@ export function createWater(scene) {
     },
     vertexShader: /* glsl */`
       uniform float uTime;
-      varying float vH;
       varying vec3 vPos;
       varying float vFogDepth;
       void main() {
@@ -41,12 +40,11 @@ export function createWater(scene) {
         // Coefficients mirror WAVE_TERMS in js/wave.js — tests/unit/wave-port.test.js
         // reads this expression and fails if the two drift apart.
         vec4 world = modelMatrix * vec4(p, 1.0);
-        float w = sin(world.z * 0.13 + uTime * 1.7) * 0.5
-                + sin(world.x * 0.3 + uTime * 2.6) * 0.26
+        float w = sin(world.x * 0.045 + world.z * 0.125 + uTime * 1.7) * 0.5
+                + sin(world.x * 0.185 + world.z * 0.045 + uTime * 2.6) * 0.26
                 + sin((world.x + world.z) * 0.055 + uTime * 1.1) * 0.52
-                + sin(world.x * 0.3 + world.z * 0.21 + uTime * 3.4) * 0.25;
+                + sin(world.x * 0.3 + world.z * 0.205 + uTime * 3.4) * 0.25;
         p.y += w;
-        vH = w;
         vPos = (modelMatrix * vec4(p, 1.0)).xyz;
         // exactly three's fog depth, so the sea dissolves on the props' curve
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -65,66 +63,77 @@ export function createWater(scene) {
       uniform vec3 uPlayer;
       uniform vec2 uWakeDir;
       uniform float uWakeStrength;
-      varying float vH;
       varying vec3 vPos;
       varying float vFogDepth;
 
-      // Mirror of waveSlopes() in js/wave.js — the same four terms, differentiated, so
-      // the surface the props ride and the surface the sun lights are ONE surface.
-      void waveSlopesAt(vec3 P, out float ddx, out float ddz) {
-        ddx = 0.0; ddz = 0.0;
-        float c;
-        c = cos(P.z * 0.13 + uTime * 1.7) * 0.5;
-        ddz += 0.13 * c;
-        c = cos(P.x * 0.3 + uTime * 2.6) * 0.26;
-        ddx += 0.3 * c;
-        c = cos((P.x + P.z) * 0.055 + uTime * 1.1) * 0.52;
-        ddx += 0.055 * c; ddz += 0.055 * c;
-        c = cos(P.x * 0.3 + P.z * 0.21 + uTime * 3.4) * 0.25;
-        ddx += 0.3 * c; ddz += 0.21 * c;
-      }
+      // (the slope is computed inline in main, from the same phases as the height)
 
       void main() {
+        // ---- the wave field, evaluated PER PIXEL from the same terms the mesh uses ----
+        // NOT the interpolated varying: a quad is two triangles, so an interpolated height
+        // creases along the quad diagonals, and any tone band keyed to it turns those creases
+        // into a visible checkered grid across the whole sea. Evaluating the field here is
+        // exact, and reusing each phase for its sine AND cosine means the height and the
+        // slope together cost no more than the slope alone did.
+        // Coefficients mirror WAVE_TERMS in js/wave.js (guarded by wave-port.test.js).
+        float ph1 = vPos.x * 0.045 + vPos.z * 0.125 + uTime * 1.7;
+        float ph2 = vPos.x * 0.185 + vPos.z * 0.045 + uTime * 2.6;
+        float ph3 = (vPos.x + vPos.z) * 0.055 + uTime * 1.1;
+        float ph4 = vPos.x * 0.3 + vPos.z * 0.205 + uTime * 3.4;
+        float s1 = sin(ph1), s2 = sin(ph2), s3 = sin(ph3), s4 = sin(ph4);
+        float c1 = cos(ph1), c2 = cos(ph2), c3 = cos(ph3), c4 = cos(ph4);
+        float hField = s1 * 0.5 + s2 * 0.26 + s3 * 0.52 + s4 * 0.25;
+        float ddx = 0.045 * 0.5 * c1 + 0.185 * 0.26 * c2 + 0.055 * 0.52 * c3 + 0.3 * 0.25 * c4;
+        float ddz = 0.125 * 0.5 * c1 + 0.045 * 0.26 * c2 + 0.055 * 0.52 * c3 + 0.205 * 0.25 * c4;
+
         // ---- layered deep-blue ocean, amplitude-relative ----
         // normalised by the field's own envelope so the bands and crest thresholds mean
         // the same thing at any amplitude (they used to hard-code the old 0.93 envelope)
-        float t = clamp(vH / uAmplitude * 0.5 + 0.5, 0.0, 1.0);
+        float t = clamp(hField / uAmplitude * 0.5 + 0.5, 0.0, 1.0);
         // quantized cartoon bands, BLENDED toward the continuous value: a hard floor()
         // steps the tone across the mesh's ~7.8 m cells and the facets read as polygons
         // (caught in the S2 screenshot). 55% quantized keeps the banded style without the
         // steps reading as geometry.
-        float band = mix(t, floor(t * 5.0) / 5.0, 0.6);
+        // Mostly SMOOTH (0.25 quantized, was 0.6): hard floor() bands etch the field's own
+        // interference contours, which is what turned the crossing wave systems into a
+        // visible checkerboard. A little quantization keeps the banded style.
+        float band = mix(t, floor(t * 5.0) / 5.0, 0.25);
         vec3 col = mix(uDeep, uOcean, 0.14 + 0.86 * band);
         col = mix(col, uAqua, 0.12 + band * 0.24);
 
-        // ---- large-scale tonal masses ----
-        // at a 3.6 m camera height most of the screen is mid-to-far water seen at shallow
-        // angles, where geometry contributes almost nothing — the sea read as one flat
-        // sheet. Big slow patches of lighter and darker water are what give it mass and
-        // motion at every grazing angle, so they carry the read the mesh cannot.
-        // NOTE: the variable was first named after a GLSL ES RESERVED WORD (tessellation),
-        // which the shader compiler rejects outright — hence "swell". The browser run is the
-        // only thing that catches this class: the unit suite and the source-level guards all
-        // passed with the broken shader in place.
-        float swell = sin(vPos.x * 0.012 + uTime * 0.22) * cos(vPos.z * 0.011 - uTime * 0.16)
-                    + 0.5 * sin(vPos.z * 0.021 + uTime * 0.31);
-        col = mix(col, uAqua, smoothstep(0.10, 0.95, swell) * 0.26);
-        col = mix(col, uDeep, (1.0 - smoothstep(-0.95, -0.15, swell)) * 0.22);
+        // ---- large-scale tonal masses, DE-LATTICED ----
+        // Sums of NON-PARALLEL, mutually incommensurate travelling waves. A product such as
+        // sin(x)·cos(z) tiles into a regular 2-D lattice and reads as a checkerboard, and
+        // axis-aligned z-only terms cross the height bands at right angles — the previous
+        // pass had both. Diagonals at odd ratios never settle into a visible repeat.
+        float swell = sin((vPos.x * 0.9 + vPos.z * 1.3) * 0.014 + uTime * 0.21)
+                    + sin((vPos.x * 1.7 - vPos.z * 0.8) * 0.011 - uTime * 0.17)
+                    + 0.6 * sin((vPos.x * 0.6 + vPos.z * 2.1) * 0.009 + uTime * 0.26);
+        col = mix(col, uAqua, smoothstep(0.15, 1.5, swell) * 0.30);
+        col = mix(col, uDeep, (1.0 - smoothstep(-1.5, -0.15, swell)) * 0.24);
 
-        // broad horizontal swell layers: slow tone shifts in world Z, the
-        // reference's layered horizon stripes
-        float layer = sin(vPos.z * 0.045 - uTime * 0.8);
-        col = mix(col, uAqua, smoothstep(0.5, 1.0, layer) * 0.30);
-        // quantized medium stripes: hard-edged tone layers streaming past
-        float stripe = floor(vPos.z * 0.11 - uTime * 1.2);
-        float stripeTone = 0.5 + 0.5 * sin(stripe * 37.0);
-        col = mix(col, uAqua, stripeTone * 0.14);
+        // ---- band-limit the fine detail (anti-Moiré) ----
+        // Once a pattern's wavelength spans fewer than ~2 pixels it cannot be resolved and
+        // instead beats against the pixel grid as a fine weave — visible in the mid-field,
+        // finer than any term in the shader, which is the giveaway. fwidth() gives metres per
+        // pixel, so each fine term fades out exactly when it stops being resolvable. The far
+        // field is meant to be smooth anyway.
+        float px = max(fwidth(vPos.x), fwidth(vPos.z));
+        float fineFade = 1.0 - smoothstep(0.18, 0.85, px * 14.4);
+        float stripeFade = 1.0 - smoothstep(0.18, 0.85, px * 10.5);
+
+        // broad swell layers — diagonal, so they no longer cross the bands at right angles
+        float layer = sin((vPos.x * 0.7 + vPos.z * 1.0) * 0.045 - uTime * 0.8);
+        col = mix(col, uAqua, smoothstep(0.5, 1.0, layer) * 0.28);
+        // medium stripes — a SMOOTH travelling wave now, not a floor()-quantized one. Hard
+        // integer steps are straight edges in world space and, crossed with the height bands,
+        // they were the last of the visible lattice. ~10 m scale, soft edges.
+        float stripe = sin((vPos.x * 0.5 + vPos.z * 1.0) * 0.085 - uTime * 1.5);
+        col = mix(col, uAqua, smoothstep(0.5, 1.0, stripe) * 0.16 * stripeFade);
 
         // ---- the sun finally touches the sea ----
         if (uSpecular > 0.0) {
-          float ddx, ddz;
-          waveSlopesAt(vPos, ddx, ddz);
-          vec3 n = normalize(vec3(-ddx, 1.0, -ddz));
+          vec3 n = normalize(vec3(-ddx, 1.0, -ddz)); // slopes already computed above
           vec3 V = normalize(cameraPosition - vPos);  // cameraPosition is a three built-in
           vec3 L = normalize(uSunDir);
           vec3 H = normalize(V + L);
@@ -133,21 +142,30 @@ export function createWater(scene) {
           // — it is view-dependent, so it works across the whole mid-field, not only where
           // the sun path happens to fall.
           float fres = pow(1.0 - max(dot(n, V), 0.0), 3.0);
-          col = mix(col, uAqua * 1.2 + uFoam * 0.15, fres * uSpecular * 0.45);
           // Broad sun glitter (22, not 48: a wide highlight path reads from a chase camera,
           // a tight one is invisible unless the eye happens to line up with the sun).
           float gloss = pow(max(dot(n, H), 0.0), 22.0);
-          // shading-only glitter: a cheap interference hash so the highlight breaks into
-          // sparkle rather than one broad patch. It costs no geometry, so it cannot alias
-          // the mesh (the wave FIELD is held above the ~16 m Nyquist floor).
-          float sparkle = 0.55 + 0.45 * sin(vPos.x * 7.3 + vPos.z * 5.1 + uTime * 2.0)
-                                       * sin(vPos.x * 3.1 - vPos.z * 9.7 - uTime * 1.3);
-          col += uFoam * gloss * sparkle * uSpecular * 1.2;
+          // Screen-space band limit for the WHOLE specular response. At grazing angles the
+          // half-vector swings fast per pixel, so an unbounded response beats against the
+          // pixel grid as a fine regular weave — measured: the weave vanishes entirely with
+          // uSpecular 0 and survives every colour/field change, so it lives here. fwidth() on
+          // the response itself is the honest test of whether it can be resolved at all.
+          float specFade = 1.0 - smoothstep(0.20, 0.75, max(fwidth(gloss), fwidth(fres)));
+          col = mix(col, uAqua * 1.2 + uFoam * 0.15, fres * uSpecular * 0.25 * specFade);
+          // Glitter breakup: an APERIODIC hash, NOT a product of two sines. The previous
+          // version multiplied sin(x*7.3..) by sin(x*3.1..) — ~0.9 m and ~2 m wavelengths,
+          // and a sine *product* is a 2-D lattice: it printed a fine checkered weave wherever
+          // the gloss was non-zero (which is why the artifact was a bounded region, and why
+          // it vanished with uSpecular 0). fract(sin(dot(...))*large) has no period at all.
+          vec2 gcell = floor(vPos.xz * 3.0 + uTime * 1.5);
+          float sparkle = mix(0.55, 1.0, fract(sin(dot(gcell, vec2(12.9898, 78.233))) * 43758.5453));
+          col += uFoam * gloss * sparkle * uSpecular * 1.2 * specFade;
         }
 
-        // fine bright wave lines streaming past, saturating with height
-        float fine = sin(vPos.z * 0.30 - uTime * 2.6);
-        col = mix(col, uFoam, smoothstep(0.78, 1.0, fine) * 0.30 * (0.35 + 0.65 * band));
+        // fine bright wave lines streaming past — diagonal too, so the two line families do
+        // not cross the swell at right angles and re-introduce a grid by hand
+        float fine = sin((vPos.x * 0.55 + vPos.z * 1.35) * 0.30 - uTime * 2.6);
+        col = mix(col, uFoam, smoothstep(0.78, 1.0, fine) * 0.30 * (0.35 + 0.65 * band) * fineFade);
 
         // crests: aqua flash on the rise, foam caps on the highest crests
         col = mix(col, uAqua, smoothstep(0.35, 0.88, t) * 0.50);
@@ -181,9 +199,15 @@ export function createWater(scene) {
         float fogFactor = smoothstep(uFogNear, uFogFar, vFogDepth);
         col = mix(col, uFogColor, fogFactor);
 
-        // the plane is finite: dissolve its edge into a sky that is already that colour
-        float fade = 1.0 - smoothstep(uFogFar, uFogFar * 2.2, vFogDepth);
-        gl_FragColor = vec4(col, fade);
+        // OPAQUE. This used to fade the alpha out with distance, which let the equirect
+        // day skybox show through — and that skybox is a photograph with its OWN painted sea,
+        // so its fine texture bled through the translucent band as a regular weave. It is the
+        // skybox, not the water shader: no water-side change could remove it. The colour fog
+        // above already blends the sea into the horizon colour, which is what actually does
+        // the joining; alpha was doing nothing but revealing the wrong layer.
+        // (The plane's far edge still meets the photo sky as a line — that is T9's job: the
+        // crafted sky dome whose horizon IS the fog colour.)
+        gl_FragColor = vec4(col, 1.0);
         // parity (spec §4.3/T5): apply three's tone map exactly as the props' built-in
         // materials do, so the sea and the Standard/Phong props share ONE transfer
         // function instead of two. The renderer prefix already supplies TONE_MAPPING,
@@ -200,6 +224,22 @@ export function createWater(scene) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = -0.15;
   scene.add(mesh);
+
+  // Far-field "skirt" (2026-10-19). The near plane is finite — 700 m wide — so past its
+  // lateral and forward edges the equirect day skybox showed through, and that skybox is a
+  // PHOTOGRAPH with its own painted sea: its fine wave texture read as a regular weave over
+  // the water (caught in the S2 screenshots, and immune to every water-side change because
+  // it was never the water shader). Beyond the fog distance the sea is one flat colour
+  // anyway, so the skirt is a low-poly plane painted exactly that colour — 128 quads instead
+  // of widening the detailed plane, which would have coarsened its cells past the Nyquist
+  // floor the chop needs. It sits BELOW the deepest trough so the near plane's waves never
+  // intersect it. fog:false keeps it the exact fog colour (a built-in material, so it is
+  // tone-mapped and colour-converted like every other prop).
+  const skirtGeo = new THREE.PlaneGeometry(6000, 6000, 8, 8);
+  skirtGeo.rotateX(-Math.PI / 2);
+  const skirt = new THREE.Mesh(skirtGeo, new THREE.MeshBasicMaterial({ color: ATMOSPHERE.fog.color, fog: false }));
+  skirt.position.y = WATER_BASE_Y - WAVE_AMPLITUDE - 0.5;
+  scene.add(skirt);
   return {
     mesh,
     update(t, playerPos, wake = null) {
@@ -217,6 +257,9 @@ export function createWater(scene) {
         // keep the strip centered on the fish so water never runs out ahead
         mesh.position.x = playerPos.x;
         mesh.position.z = playerPos.z;
+        // the far skirt rides along too, or its edge would eventually enter view
+        skirt.position.x = playerPos.x;
+        skirt.position.z = playerPos.z;
       }
     },
   };

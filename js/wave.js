@@ -14,10 +14,17 @@
 // mesh can actually carry. (A shading-only high-frequency glitter term is used in the
 // fragment shader instead, where it costs no geometry and cannot alias the silhouette.)
 export const WAVE_TERMS = [
-  { kx: 0.000, kz: 0.130, w: 1.7, a: 0.50 }, // primary swell, ~48 m
-  { kx: 0.300, kz: 0.000, w: 2.6, a: 0.26 }, // cross swell, ~21 m
+  // Angles are deliberately NOT axis-aligned and not orthogonal: two crossing systems at
+  // 90° interfere into a regular diamond lattice, and with quantized tone bands that reads
+  // as a checkerboard across the sea. These sit at roughly 70°, 14°, 45° and 34°, at
+  // incommensurate wavelengths, so the interference never settles into a visible grid.
+  { kx: 0.045, kz: 0.125, w: 1.7, a: 0.50 }, // primary swell, ~47 m
+  { kx: 0.185, kz: 0.045, w: 2.6, a: 0.26 }, // cross swell, ~33 m — kept far from the chop
+                                             // octave: two near-EQUAL short wavelengths beat
+                                             // into a regular weave once the fresnel/glitter
+                                             // amplify their slope interference (measured)
   { kx: 0.055, kz: 0.055, w: 1.1, a: 0.52 }, // long diagonal, ~81 m
-  { kx: 0.300, kz: 0.210, w: 3.4, a: 0.25 }, // chop octave, ~17 m (the Nyquist floor)
+  { kx: 0.300, kz: 0.205, w: 3.4, a: 0.25 }, // chop octave, ~17 m (the Nyquist floor)
 ];
 
 // Sum of |a|: the wave field's envelope. The spec contracts this to the 1.2-1.6 m band.
