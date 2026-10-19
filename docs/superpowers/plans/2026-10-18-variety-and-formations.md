@@ -17,14 +17,14 @@
 
 ## Ledger
 
-- [ ] **T13** docs commit: this plan + spec §8/§9.
-- [ ] **T14** per-run seed watched-RED: `tests/browser/t21-variety.mjs` phase A — capture near-obstacle signature at fixed conditions, `debugRestart()`, re-capture, expect DIFFERENT (pre-fix: identical → RED).
-- [ ] **T15** per-run seed GREEN + unit seed contract pin + suites + feat commit.
-- [ ] **T16** formation RED: `tests/unit/worldgen-formations.test.js` — roster presence + no-immediate-repeat at d 1.0; gating at d 0.2; speed tilt (hi-form share + intentional-breach count rise with speed); streamed determinism.
-- [ ] **T17** formation GREEN: config `FORMATIONS` knobs; worldgen roster pick (weighted, gated, no-repeat) + locked-role windows + role dispatch (wideGate/riskLane/offsetTurn/fork/chicane/breather) + `form` state threading (`composeChunk` state.form/formOut, `generateChunk` replay, `world.js` genState); `o.form` tag; `world.js` obstaclesNear carries pattern+form.
-- [ ] **T18** full unit suite + upgraded fuzz green; fairness corpus extensions assert every gated formation is covered by the legality corpus (dz/spacing/gap/chain floors unchanged).
-- [ ] **T19** t21 phase B: live formation variety at depth (teleport deep, d ≥ 0.8): ≥ 4 distinct forms sampled, no back-to-back form ids, console clean.
-- [ ] **T20** feat commit + zip + docs commit closing T13–T20 + HANDOFF §4/§6 update.
+- [x] **T13** docs commit: this plan + spec §8/§9.
+- [x] **T14** per-run seed watched-RED: `tests/browser/t21-variety.mjs` phase A — capture near-obstacle signature at fixed conditions, `debugRestart()`, re-capture, expect DIFFERENT (pre-fix: identical → RED).
+- [x] **T15** per-run seed GREEN + unit seed contract pin + suites + feat commit. *(folded into the T20 commit — T17 landed in the same files before the gate hold lifted.)*
+- [x] **T16** formation RED: `tests/unit/worldgen-formations.test.js` — roster presence + no-immediate-repeat at d 1.0; gating at d 0.2; speed tilt (hi-form share + intentional-breach count rise with speed); streamed determinism. *(4 real assertion failures watched.)*
+- [x] **T17** formation GREEN: config `FORMATIONS` knobs; worldgen roster pick (weighted, gated, no-repeat) + locked-role windows + role dispatch (wideGate/riskLane/offsetTurn/fork/chicane/breather) + `form` state threading (`composeChunk` state.form/formOut, `generateChunk` replay, `world.js` genState); `o.form` tag; `world.js` obstaclesNear carries pattern+form. *(Rulings: no-repeat measured per ROW by pick adjacency; tilt measured per ROW as a rate — see the SDD ledger.)*
+- [x] **T18** full unit suite + upgraded fuzz green; fairness corpus extensions assert every gated formation is covered by the legality corpus (dz/spacing/gap/chain floors unchanged).
+- [x] **T19** t21 phase B: live formation variety at depth (d ≥ 0.8): ≥ 4 distinct forms sampled, no back-to-back form ids, console clean. *(Ruling: difficulty ramps on distance/time, never z, so the plan's "teleport deep" premise needed the new inert `debugSetDistance` hook — the test moves the ramp then hops deep.)*
+- [x] **T20** feat commit + zip + docs commit closing T13–T20 + HANDOFF §4/§6 update. *(commit `679001b`, zip 155 entries; two full gates read 16/17 before the t10 driver was rebuilt, then 17/17.)*
 
 ## Task detail — T14/T15: per-run seed
 
