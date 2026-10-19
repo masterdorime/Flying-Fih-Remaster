@@ -450,6 +450,12 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   }
 
   function restart(assist = state.assist) {
+    // per-run world seed (2026-10-18 spec §8): every restart composes a fresh
+    // layout; ?seed=<n> pins one for tests/probes
+    const urlSeed = Number(new URLSearchParams(location.search).get('seed'));
+    state.runSeed = Number.isFinite(urlSeed) && urlSeed > 0
+      ? (urlSeed >>> 0)
+      : ((Math.random() * 0x100000000) >>> 0);
     Object.assign(state, {
       phase: 'run', speed: MOMENTUM.minSpeed, gauge: 0, tier: 'none', prevTier: 'none',
       flying: false, distance: 0, runTime: 0, difficulty: 0,
@@ -462,7 +468,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     activeGate = null;
     activeQte = null;
     gateCooldown = 0;
-    world.reset();
+    world.reset(state.runSeed);
     coins.reset();
     player.setLocomotion('swim');
     Object.assign(player.state, {
@@ -538,6 +544,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     },
     debugSetSpeed: (v) => { state.speed = v; player.state.speed = v; },
     debugSetAltitude: (y) => { player.state.position.y = y; },
+    // test-only: difficulty ramps on distance/time (state.difficulty above), so
+    // reaching a deep-difficulty sample without a multi-minute wall-clock run
+    // needs a way to move the ramp directly (t21 phase B).
+    debugSetDistance: (m) => { state.distance = m; },
     debugForceFlight: () => enterFlight(), // the real transition: also fires plane:enter
     debugSpam: () => spamPress(),
     // hide the ocean world (obstacles + ocean shrimp) while the fish is in the sky

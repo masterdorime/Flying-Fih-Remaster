@@ -6,7 +6,7 @@
 // cursor-based rows ≥1.2 s apart at every speed (walls ≥1.35 s), add-only
 // jitter, steering-reachable chain validation between consecutive rows, and
 // honest per-variant hull capsules (measured bounds + approved grace).
-import { WORLD, DIFFICULTY, PATTERN, TIER_PROFILE, HULLS, KIND_VARIANTS } from './config.js';
+import { WORLD, DIFFICULTY, PATTERN, TIER_PROFILE, HULLS, KIND_VARIANTS, FORMATIONS } from './config.js';
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -260,15 +260,21 @@ function windowDistance(speed, afterWall) {
 
 // ---- row makers (unchanged shapes, honest beams) ----------------------------
 
-function slalomRow(rng, rowZ, d, prevSign) {
+// `opts.offset` locks a slalom lateral offset (offsetTurn's locked role);
+// without it the offset stays a per-attempt jitter around the alternating sign.
+function slalomRow(rng, rowZ, d, prevSign, opts = {}) {
   const sign = -prevSign;
-  const o = baseObstacle(pickKind(kindsFor(d, rng), rng), sign * (5 + rng() * 5), rowZ, 'slalom', rng);
+  const offset = opts.offset ?? (5 + rng() * 5);
+  const o = baseObstacle(pickKind(kindsFor(d, rng), rng), sign * offset, rowZ, 'slalom', rng);
   return { row: [o], prevSign: sign };
 }
 
-function wallRow(rng, rowZ, d) {
-  const gx = -11 + rng() * 22;
-  const w = PATTERN.minGap + 0.2 + rng() * 1.8; // wanted gap: ≥ minGap wide
+// `opts.gx` / `opts.gw` lock a wanted gap: wideGate's wide mouth, fork's
+// off-center gap, chicane's alternating edge gaps, riskLane's narrow edge-hug
+// gap. Without them a wall row keeps its historical jitter.
+function wallRow(rng, rowZ, d, opts = {}) {
+  const gx = opts.gx ?? (-11 + rng() * 22);
+  const w = opts.gw ?? (PATTERN.minGap + 0.2 + rng() * 1.8); // wanted gap: ≥ minGap wide
   const kinds = kindsFor(d, rng);
   let cursor = -WORLD_HALF;
   let k = Math.floor(rng() * kinds.length);
@@ -332,7 +338,84 @@ function clusterRow(rng, rowZ, d) {
   return { row };
 }
 
-const PATTERNS = ['slalom', 'wall', 'center', 'cluster'];
+// ---- formation library (2026-10-18 spec §9) ---------------------------------
+// The uniform 4-shape pick became a weighted, difficulty-gated roster with a
+// no-immediate-repeat guard and a speed tilt toward wide paths. `o.pattern`
+// stays the shape class (the spacing/wall floors derive from the ROLE);
+// `o.form` carries the formation id. Roles are LOCKED at pick time and reused
+// by every retry, so a failed attempt re-jitters the row it already committed
+// to instead of silently choosing a different shape.
+
+function speedT(speed) {
+  const span = FORMATIONS.tiltMaxSpeed - FORMATIONS.tiltMinSpeed;
+  return clamp((speed - FORMATIONS.tiltMinSpeed) / span, 0, 1);
+}
+
+// Locked role sequence per formation id. Wall roles carry the gap they want;
+// offsetTurn locks a big slalom offset; multi-window formations draw ALL their
+// windows here so a retry can never change the shape that follows.
+function rolesFor(id, rng) {
+  switch (id) {
+    case 'breather':
+      return [{ role: 'breather' }];
+    case 'wideGate':
+      return [{ role: 'wall', gx: (rng() * 2 - 1) * 6, gw: 9 + rng() * 3 }];
+    case 'offsetTurn': {
+      const offset = 9 + rng() * 3;
+      return [{ role: 'slalom', offset }, { role: 'slalom', offset }];
+    }
+    case 'fork': {
+      const gx = (rng() < 0.5 ? -1 : 1) * (4 + rng() * 4);
+      return [{ role: 'center' }, { role: 'wall', gx, gw: PATTERN.minGap + 0.6 }];
+    }
+    case 'chicane': {
+      const gx = (rng() < 0.5 ? -1 : 1) * 7;
+      const gw = PATTERN.minGap + 0.8;
+      return [{ role: 'wall', gx, gw }, { role: 'wall', gx: -gx, gw }];
+    }
+    case 'riskLane': {
+      const gx = (rng() < 0.5 ? -1 : 1) * (10 + rng() * 3);
+      return [{ role: 'wall', gx, gw: 3.6 + rng() * 0.9 }];
+    }
+    default: // slalom | wall | center | cluster — the basics are the shape itself
+      return [{ role: id }];
+  }
+}
+
+// Weighted, difficulty-gated pick. `last` is excluded so no formation repeats
+// back-to-back (unless it is the only one the difficulty has unlocked, in which
+// case the field would otherwise be empty). Draws only from the window's pick
+// stream, so attempt re-rolls cannot perturb the choice or the cursor.
+function pickFormation(difficulty, speed, last, rng) {
+  const t = speedT(speed);
+  const all = [];
+  for (const id of Object.keys(FORMATIONS.roster)) {
+    const f = FORMATIONS.roster[id];
+    if (f.minD > difficulty) continue;
+    const w = f.weight * (1 + f.tilt * t);
+    if (w > 0) all.push({ id, w });
+  }
+  if (!all.length) return { id: 'wall', seq: rolesFor('wall', rng) };
+  let pool = all.filter(e => e.id !== last);
+  if (!pool.length) pool = all;
+  const total = pool.reduce((s, e) => s + e.w, 0);
+  let r = rng() * total;
+  let chosen = pool[pool.length - 1];
+  for (const e of pool) { r -= e.w; if (r <= 0) { chosen = e; break; } }
+  return { id: chosen.id, seq: rolesFor(chosen.id, rng) };
+}
+
+// Build one locked row role. A breather never reaches here (it commits an
+// intentionally empty window upstream).
+function buildRole(spec, rng, rowZ, d, prevSign) {
+  switch (spec.role) {
+    case 'slalom': return slalomRow(rng, rowZ, d, prevSign, spec);
+    case 'wall': return wallRow(rng, rowZ, d, spec);
+    case 'center': return centerRow(rng, rowZ, d);
+    case 'cluster': return clusterRow(rng, rowZ, d);
+    default: return { row: [] };
+  }
+}
 
 function pickKind(kinds, rng) { return kinds[Math.floor(rng() * kinds.length)]; }
 
@@ -350,6 +433,22 @@ export function composeChunk(index, difficulty, seed = 1, speed = 25, state = nu
   let cursor = (state && state.cursor) ?? (spanStart + PATTERN.rowZ0);
   let prevRow = state && state.prevRow ? state.prevRow : null; // {rowZ(abs), obstacles, wall}
   let prevSign = (state && state.prevSlalomSign) ?? (mulberry32(streamKey(seed, index, 4, 0))() < 0.5 ? -1 : 1);
+  // formation state { id, seq, last, breathers } threads across chunks exactly
+  // like the cursor: generateChunk's replay and world.js's genState both pass
+  // it, or chunk N diverges from the streamed one.
+  let form = {
+    id: (state && state.form && state.form.id) ?? null,
+    seq: (state && state.form && state.form.seq) ? state.form.seq.slice() : [],
+    last: (state && state.form && state.form.last) ?? null,
+    breathers: (state && state.form && state.form.breathers) || 0,
+    // pick bookkeeping: `picks` counts every pick (a breather is a pick), and
+    // `pick` is the pick number the formation in progress came from. Rows tagged
+    // with the same number are one formation's windows; a gap means another pick
+    // (usually a breather) came between them — the no-repeat guard only forbids
+    // ADJACENT picks from repeating.
+    picks: (state && state.form && state.form.picks) || 0,
+    pick: (state && state.form && state.form.pick) ?? null,
+  };
   const obstacles = [];
   let ordinal = 0;
 
@@ -363,15 +462,35 @@ export function composeChunk(index, difficulty, seed = 1, speed = 25, state = nu
     const anchorAbs = Math.min(base + jitter, spanEnd - 3);
     if (prevRow && anchorAbs - prevRow.rowZ < windowDistance(speed, prevRow.wall)) break;
     const anchorLocal = anchorAbs - spanStart;
-    let row = null, shape = null, nextSign = prevSign;
+    // one formation pick per window, BEFORE the attempt loop: the locked role
+    // is reused by every retry (retries re-jitter, they never re-pick)
+    if (!form.seq.length) {
+      const picked = pickFormation(d, speed, form.last, mulberry32(streamKey(seed, index, 5, ordinal)));
+      form.picks++;
+      form.pick = form.picks;
+      form.id = picked.id;
+      form.seq = picked.seq;
+    }
+    const spec = form.seq[0];
+    // intentional breather: the empty window IS the deliverable — commit it, let
+    // the chain reset, and keep the cursor on the normal window cadence so the
+    // 1.2 s floor still holds on both sides of the rest
+    if (spec.role === 'breather') {
+      form.breathers++;
+      form.picks++; // a breather is a pick: it separates the rows either side
+      form.last = form.id;
+      form.seq = [];
+      form.id = null;
+      prevRow = null;
+      cursor = anchorAbs + windowDistance(speed, false);
+      ordinal++;
+      continue;
+    }
+    let row = null, nextSign = prevSign;
     for (let attempt = 0; attempt < PATTERN.maxAttempts && !row; attempt++) {
       const rng = mulberry32(streamKey(seed, index, 2, ordinal, attempt));
-      shape = PATTERNS[Math.floor(rng() * PATTERNS.length)];
-      let out;
-      if (shape === 'slalom') { out = slalomRow(rng, anchorLocal, d, prevSign); nextSign = out.prevSign; }
-      else if (shape === 'wall') out = wallRow(rng, anchorLocal, d);
-      else if (shape === 'center') out = centerRow(rng, anchorLocal, d);
-      else out = clusterRow(rng, anchorLocal, d);
+      const out = buildRole(spec, rng, anchorLocal, d, prevSign);
+      if (out.prevSign != null) nextSign = out.prevSign; // slalom roles alternate
       row = out.row;
       if (!row.length) { row = null; continue; }
       // movers first: the chain check must see the FINAL swept envelopes, not
@@ -383,17 +502,27 @@ export function composeChunk(index, difficulty, seed = 1, speed = 25, state = nu
       }
     }
     if (!row) {
-      // enforced breather: skip one full window; the chain resets after it
+      // enforced breather: skip one full window; the chain resets after it and
+      // the formation state drops its locked continuation, so a half-realised
+      // multi-window formation never strands its remaining roles
       cursor = anchorAbs + windowDistance(speed, false);
       ordinal++;
       prevRow = null;
+      form.seq = [];
+      form.id = null;
       continue;
     }
-    for (const o of row) o.rowZ = anchorLocal;
+    for (const o of row) { o.rowZ = anchorLocal; o.form = form.id; o.formPick = form.pick; }
     obstacles.push(...row);
-    prevRow = { rowZ: anchorAbs, obstacles: row, wall: shape === 'wall' };
+    // wall-ness for the after-spacing floor comes from the ROLE, never from the
+    // shape tag (a fork's wall continuation counts as wall)
+    const roleIsWall = spec.role === 'wall';
+    prevRow = { rowZ: anchorAbs, obstacles: row, wall: roleIsWall };
     prevSign = nextSign;
-    cursor = anchorAbs + windowDistance(speed, shape === 'wall');
+    cursor = anchorAbs + windowDistance(speed, roleIsWall);
+    form.seq.shift();
+    form.last = form.id;
+    if (!form.seq.length) form.id = null;
     ordinal++;
   }
 
@@ -402,6 +531,7 @@ export function composeChunk(index, difficulty, seed = 1, speed = 25, state = nu
     cursorOut: cursor,
     prevRowState: prevRow,
     prevSlalomSign: prevSign,
+    formOut: form,
   };
 }
 
@@ -418,7 +548,7 @@ export function generateChunk(index, difficulty, seed = 1, speed = 25) {
   let state = null;
   for (let i = 0; i < index; i++) {
     const out = composeChunk(i, difficulty, seed, speed, state);
-    state = { cursor: out.cursorOut, prevRow: out.prevRowState, prevSlalomSign: out.prevSlalomSign };
+    state = { cursor: out.cursorOut, prevRow: out.prevRowState, prevSlalomSign: out.prevSlalomSign, form: out.formOut };
   }
   const chunk = composeChunk(index, difficulty, seed, speed, state);
   replayCache.set(cacheKey, chunk);

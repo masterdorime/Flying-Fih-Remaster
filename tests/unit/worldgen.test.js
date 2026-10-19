@@ -16,6 +16,17 @@ test('chunks are deterministic for a seed and speed', () => {
   assert.deepEqual(a.obstacles, b.obstacles);
 });
 
+test('layout varies with the seed (per-run contract, 2026-10-18 §8)', () => {
+  // pure-layer half of the per-run seed: same seeds must compose identical
+  // chunks, different seeds must compose different ones. The wiring half (run
+  // seed drawn per restart) is browser-proven in t21 phase A.
+  const sig = (seed) => generateChunk(3, 0.5, seed, 25).obstacles
+    .map(o => `${o.kind}|${o.variant}|${o.x.toFixed(1)}|${o.z.toFixed(1)}`)
+    .sort().join(';');
+  assert.equal(sig(1337), sig(1337), 'same seed ⇒ identical chunk');
+  assert.notEqual(sig(1337), sig(4242), 'different seed ⇒ different chunk');
+});
+
 test('ocean obstacles are grounded: nothing floats below the clouds (2026-10-14)', () => {
   // the retired `elevated` branch spawned props at y 8-24 — floating clutter
   // below the cloud curtain. All ocean hazards must sit at the water line.

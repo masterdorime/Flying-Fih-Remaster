@@ -24,6 +24,9 @@ export function createWorld(scene, templates) {
   // sequentially on a global cursor and chain-checked against the previous
   // chunk's tail row; reset() clears it for a fresh run
   let genState = null;
+  let runSeed = 1337; // per-run seed: game.js draws a fresh seed each restart
+  // (?seed= URL param pins it for tests/probes); the default keeps the
+  // historical pin for callers that reset without an argument.
 
   function ensureChunks(playerZ, difficulty, speed) {
     const wantFrom = Math.floor((playerZ - WORLD.chunksBehind * WORLD.chunkLength) / WORLD.chunkLength);
@@ -38,8 +41,8 @@ export function createWorld(scene, templates) {
   }
 
   function buildChunk(index, difficulty, speed) {
-    const spec = composeChunk(index, difficulty, 1337, speed, genState);
-    genState = { cursor: spec.cursorOut, prevRow: spec.prevRowState, prevSlalomSign: spec.prevSlalomSign };
+    const spec = composeChunk(index, difficulty, runSeed, speed, genState);
+    genState = { cursor: spec.cursorOut, prevRow: spec.prevRowState, prevSlalomSign: spec.prevSlalomSign, form: spec.formOut };
     const group = new THREE.Group();
     const obstacles = [];
     for (const ob of spec.obstacles) {
@@ -118,9 +121,16 @@ export function createWorld(scene, templates) {
     }
     ahead.sort((a, b) => a.mesh.position.z - b.mesh.position.z);
     const ob = ahead[Math.min(nth, ahead.length - 1)];
-    if (ob) {
-      player.state.position.set(ob.mesh.position.x, ob.mesh.position.y, ob.mesh.position.z - 4);
-    }
+    if (!ob) return null;
+    player.state.position.set(ob.mesh.position.x, ob.mesh.position.y, ob.mesh.position.z - 4);
+    // Return the hull actually targeted: `nth` counts AHEAD by z, and a patterned
+    // row holds several hulls with jittered z, so a caller that must keep hitting
+    // the SAME obstacle needs its identity, not a re-derivation (t10 §3c).
+    return {
+      x: ob.mesh.position.x, z: ob.mesh.position.z, kind: ob.spec.kind,
+      rx: ob.spec.rx ?? ob.spec.radius, rz: ob.spec.rz ?? ob.spec.radius,
+      moving: !!ob.spec.moving,
+    };
   }
 
   // Live obstacle discs near a z-plane (gate placement, coin lanes, dodge
@@ -134,9 +144,9 @@ export function createWorld(scene, templates) {
         if (Math.abs(ob.mesh.position.z - z) <= halfRange) {
           const rx = ob.spec.rx ?? ob.spec.radius;
           if (ob.spec.moving) {
-            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true });
+            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form });
           } else {
-            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius });
+            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form });
           }
         }
       }
@@ -153,7 +163,8 @@ export function createWorld(scene, templates) {
     return true;
   }
 
-  function reset() {
+  function reset(seed = 1337) {
+    runSeed = seed >>> 0;
     for (const chunk of chunks.values()) scene.remove(chunk.group);
     chunks.clear();
     nextIndex = 0;

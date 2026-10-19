@@ -201,3 +201,23 @@ test('capsule hit math: honest side miss, honest tip hit', () => {
   assert.equal(capsuleHit(0, 8.4 + 1.1 - 0.05, liner, 1.1), true, 'bow contact hits');
   assert.equal(capsuleHit(0, 8.4 + 1.1 + 0.5, liner, 1.1), false, 'tip beyond slack misses');
 });
+
+// 2026-10-18 stage B (spec §9): the floors above are asserted over `corpus`,
+// which now composes through the formation roster. Proving every gated shape
+// appears in that same corpus is what turns "the floors hold" into "the floors
+// hold FOR EACH gated formation" rather than only for whichever shapes happened
+// to be sampled.
+test('formation coverage: every gated formation is exercised by the legality corpus', () => {
+  const GATED = ['wideGate', 'offsetTurn', 'fork', 'chicane', 'riskLane'];
+  const seen = new Set();
+  for (const speed of SPEEDS) {
+    for (const seed of SEEDS) {
+      for (const d of DIFFS) {
+        for (const o of corpus(seed, d, speed)) if (o.form) seen.add(o.form);
+      }
+    }
+  }
+  for (const g of GATED) {
+    assert.ok(seen.has(g), `gated formation ${g} never appears in the legality corpus`);
+  }
+});

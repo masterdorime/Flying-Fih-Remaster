@@ -248,6 +248,42 @@ test('t19: fairness in the running game', async () => {
         const step = Math.max(-cap * ctx.dtSim, Math.min(cap * ctx.dtSim, (want - x) * 0.5));
         __FFM_API.debugSetLateral(Math.max(-14, Math.min(14, x + step)));
       };
+      // Audit-ready payload (2026-10-18 t19 layout-lottery failure): per
+      // violation, capture the run seed, the full +-30 disc inventory, and an
+      // in-page legality scan mirroring spec §7 exactly (search space = the
+      // ideal plane + forward dz 4..20, x grid +-laneHalfWidth; legal means a
+      // mouth+margin edge gap to every disc whose (rz ?? radius) + mouth band
+      // touches that plane). legalCount > 0 => the resolver missed a legal
+      // candidate (production bug); legalCount 0 => the sanctioned
+      // saturating-water fallback fired (clearest-x at the ideal plane).
+      const { resolveGatePlacement } = await import('/js/timing.js');
+      const { WORLD, GATE } = await import('/js/config.js');
+      const MIN_CLEAR = GATE.mouthRadius + GATE.clearanceMargin;
+      const fmt = (v) => (Number.isFinite(v) ? Math.round(v * 1000) / 1000 : String(v));
+      const legalityScan = (g, discs) => {
+        const near = (z) => discs.filter(d => Math.abs(d.z - z) <= (d.rz ?? d.radius) + GATE.mouthRadius);
+        const clear = (z, x) => {
+          let c = Infinity;
+          for (const d of near(z)) c = Math.min(c, Math.abs(x - d.x) - (d.rx ?? d.radius));
+          return c;
+        };
+        const xGrid = [];
+        for (let x = -WORLD.laneHalfWidth; x <= WORLD.laneHalfWidth + 1e-9; x += 0.5) xGrid.push(x);
+        const legal = [];
+        let best = { c: -Infinity };
+        for (let dz = 0; dz <= GATE.zShiftMax; dz += 4) {
+          const z = g.z + dz;
+          for (const x of [...xGrid, g.x]) {
+            const c = clear(z, x);
+            if (c > best.c) best = { c: fmt(c), z: Math.round(z * 100) / 100, x: Math.round(x * 100) / 100 };
+            if (c >= MIN_CLEAR) legal.push({ z: Math.round(z * 100) / 100, x: Math.round(x * 100) / 100, c: fmt(c) });
+          }
+        }
+        let echo = null;
+        try { const p = resolveGatePlacement(g.x, g.z, discs); echo = { x: +p.x.toFixed(2), z: +p.z.toFixed(2) }; }
+        catch (e) { echo = 'ERR ' + String(e); }
+        return { minClear: MIN_CLEAR, legalCount: legal.length, legalSample: legal.slice(0, 5), best, echo };
+      };
       const sampleGate = (g) => {
         const discs = __FFM_API.debugObstaclesNear(g.z, 30);
         for (const d of discs) {
@@ -259,18 +295,27 @@ test('t19: fairness in the running game', async () => {
           const inBand = Math.abs(d.z - g.z) <= (d.rz ?? d.radius) + 3.0 + 1e-6;
           const lat = Math.abs(d.x - g.x) - (d.rx ?? d.radius);
           if (inBand && lat < 3.8 - 1e-6) {
-            violations.push({
-              gate: { id: g.id, x: +g.x.toFixed(2), z: +g.z.toFixed(2) },
-              disc: { x: +d.x.toFixed(2), z: +d.z.toFixed(2), rx: +(d.rx ?? d.radius).toFixed(2), rz: +(d.rz ?? d.radius).toFixed(2), moving: !!d.moving },
+            const entry = {
+              seed: runSeed,
+              gate: { id: g.id, x: +g.x.toFixed(2), z: +g.z.toFixed(2), y: +g.y.toFixed(2) },
+              disc: { x: +d.x.toFixed(2), z: +d.z.toFixed(2), rx: +(d.rx ?? d.radius).toFixed(2), rz: +(d.rz ?? d.radius).toFixed(2), kind: d.kind, moving: !!d.moving },
               lat: +lat.toFixed(2),
-            });
+              scan: legalityScan(g, discs),
+              near: discs
+                .map(k => ({ x: +k.x.toFixed(2), z: +k.z.toFixed(2), rx: +(k.rx ?? k.radius).toFixed(2), rz: +(k.rz ?? k.radius).toFixed(2), kind: k.kind, moving: !!k.moving }))
+                .sort((a, b) => a.z - b.z),
+            };
+            violations.push(entry);
+            console.log('GATE-SPAWN-VIOLATION ' + JSON.stringify(entry));
           }
         }
         sampled.push(g.id);
       };
+      let runSeed = null;
       for (let seg = 0; seg < segments && sampled.length < 30; seg++) {
         __FFM_API.debugRestart();
         await new Promise(r => setTimeout(r, 400));
+        runSeed = __FFM_API.seed();
         __FFM_API.setGauge(75); // tier high: hull-dense rows, gates spawn into capsules
         const cap = capSpeed;   // settle cap mirroring phase 2's high-tier servo
         __FFM_API.debugSetSpeed(speed);

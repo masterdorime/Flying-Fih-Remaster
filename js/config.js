@@ -59,6 +59,31 @@ export const PATTERN = {
   chainMargin: 0.15,    // chain-check safety margin
 };
 
+// Formation library (2026-10-18 §9 stage B): weighted, difficulty-gated
+// roster; the pick tilt rises with compose speed toward wide paths. Roster
+// and weight/gating values live here; the mechanics (pick, locked
+// continuation roles, no-repeat guard) live in js/worldgen.js.
+export const FORMATIONS = {
+  tiltMinSpeed: 25,     // speed where the tilt bias is zero
+  tiltMaxSpeed: 110,    // speed where the tilt bias is fully applied
+  // id -> { weight, minD, tilt, windows }. `minD` is the difficulty gate;
+  // `tilt` is how strongly the compose speed favours it (wide paths and
+  // intentional breathers rise with speed); `windows` > 1 means the formation
+  // locks a continuation sequence (retries re-jitter, they never re-pick).
+  roster: {
+    slalom:     { weight: 1.0, minD: 0.00, tilt: 0.0, windows: 1 },
+    wall:       { weight: 1.0, minD: 0.00, tilt: 0.0, windows: 1 },
+    center:     { weight: 1.0, minD: 0.00, tilt: 0.0, windows: 1 },
+    cluster:    { weight: 0.9, minD: 0.25, tilt: 0.4, windows: 1 },
+    breather:   { weight: 0.5, minD: 0.15, tilt: 1.4, windows: 1 },
+    wideGate:   { weight: 0.8, minD: 0.35, tilt: 1.6, windows: 1 },
+    offsetTurn: { weight: 0.8, minD: 0.40, tilt: 0.6, windows: 2 },
+    fork:       { weight: 0.8, minD: 0.55, tilt: 1.0, windows: 2 },
+    chicane:    { weight: 0.7, minD: 0.55, tilt: 0.4, windows: 2 },
+    riskLane:   { weight: 0.6, minD: 0.70, tilt: 0.0, windows: 1 },
+  },
+};
+
 // Honest hull collision dims (2026-10-18): measured from the live normalized
 // templates (Box3 after models.js normalize GAME-sized geometry), wrapped
 // with the approved grace — rx = half-beam + 0.3 m, rz = half-length + 0.4 m
