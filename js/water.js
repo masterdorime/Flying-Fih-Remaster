@@ -93,6 +93,11 @@ export function createWater(scene) {
         // ---- distance fade to the skybox ----
         float fade = 1.0 - smoothstep(240.0, 700.0, abs(vPos.z - uPlayer.z));
         gl_FragColor = vec4(col, fade);
+        // parity (spec §4.3/T5): apply three's tone map exactly as the props' built-in
+        // materials do, so the sea and the Standard/Phong props share ONE transfer
+        // function instead of two. The renderer prefix already supplies TONE_MAPPING,
+        // toneMapping() and toneMappingExposure, so only the APPLICATION chunk goes here.
+        #include <tonemapping_fragment>
       }`,
     transparent: true,
     depthWrite: false,
@@ -163,6 +168,7 @@ function createFallbackDome(scene) {
       varying float vY;
       void main() {
         gl_FragColor = vec4(mix(uBottom, uTop, clamp(vY * 1.4 + 0.25, 0.0, 1.0)), 1.0);
+        #include <tonemapping_fragment> // §4.3/T5: same transfer function as everything else
       }`,
   });
   const mesh = new THREE.Mesh(geo, mat);
