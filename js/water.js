@@ -41,10 +41,10 @@ export function createWater(scene) {
         // Coefficients mirror WAVE_TERMS in js/wave.js — tests/unit/wave-port.test.js
         // reads this expression and fails if the two drift apart.
         vec4 world = modelMatrix * vec4(p, 1.0);
-        float w = sin(world.z * 0.09 + uTime * 1.6) * 0.5
-                + sin(world.x * 0.22 + uTime * 2.4) * 0.26
-                + sin((world.x + world.z) * 0.045 + uTime * 1.1) * 0.55
-                + sin(world.x * 0.31 + world.z * 0.22 + uTime * 3.4) * 0.22;
+        float w = sin(world.z * 0.13 + uTime * 1.7) * 0.5
+                + sin(world.x * 0.3 + uTime * 2.6) * 0.26
+                + sin((world.x + world.z) * 0.055 + uTime * 1.1) * 0.52
+                + sin(world.x * 0.3 + world.z * 0.21 + uTime * 3.4) * 0.25;
         p.y += w;
         vH = w;
         vPos = (modelMatrix * vec4(p, 1.0)).xyz;
@@ -74,14 +74,14 @@ export function createWater(scene) {
       void waveSlopesAt(vec3 P, out float ddx, out float ddz) {
         ddx = 0.0; ddz = 0.0;
         float c;
-        c = cos(P.z * 0.09 + uTime * 1.6) * 0.5;
-        ddz += 0.09 * c;
-        c = cos(P.x * 0.22 + uTime * 2.4) * 0.26;
-        ddx += 0.22 * c;
-        c = cos((P.x + P.z) * 0.045 + uTime * 1.1) * 0.55;
-        ddx += 0.045 * c; ddz += 0.045 * c;
-        c = cos(P.x * 0.31 + P.z * 0.22 + uTime * 3.4) * 0.22;
-        ddx += 0.31 * c; ddz += 0.22 * c;
+        c = cos(P.z * 0.13 + uTime * 1.7) * 0.5;
+        ddz += 0.13 * c;
+        c = cos(P.x * 0.3 + uTime * 2.6) * 0.26;
+        ddx += 0.3 * c;
+        c = cos((P.x + P.z) * 0.055 + uTime * 1.1) * 0.52;
+        ddx += 0.055 * c; ddz += 0.055 * c;
+        c = cos(P.x * 0.3 + P.z * 0.21 + uTime * 3.4) * 0.25;
+        ddx += 0.3 * c; ddz += 0.21 * c;
       }
 
       void main() {
@@ -93,18 +93,32 @@ export function createWater(scene) {
         // steps the tone across the mesh's ~7.8 m cells and the facets read as polygons
         // (caught in the S2 screenshot). 55% quantized keeps the banded style without the
         // steps reading as geometry.
-        float band = mix(t, floor(t * 5.0) / 5.0, 0.55);
-        vec3 col = mix(uDeep, uOcean, 0.16 + 0.84 * band);
-        col = mix(col, uAqua, 0.10 + band * 0.20);
+        float band = mix(t, floor(t * 5.0) / 5.0, 0.6);
+        vec3 col = mix(uDeep, uOcean, 0.14 + 0.86 * band);
+        col = mix(col, uAqua, 0.12 + band * 0.24);
+
+        // ---- large-scale tonal masses ----
+        // at a 3.6 m camera height most of the screen is mid-to-far water seen at shallow
+        // angles, where geometry contributes almost nothing — the sea read as one flat
+        // sheet. Big slow patches of lighter and darker water are what give it mass and
+        // motion at every grazing angle, so they carry the read the mesh cannot.
+        // NOTE: the variable was first named after a GLSL ES RESERVED WORD (tessellation),
+        // which the shader compiler rejects outright — hence "swell". The browser run is the
+        // only thing that catches this class: the unit suite and the source-level guards all
+        // passed with the broken shader in place.
+        float swell = sin(vPos.x * 0.012 + uTime * 0.22) * cos(vPos.z * 0.011 - uTime * 0.16)
+                    + 0.5 * sin(vPos.z * 0.021 + uTime * 0.31);
+        col = mix(col, uAqua, smoothstep(0.10, 0.95, swell) * 0.26);
+        col = mix(col, uDeep, (1.0 - smoothstep(-0.95, -0.15, swell)) * 0.22);
 
         // broad horizontal swell layers: slow tone shifts in world Z, the
         // reference's layered horizon stripes
         float layer = sin(vPos.z * 0.045 - uTime * 0.8);
-        col = mix(col, uAqua, smoothstep(0.5, 1.0, layer) * 0.28);
+        col = mix(col, uAqua, smoothstep(0.5, 1.0, layer) * 0.30);
         // quantized medium stripes: hard-edged tone layers streaming past
         float stripe = floor(vPos.z * 0.11 - uTime * 1.2);
         float stripeTone = 0.5 + 0.5 * sin(stripe * 37.0);
-        col = mix(col, uAqua, stripeTone * 0.12);
+        col = mix(col, uAqua, stripeTone * 0.14);
 
         // ---- the sun finally touches the sea ----
         if (uSpecular > 0.0) {
@@ -114,13 +128,21 @@ export function createWater(scene) {
           vec3 V = normalize(cameraPosition - vPos);  // cameraPosition is a three built-in
           vec3 L = normalize(uSunDir);
           vec3 H = normalize(V + L);
-          float gloss = pow(max(dot(n, H), 0.0), 48.0);
+          // Grazing-angle sky sheen: water reflects the sky hardest at shallow angles, which
+          // is exactly the chase camera's view. This is the single biggest anti-flatness fix
+          // — it is view-dependent, so it works across the whole mid-field, not only where
+          // the sun path happens to fall.
+          float fres = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+          col = mix(col, uAqua * 1.2 + uFoam * 0.15, fres * uSpecular * 0.45);
+          // Broad sun glitter (22, not 48: a wide highlight path reads from a chase camera,
+          // a tight one is invisible unless the eye happens to line up with the sun).
+          float gloss = pow(max(dot(n, H), 0.0), 22.0);
           // shading-only glitter: a cheap interference hash so the highlight breaks into
           // sparkle rather than one broad patch. It costs no geometry, so it cannot alias
           // the mesh (the wave FIELD is held above the ~16 m Nyquist floor).
           float sparkle = 0.55 + 0.45 * sin(vPos.x * 7.3 + vPos.z * 5.1 + uTime * 2.0)
                                        * sin(vPos.x * 3.1 - vPos.z * 9.7 - uTime * 1.3);
-          col += uFoam * gloss * sparkle * uSpecular;
+          col += uFoam * gloss * sparkle * uSpecular * 1.2;
         }
 
         // fine bright wave lines streaming past, saturating with height

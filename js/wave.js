@@ -14,10 +14,10 @@
 // mesh can actually carry. (A shading-only high-frequency glitter term is used in the
 // fragment shader instead, where it costs no geometry and cannot alias the silhouette.)
 export const WAVE_TERMS = [
-  { kx: 0.000, kz: 0.090, w: 1.6, a: 0.50 }, // primary swell, ~70 m
-  { kx: 0.220, kz: 0.000, w: 2.4, a: 0.26 }, // cross swell, ~29 m
-  { kx: 0.045, kz: 0.045, w: 1.1, a: 0.55 }, // long diagonal, ~99 m
-  { kx: 0.310, kz: 0.220, w: 3.4, a: 0.22 }, // chop octave, ~20-29 m (Nyquist-safe)
+  { kx: 0.000, kz: 0.130, w: 1.7, a: 0.50 }, // primary swell, ~48 m
+  { kx: 0.300, kz: 0.000, w: 2.6, a: 0.26 }, // cross swell, ~21 m
+  { kx: 0.055, kz: 0.055, w: 1.1, a: 0.52 }, // long diagonal, ~81 m
+  { kx: 0.300, kz: 0.210, w: 3.4, a: 0.25 }, // chop octave, ~17 m (the Nyquist floor)
 ];
 
 // Sum of |a|: the wave field's envelope. The spec contracts this to the 1.2-1.6 m band.

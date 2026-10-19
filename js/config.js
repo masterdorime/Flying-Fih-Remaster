@@ -25,7 +25,11 @@ export const GATE = {
   leadSeconds: 4,       // target reaction time; lead = clamp(speed*this, min, max)
   cooldown: 0.6,        // seconds between resolve and the next spawn
   behindMiss: 6,        // meters past the plane unresolved = forced miss
-  swimLift: 0.8,        // portal center above the wave surface while swimming
+  swimLift: 0.95,        // portal center above the wave surface while swimming
+                         // (0.8 -> 0.95 with the 2026-10-19 steeper field: the analytic
+                         // bound on surface deviation across the 3 m mouth is 0.825 m, so
+                         // the old lift no longer cleared it — measured, not guessed.
+                         // tests/unit/wave-offsets.test.js pins the constraint.)
   flightMin: 63,        // gate Y band while flying (inside the 57-110 flight band)
   flightMax: 104,
   flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
