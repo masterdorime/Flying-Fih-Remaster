@@ -48,11 +48,6 @@ test('t21: layout variety — fresh runs differ, ?seed pin holds', async () => {
   }
 });
 
-// Formation ids that legitimately span TWO consecutive rows (config
-// FORMATIONS.roster[*].windows === 2). A repeat of any OTHER id across adjacent
-// rows is a no-repeat-guard violation.
-const MULTI_WINDOW = new Set(['offsetTurn', 'fork', 'chicane']);
-
 test('t21: formation variety — gated formations appear live at depth', async () => {
   const server = await startServer();
   const { browser, page, consoleErrors } = await openPage('?seed=4242');
@@ -60,19 +55,23 @@ test('t21: formation variety — gated formations appear live at depth', async (
     await page.evaluate(() => __FFM_API.start({ tutorial: false }));
     await page.waitForFunction(() => __FFM_API.debugObstacleCount() > 0, null, { timeout: 20000 });
 
-    // difficulty ramps on distance/time, NOT on z, so moving the fish alone
-    // cannot reach d ≥ 0.8: move the ramp, then hop deep so fresh chunks are
-    // composed at that difficulty (the t15 debugTeleportFar router precedent).
+    // difficulty ramps on distance/time, NOT on z, so moving the fish alone cannot
+    // reach d ≥ 0.8: move the ramp, then hop far enough that the WHOLE sampled band
+    // is composed AFTER the hop. Chunks already exist out to oldZ + chunksAhead×120
+    // (= oldZ + 360), so a shorter hop samples still-low-difficulty water and the
+    // "≥4 at depth" claim reads stronger than it is (review I2).
     const target = await page.evaluate(() => {
       __FFM_API.debugSetDistance(4500); // state.difficulty = min(1, 4500/5000) = 0.9
       const z = __FFM_API.state().position[2];
-      __FFM_API.debugTeleportFar(z + 200);
+      __FFM_API.debugTeleportFar(z + 520);
       return __FFM_API.state().position[2];
     });
 
-    // a frame must run before the fresh span is composed (poll, never sleep)
+    // Sampled band = [target−50, target+350]: entirely past the pre-hop horizon
+    // (oldZ + 360) and inside the post-hop compose window (target + 360). A frame
+    // must run before the fresh span exists (poll, never sleep).
     await page.waitForFunction(
-      (z) => __FFM_API.debugObstaclesNear(z + 160, 200).length > 0,
+      (z) => __FFM_API.debugObstaclesNear(z + 150, 200).length > 3,
       target,
       { timeout: 90000 },
     );
@@ -80,7 +79,7 @@ test('t21: formation variety — gated formations appear live at depth', async (
     const sample = await page.evaluate((z) => ({
       difficulty: __FFM_API.state().difficulty,
       valid: __FFM_API.debugChunksValid(),
-      discs: __FFM_API.debugObstaclesNear(z + 160, 200).map(d => ({ z: d.z, form: d.form ?? null })),
+      discs: __FFM_API.debugObstaclesNear(z + 150, 200).map(d => ({ z: d.z, form: d.form ?? null, formPick: d.formPick ?? null })),
     }), target);
 
     assert.ok(sample.difficulty >= 0.8, `sampled difficulty ${sample.difficulty} must be ≥ 0.8`);
@@ -92,23 +91,37 @@ test('t21: formation variety — gated formations appear live at depth', async (
     const rows = [];
     for (const d of sorted) {
       const last = rows[rows.length - 1];
-      if (!last || d.z - last.maxZ > 8) rows.push({ maxZ: d.z, forms: new Set() });
+      if (!last || d.z - last.maxZ > 8) rows.push({ maxZ: d.z, forms: new Set(), picks: new Set() });
       else last.maxZ = Math.max(last.maxZ, d.z);
-      rows[rows.length - 1].forms.add(d.form);
+      const r = rows[rows.length - 1];
+      r.forms.add(d.form);
+      r.picks.add(d.formPick);
     }
     for (const r of rows) {
       assert.equal(r.forms.size, 1, `a row carries exactly one formation id, saw ${[...r.forms].join(',')}`);
+      assert.equal(r.picks.size, 1, `a row comes from exactly one pick, saw ${[...r.picks].join(',')}`);
     }
-    const ids = rows.map(r => [...r.forms][0]);
-    const distinct = new Set(ids.filter(Boolean));
+    const seen = rows.map(r => ({ id: [...r.forms][0], pick: [...r.picks][0] }));
+    const distinct = new Set(seen.map(r => r.id).filter(Boolean));
     assert.ok(distinct.size >= 4,
       `≥4 distinct formations at depth, saw ${distinct.size}: ${[...distinct].join(',')}`);
+    // depth proven directly: the gated ids are unlocked only at d ≥ 0.35
+    const GATED = ['wideGate', 'offsetTurn', 'fork', 'chicane', 'riskLane'];
+    assert.ok(seen.some(r => GATED.includes(r.id)),
+      `a gated formation must appear at depth, saw only: ${[...distinct].join(',')}`);
 
-    // no-repeat across adjacent rows, allowing only a declared 2-window span
-    for (let i = 1; i < ids.length; i++) {
-      if (!ids[i] || ids[i] !== ids[i - 1]) continue;
-      assert.ok(MULTI_WINDOW.has(ids[i]),
-        `${ids[i]} repeats across adjacent rows but declares a single window`);
+    // No-repeat across adjacent PICKS, never adjacent rows: a breather consumes a
+    // pick and emits no row, so `X → breather → X` is guard-legal yet yields two
+    // adjacent rows with the same single-window id (measured: 7 such spans across
+    // 60 seeds at compose speed 25 — the row metric is unsound; review I1).
+    for (let i = 1; i < seen.length; i++) {
+      const a = seen[i - 1], b = seen[i];
+      if (!a.id || !b.id) continue;
+      if (b.pick === a.pick) {
+        assert.equal(b.id, a.id, `pick ${b.pick} changed formation mid-window`);
+      } else if (b.pick === a.pick + 1) {
+        assert.notEqual(b.id, a.id, `${b.id} repeats immediately into itself`);
+      }
     }
 
     assert.equal(consoleErrors.length, 0, `console errors: ${consoleErrors.join(' | ')}`);

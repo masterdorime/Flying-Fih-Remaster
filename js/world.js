@@ -144,9 +144,9 @@ export function createWorld(scene, templates) {
         if (Math.abs(ob.mesh.position.z - z) <= halfRange) {
           const rx = ob.spec.rx ?? ob.spec.radius;
           if (ob.spec.moving) {
-            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form });
+            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick });
           } else {
-            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form });
+            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick });
           }
         }
       }

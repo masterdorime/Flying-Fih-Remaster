@@ -144,6 +144,7 @@ const steady = await page.evaluate(() => new Promise(resolve => {
   let t0 = 0;
   let lastCrashes = -1;
   let steadyTicks = 0;
+  let framesStart = null;
   let hops = 0;
   const samples = [];
   // Choose a BIG, ISOLATED, non-moving hull, then hold its lane line. Three
@@ -193,7 +194,13 @@ const steady = await page.evaluate(() => new Promise(resolve => {
       // hull overlapped the fish at either sample, which exonerated the pinned one).
       if (f.crashHide === 0 && crashes === lastCrashes) steadyTicks++; else steadyTicks = 0;
       lastCrashes = crashes;
-      if (steadyTicks >= 3) { baseline = crashes; baselineHulls = hullsAt(); armed = true; t0 = s.runTime; }
+      // Gate on FRAMES as well as ticks: 3 × 150 ms = 450 ms is shorter than one
+      // frame on the documented software-GL floor (~550–670 ms, AGENTS §5.5), so a
+      // teleport-graded pending hit could otherwise land after arming and be
+      // miscounted as a re-hit. 4 rendered frames guarantees it has resolved.
+      if (framesStart === null) framesStart = window.__FFM?.frames ?? 0;
+      const frames = window.__FFM?.frames ?? 0;
+      if (steadyTicks >= 3 && frames - framesStart >= 4) { baseline = crashes; baselineHulls = hullsAt(); armed = true; t0 = s.runTime; }
       return;
     }
     samples.push(crashes);
