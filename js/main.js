@@ -21,6 +21,10 @@ import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
 import { createSkyDome } from './sky-dome.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const app = document.getElementById('app');
 
@@ -70,6 +74,38 @@ const skyDome = createSkyDome(scene);
 // beyond the dome there is nothing to photograph: a flat horizon-coloured background is the
 // safe fallback and matches the dome and the water's far colour exactly
 scene.background = new THREE.Color(ATMOSPHERE.fog.color);
+
+// ---- post-FX (spec §4.8/T13): one transform over the whole frame ----
+// The strongest cohesion lever available: instead of each layer arranging its own light
+// response, the finished frame goes through ONE tone map (OutputPass) with bloom on top, so
+// water, sky and props visibly share a colour response. Gated behind the EXISTING
+// settings.postFx; with it off the render path is exactly what it was.
+//
+// Bloom runs at HALF resolution: it is the costly pass, and at this stylization level the
+// difference is invisible. When the composer is on, OutputPass owns tone mapping, so the
+// renderer's own tone mapping is stood down and the custom shaders' tonemapping include
+// becomes a no-op automatically (TONE_MAPPING is simply undefined) — which is exactly why
+// the in-shader parity in T5 exists rather than being redundant.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2))),
+  ATMOSPHERE.postFx.bloomStrength,
+  ATMOSPHERE.postFx.bloomRadius,
+  ATMOSPHERE.postFx.bloomThreshold,
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+// Only touch tone mapping when the SETTING changes: flipping it every frame would recompile
+// every program in the scene.
+let postFxActive = null;
+function applyPostFx() {
+  const want = settings.postFx > 0;
+  if (want === postFxActive) return;
+  postFxActive = want;
+  renderer.toneMapping = want ? THREE.NoToneMapping : THREE.NeutralToneMapping;
+}
 
 // character lighting: a bright sky/ground hemisphere plus a warm key and a cool
 // camera-side fill, so the Skyfin's painted skin reads from the chase camera.
@@ -146,6 +182,9 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  // composer.setSize hands every pass the FULL size, so put the bloom back to half res
+  bloomPass.setSize(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2)));
 });
 
 function readInput() {
@@ -263,7 +302,9 @@ function loop(now) {
     (sim.phase === 'run' || sim.phase === 'tutorial' ? 1 : 0));
 
   cameraRig.update(dt, game.player.state, game.profile().fov);
-  renderer.render(scene, camera);
+  applyPostFx();
+  if (postFxActive) composer.render(dt); // one transform over the whole frame (T13)
+  else renderer.render(scene, camera);
 
   window.__FFM = { ready: true, frames, fps: Math.round(fps) };
   requestAnimationFrame(loop);
@@ -460,6 +501,17 @@ window.__FFM_API = {
   debugForceFlight: () => game.debugForceFlight(),
   debugSpam: () => game.debugSpam(),
   debugEnvironment: () => environment,
+  // post-FX state (T13): which path is live, what the renderer's tone mapping is, and the
+  // bloom resolution (it must be HALF, or the costly pass quietly ran at full size).
+  debugPostFx: () => ({
+    postFx: settings.postFx,
+    active: postFxActive,
+    toneMapping: renderer.toneMapping,
+    bloom: { x: bloomPass.resolution.x, y: bloomPass.resolution.y },
+    viewport: { x: window.innerWidth, y: window.innerHeight },
+  }),
+  // test-only: flip the setting at runtime so the OFF path can be proven to render too
+  debugSetPostFx: (v) => { settings.postFx = v; },
   // live fog vs the config it must come from (T4): reported together so a browser
   // test can prove the ONE owner without duplicating the numbers in the test.
   debugFog: () => ({

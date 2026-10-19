@@ -283,6 +283,14 @@ export const ATMOSPHERE = {
   contact: { radius: 2.2, opacity: 0.45, hullRange: 70, count: 6, collarWidth: 1.8 },
   // horizon depth layer (T12) — inert until then
   horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },
+  // post-FX (T13, gated behind settings.postFx): one tone map + bloom over the WHOLE frame.
+  // The strongest cohesion lever there is — it forces water, sky and props through one
+  // colour response, so they stop reading as three separate renders.
+  // Threshold matters: the bloom runs in LINEAR space before OutputPass tone-maps, so a
+  // threshold of 0.82 let the entire (pale) sky bloom and washed the frame out — measured in
+  // a screenshot. 0.95 keeps it to real highlights: sun glints, foam, popups.
+  postFx: { bloomStrength: 0.30, bloomRadius: 0.45, bloomThreshold: 0.95 },
+
   // per-frame prop surface-sampling radius (T10) — inert until then
   props: { sampleRange: 200 },
 };
