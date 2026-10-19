@@ -39,6 +39,15 @@ test('every custom fragment shader applies the shared tone map', () => {
   }
 });
 
+test('every custom fragment shader also applies the shared OUTPUT transfer', () => {
+  // A custom shader that writes linear values straight to the framebuffer reads far darker
+  // than the built-in materials around it — the same "two physics" split as the tone map.
+  for (const { f, src } of customShaderFiles()) {
+    assert.ok(src.includes('#include <colorspace_fragment>'),
+      `${f} must apply the output transfer: add "#include <colorspace_fragment>" after tonemapping`);
+  }
+});
+
 test('no custom shader re-declares the tone-map pars the renderer prefix injects', () => {
   for (const { f, src } of customShaderFiles()) {
     assert.ok(!src.includes('#include <tonemapping_pars_fragment>'),

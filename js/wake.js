@@ -127,7 +127,11 @@ export function createWake(scene) {
         const len = Math.hypot(dx, dz) || 1;
         dx /= len; dz /= len;
         const half = (baseHalf * (0.3 + ageFrac * 1.1) + 0.05) * (1 + 0.25 * Math.sin(i * 1.7));
-        const y = surfaceHeight(p.x, p.z, runTime) + 0.06;
+        // the ribbon samples the surface at each point, but it is FLAT across its own
+        // width, so a wider amplitude lets a crest cut through its edges. Raised with the
+        // field (0.06 -> 0.15) — a cosmetic lift, not a clearance rule: the ribbon draws
+        // over the water with depthWrite off either way.
+        const y = surfaceHeight(p.x, p.z, runTime) + 0.15;
         const o = i * 6;
         positions[o] = p.x - dz * half; positions[o + 1] = y; positions[o + 2] = p.z + dx * half;
         positions[o + 3] = p.x + dz * half; positions[o + 4] = y; positions[o + 5] = p.z - dx * half;
@@ -155,7 +159,7 @@ export function createWake(scene) {
       const k = Math.min(1, r.age / RIPPLE_LIFE);
       const s = 1 + k * 1.6;
       r.mesh.scale.set(s, 1, s);
-      r.mesh.position.set(r.x, surfaceHeight(r.x, r.z, runTime) + 0.05, r.z);
+      r.mesh.position.set(r.x, surfaceHeight(r.x, r.z, runTime) + 0.12, r.z);
       r.mesh.material.opacity = 0.65 * (1 - k);
       r.mesh.visible = true;
     }

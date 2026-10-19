@@ -1,15 +1,35 @@
 // Wave field shared by the water shader and everything that rides on it.
-// EXACT port of the vertex-shader math in js/water.js — if the shader changes,
-// this file must change with it (tests/unit/wave.test.js locks the port).
+//
+// WAVE_TERMS is the ONE data source. The vertex shader in js/water.js writes the same
+// coefficients, and tests/unit/wave-port.test.js reads the shader SOURCE and asserts
+// every coefficient appears in it — so wave.js and the shader cannot drift apart
+// (before this, the only guard was a hand-copied restatement inside wave.test.js).
 // Pure: no three.js, unit-tested.
+//
+// A term is  sin(kx·x + kz·z + w·t) · a,  so wavelength = 2π/hypot(kx,kz).
+//
+// NYQUIST: the plane is 700×1800 m at 90×220 segments ≈ 7.8×8.2 m cells, so it cannot
+// resolve a wavelength below ~16 m — a shorter term would alias into noise rather than
+// read as chop. The chop octave below is therefore ~20–29 m: the shortest scale the
+// mesh can actually carry. (A shading-only high-frequency glitter term is used in the
+// fragment shader instead, where it costs no geometry and cannot alias the silhouette.)
+export const WAVE_TERMS = [
+  { kx: 0.000, kz: 0.090, w: 1.6, a: 0.50 }, // primary swell, ~70 m
+  { kx: 0.220, kz: 0.000, w: 2.4, a: 0.26 }, // cross swell, ~29 m
+  { kx: 0.045, kz: 0.045, w: 1.1, a: 0.55 }, // long diagonal, ~99 m
+  { kx: 0.310, kz: 0.220, w: 3.4, a: 0.22 }, // chop octave, ~20-29 m (Nyquist-safe)
+];
+
+// Sum of |a|: the wave field's envelope. The spec contracts this to the 1.2-1.6 m band.
+export const WAVE_AMPLITUDE = WAVE_TERMS.reduce((s, t) => s + Math.abs(t.a), 0);
 
 export const WATER_BASE_Y = -0.15; // water mesh position.y in js/water.js
 
 // Vertical offset of the water surface at world (x, z) at time t.
 export function waveOffset(x, z, t) {
-  return Math.sin(z * 0.09 + t * 1.6) * 0.35
-    + Math.sin(x * 0.22 + t * 2.4) * 0.18
-    + Math.sin((x + z) * 0.045 - t * 1.1) * 0.4;
+  let sum = 0;
+  for (const { kx, kz, w, a } of WAVE_TERMS) sum += Math.sin(kx * x + kz * z + w * t) * a;
+  return sum;
 }
 
 // Absolute world Y of the water surface.
@@ -17,11 +37,15 @@ export function surfaceHeight(x, z, t) {
   return WATER_BASE_Y + waveOffset(x, z, t);
 }
 
-// Analytic partial derivatives of the wave field (surface tilt).
+// Analytic partial derivatives of the wave field (surface tilt). The fragment shader
+// mirrors this for its specular normal, so both agree on which way the water faces.
 export function waveSlopes(x, z, t) {
-  const ddx = 0.22 * 0.18 * Math.cos(x * 0.22 + t * 2.4)
-    + 0.045 * 0.4 * Math.cos((x + z) * 0.045 - t * 1.1);
-  const ddz = 0.09 * 0.35 * Math.cos(z * 0.09 + t * 1.6)
-    + 0.045 * 0.4 * Math.cos((x + z) * 0.045 - t * 1.1);
+  let ddx = 0;
+  let ddz = 0;
+  for (const { kx, kz, w, a } of WAVE_TERMS) {
+    const c = Math.cos(kx * x + kz * z + w * t) * a;
+    ddx += kx * c;
+    ddz += kz * c;
+  }
   return { ddx, ddz };
 }

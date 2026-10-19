@@ -269,8 +269,9 @@ export const ATMOSPHERE = {
   sky: { zenith: 0x2f8fc4, horizon: 0xcfe8f5 },
   // one fade curve, matching three's linear fog: smoothstep(near, far, depth)
   fog: { color: 0xcfe8f5, near: 120, far: 480 },
-  // water palette + shape (formerly literals in js/water.js:12-15)
-  water: { deep: 0x063a7a, ocean: 0x0d5cb0, aqua: 0x3ec3f0, foam: 0xffffff, amplitude: 0.93, specular: 0, crestFoam: 0.45 },
+  // water palette + sun response. The wave AMPLITUDE is not a knob here: it is derived
+  // from WAVE_TERMS in js/wave.js and asserted into the contracted 1.2-1.6 m band.
+  water: { deep: 0x063a7a, ocean: 0x0d5cb0, aqua: 0x3ec3f0, foam: 0xffffff, specular: 1.0, crestFoam: 0.5 },
   // wake foam dissolve colour (formerly js/wake.js:14)
   wake: { fade: 0x0a3f7a },
   // prop grounding decals (T11) — inert until then
