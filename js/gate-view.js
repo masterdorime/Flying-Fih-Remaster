@@ -10,9 +10,12 @@ export function createGateView(scene) {
   group.visible = false;
   scene.add(group);
 
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0x4dd2ff, transparent: true, opacity: 0.9, depthWrite: false, fog: false });
-  const innerMat = new THREE.MeshBasicMaterial({ color: 0x1e6fd9, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, fog: false });
-  const discMat = new THREE.MeshBasicMaterial({ color: 0x7dd3ff, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false, fog: false });
+  // fog PARTICIPATES (T11 cohesion): these were fog:false, so the ring never dissolved with
+  // distance while every prop and the sea did — one more way the objective looked dropped
+  // into the frame instead of living in the air.
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x4dd2ff, transparent: true, opacity: 0.9, depthWrite: false });
+  const innerMat = new THREE.MeshBasicMaterial({ color: 0x1e6fd9, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
+  const discMat = new THREE.MeshBasicMaterial({ color: 0x7dd3ff, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false });
 
   const torus = new THREE.Mesh(new THREE.TorusGeometry(GATE.outerRadius, 0.18, 16, 48), ringMat);
   const highlight = new THREE.Mesh(new THREE.RingGeometry(GATE.outerRadius - 0.34, GATE.outerRadius - 0.1, 48), innerMat);

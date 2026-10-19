@@ -28,7 +28,14 @@ export function createWater(scene) {
       uPlayer: { value: new THREE.Vector3(0, 0, 0) },
       uWakeDir: { value: new THREE.Vector2(0, 1) }, // fish heading (xz)
       uWakeStrength: { value: 0 },                  // 0 = calm/hidden, 1 = full churn
+      // contact foam around the nearest hulls (T11): xz = hull position, z = footprint
+      // radius, w = 1 when the slot is live. Size comes from config via the HULL_MAX define
+      // below, so the array and the shader's loop can never disagree.
+      uHulls: { value: Array.from({ length: ATMOSPHERE.contact.count }, () => new THREE.Vector4()) },
+      uHullCount: { value: 0 },
+      uCollarWidth: { value: ATMOSPHERE.contact.collarWidth },
     },
+    defines: { HULL_MAX: ATMOSPHERE.contact.count },
     vertexShader: /* glsl */`
       uniform float uTime;
       varying vec3 vPos;
@@ -63,6 +70,9 @@ export function createWater(scene) {
       uniform vec3 uPlayer;
       uniform vec2 uWakeDir;
       uniform float uWakeStrength;
+      uniform vec4 uHulls[HULL_MAX];
+      uniform float uHullCount;
+      uniform float uCollarWidth;
       varying vec3 vPos;
       varying float vFogDepth;
 
@@ -188,7 +198,29 @@ export function createWater(scene) {
         float streakLen = mix(4.0, 16.0, uWakeStrength);
         float streak = smoothstep(streakLen, 0.0, back)
                      * smoothstep(0.5 + max(back, 0.0) * 0.18, 0.0, side);
-        float foamAmt = clamp(contact * 0.85 + streak * 0.5 * uWakeStrength, 0.0, 1.0);
+        // ---- contact foam around nearby hulls (T11, cohesion) ----
+        // The strongest "it sits IN the water" cue there is: the sea BREAKS around a hull where
+        // it meets the surface, instead of the hull just intersecting a flat plane. Drawn by
+        // the water itself, so it automatically rides the same swell, in the same air, on the
+        // same curve — no per-prop mesh and no decal to keep in sync with the field.
+        // The footprint is an ELLIPSE (hulls are long in z): a circle of max(rx, rz) spills far
+        // past the beam and reads as a white puddle next to the hull, not foam around it
+        // (caught in a screenshot). Branch-free: dead slots have zero radii but collarWidth
+        // keeps the divisor non-zero, and the live multiplier zeroes them.
+        float hullFoam = 0.0;
+        for (int i = 0; i < HULL_MAX; i++) {
+          vec4 hu = uHulls[i];
+          float live = float(i) < uHullCount ? 1.0 : 0.0;
+          vec2 rel = vec2(
+            (vPos.x - hu.x) / (hu.z + uCollarWidth),
+            (vPos.z - hu.y) / (hu.w + uCollarWidth)
+          );
+          float dh = length(rel);
+          // irregular edge, so the collar does not read as a drawn ring
+          float wobble = sin(dh * 6.0 + uTime * 2.2 + float(i) * 2.1) * 0.12;
+          hullFoam = max(hullFoam, live * smoothstep(1.35 + wobble, 0.90, dh));
+        }
+        float foamAmt = clamp(contact * 0.85 + streak * 0.5 * uWakeStrength + hullFoam * 0.6, 0.0, 1.0);
         float bob = 0.85 + 0.15 * sin(uTime * 3.0);
         col = mix(col, uFoam, foamAmt * bob);
 
@@ -242,8 +274,16 @@ export function createWater(scene) {
   scene.add(skirt);
   return {
     mesh,
-    update(t, playerPos, wake = null) {
+    update(t, playerPos, wake = null, hulls = null) {
       mat.uniforms.uTime.value = t;
+      // contact foam targets: the nearest hulls world.js collected during its own walk
+      if (hulls) {
+        const slots = mat.uniforms.uHulls.value;
+        const n = Math.min(hulls.length, slots.length);
+        for (let i = 0; i < n; i++) slots[i].set(hulls[i].x, hulls[i].z, hulls[i].rx, hulls[i].rz);
+        for (let i = n; i < slots.length; i++) slots[i].set(0, 0, 0, 0); // slot off
+        mat.uniforms.uHullCount.value = n;
+      }
       // wake churn: heading + strength while swimming, zeroed when airborne
       // (a null wake hides all contact foam — nothing disturbs water in flight)
       if (wake) {

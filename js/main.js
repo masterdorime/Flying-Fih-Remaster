@@ -210,7 +210,7 @@ function loop(now) {
         strength: Math.min(1, Math.max(0.12, (ps.speed - 8) / 60)),
       };
     }
-    water.update(game.state.runTime, game.player.state.position, wakeU);
+    water.update(game.state.runTime, game.player.state.position, wakeU, game.nearHulls());
     wake.update(dt, game.player.state, game.player.state.locomotion, game.state.runTime);
     // sky/curtain ride along with the fish; the swap is altitude-driven
     const p = game.player.state.position;

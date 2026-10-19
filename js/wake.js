@@ -34,7 +34,7 @@ export function createWake(scene) {
   ribbonGeo.setIndex(index);
   const ribbonMat = new THREE.MeshBasicMaterial({
     vertexColors: true, transparent: true, opacity: 0.6,
-    depthWrite: false, side: THREE.DoubleSide, fog: false,
+    depthWrite: false, side: THREE.DoubleSide,
   });
   const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
   ribbon.frustumCulled = false;
@@ -49,7 +49,7 @@ export function createWake(scene) {
   for (let i = 0; i < RIPPLE_POOL; i++) {
     const mat = new THREE.MeshBasicMaterial({
       color: FOAM.clone(), transparent: true, opacity: 0,
-      depthWrite: false, side: THREE.DoubleSide, fog: false,
+      depthWrite: false, side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(rippleGeo, mat);
     mesh.visible = false;

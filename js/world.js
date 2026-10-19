@@ -28,6 +28,7 @@ export function createWorld(scene, templates) {
   let runSeed = 1337; // per-run seed: game.js draws a fresh seed each restart
   // (?seed= URL param pins it for tests/probes); the default keeps the
   // historical pin for callers that reset without an argument.
+  const nearHulls = []; // nearest few hulls this frame (T11 contact foam), refilled in update
 
   function ensureChunks(playerZ, difficulty, speed) {
     const wantFrom = Math.floor((playerZ - WORLD.chunksBehind * WORLD.chunkLength) / WORLD.chunkLength);
@@ -64,6 +65,7 @@ export function createWorld(scene, templates) {
   function update(dt, playerPos, playerRadius, difficulty, speed, onCollision) {
     elapsed += dt;
     ensureChunks(playerPos.z, difficulty, speed);
+    nearHulls.length = 0; // refilled below: the sea paints foam around the nearest few
 
     for (const chunk of chunks.values()) {
       for (const ob of chunk.obstacles) {
@@ -92,6 +94,15 @@ export function createWorld(scene, templates) {
         mesh.position.y = dzToPlayer <= ATMOSPHERE.props.sampleRange
           ? spec.y + waveOffset(mesh.position.x, mesh.position.z, elapsed)
           : spec.y;
+
+        // Collect the nearest few hulls for the sea's contact foam (T11). world.js already
+        // walks every prop here, so this is nearly free — no extra query in the render path.
+        if (!spec.moving && dzToPlayer <= ATMOSPHERE.contact.hullRange && playerPos.z < mesh.position.z) {
+          nearHulls.push({
+            x: mesh.position.x, z: mesh.position.z,
+            rx: spec.rx ?? spec.radius, rz: spec.rz ?? spec.radius, d: dzToPlayer,
+          });
+        }
         const dy = Math.abs(spec.y - playerPos.y);
         if (dy < spec.radius + playerRadius) {
           const hitRadius = spec.rx ?? spec.radius;
@@ -114,6 +125,10 @@ export function createWorld(scene, templates) {
         }
       }
     }
+
+    // closest first, capped: the shader has a fixed-size hull array
+    nearHulls.sort((a, b) => a.d - b.d);
+    nearHulls.length = Math.min(nearHulls.length, ATMOSPHERE.contact.count);
   }
 
   // ---- debug helpers (automated verification) ----
@@ -185,5 +200,5 @@ export function createWorld(scene, templates) {
     genState = null; // fresh cursor + chain state for the new run
   }
 
-  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, obstaclesNear };
+  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, obstaclesNear, nearHulls: () => nearHulls };
 }

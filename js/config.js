@@ -278,8 +278,9 @@ export const ATMOSPHERE = {
   water: { deep: 0x063a7a, ocean: 0x0d5cb0, aqua: 0x3ec3f0, foam: 0xffffff, specular: 1.0, crestFoam: 0.5 },
   // wake foam dissolve colour (formerly js/wake.js:14)
   wake: { fade: 0x0a3f7a },
-  // prop grounding decals (T11) — inert until then
-  contact: { radius: 0, opacity: 0 },
+  // prop grounding (T11, cohesion): the sea paints a foam collar around nearby hulls and a
+  // pooled sprite darkens the water under them, so props sit IN the water rather than on it.
+  contact: { radius: 2.2, opacity: 0.45, hullRange: 70, count: 6, collarWidth: 1.8 },
   // horizon depth layer (T12) — inert until then
   horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },
   // per-frame prop surface-sampling radius (T10) — inert until then

@@ -548,6 +548,9 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     // reaching a deep-difficulty sample without a multi-minute wall-clock run
     // needs a way to move the ramp directly (t21 phase B).
     debugSetDistance: (m) => { state.distance = m; },
+    // shared accessor (not debug): the render path needs the nearest hulls so the SEA can
+    // paint contact foam around them. world.js already collects them during its own walk.
+    nearHulls: () => world.nearHulls(),
     debugForceFlight: () => enterFlight(), // the real transition: also fires plane:enter
     debugSpam: () => spamPress(),
     // hide the ocean world (obstacles + ocean shrimp) while the fish is in the sky
