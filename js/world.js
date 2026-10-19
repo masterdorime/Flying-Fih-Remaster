@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { WORLD, COLLISION } from './config.js';
+import { WORLD, COLLISION, ATMOSPHERE } from './config.js';
 import { composeChunk, capsuleHit, validateChunkGaps } from './worldgen.js';
 import { templateFor } from './models.js';
+import { waveOffset } from './wave.js';
 
 // Live world: chunk pool of instanced Kenney props + rock clusters, moving
 // hazards, and deterministic overlap collision against the player (PRD §11).
@@ -78,7 +79,20 @@ export function createWorld(scene, templates) {
         // collision test only for nearby props (honest hull capsule on the
         // horizontal plane — the pre-2026-10-18 vertical guard stays as-is so
         // flight clearance semantics are unchanged)
-        const dy = Math.abs(mesh.position.y - playerPos.y);
+        // VISUAL wave-riding (2026-10-19, cohesion): hulls ride the same swell the fish does,
+        // so they sit IN the sea instead of floating on a flat plane at y=0 — the largest
+        // single reason props read as "put in" rather than in the water.
+        //
+        // VISUAL ONLY, and that is deliberate: the collision gate below reads `spec.y`, the
+        // canonical layout height. Moving hit detection with the swell would be a §4-row-6
+        // collision change this phase may not make, and the capsule contract (silhouette =
+        // hitbox) is about the horizontal plane anyway. Before this change mesh.position.y
+        // WAS spec.y, so the gate is bit-for-bit what it always was.
+        const dzToPlayer = Math.abs(mesh.position.z - playerPos.z);
+        mesh.position.y = dzToPlayer <= ATMOSPHERE.props.sampleRange
+          ? spec.y + waveOffset(mesh.position.x, mesh.position.z, elapsed)
+          : spec.y;
+        const dy = Math.abs(spec.y - playerPos.y);
         if (dy < spec.radius + playerRadius) {
           const hitRadius = spec.rx ?? spec.radius;
           const hitHalfLen = spec.rz ?? spec.radius;
@@ -144,9 +158,9 @@ export function createWorld(scene, templates) {
         if (Math.abs(ob.mesh.position.z - z) <= halfRange) {
           const rx = ob.spec.rx ?? ob.spec.radius;
           if (ob.spec.moving) {
-            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick });
+            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick, y: ob.spec.y, meshY: ob.mesh.position.y });
           } else {
-            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick });
+            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick, y: ob.spec.y, meshY: ob.mesh.position.y });
           }
         }
       }
