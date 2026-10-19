@@ -20,6 +20,7 @@ import { QTE } from './config.js';
 import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
+import { createSkyDome } from './sky-dome.js';
 
 const app = document.getElementById('app');
 
@@ -59,6 +60,16 @@ try {
     pmrem.dispose();
   }
 } catch { /* environment optional: lights alone must carry the scene */ }
+
+// The OCEAN's visible sky is the crafted dome (spec §4.5/T9), NOT the photograph. The day
+// equirect stays the source of scene.environment above — props keep their sky reflections —
+// but it is no longer what the camera sees, because that photo carries its own painted sea
+// and its own horizon: the water could never meet it, which is the hard dark band on the
+// horizon. The dome's horizon colour IS the fog colour, so sea and sky meet by construction.
+const skyDome = createSkyDome(scene);
+// beyond the dome there is nothing to photograph: a flat horizon-coloured background is the
+// safe fallback and matches the dome and the water's far colour exactly
+scene.background = new THREE.Color(ATMOSPHERE.fog.color);
 
 // character lighting: a bright sky/ground hemisphere plus a warm key and a cool
 // camera-side fill, so the Skyfin's painted skin reads from the chase camera.
@@ -173,6 +184,7 @@ function updateEnvironment(y) {
   if (!above) scene.background = dayBg;
   water.mesh.visible = !above;
   skyWorld.group.visible = above;
+  skyDome.setVisible(!above); // the crafted dome is the OCEAN's sky only (T9)
   // the curtain also hides the ocean world itself: obstacles + ocean shrimp
   game.setOceanVisible(!above);
 }
@@ -215,6 +227,7 @@ function loop(now) {
     // sky/curtain ride along with the fish; the swap is altitude-driven
     const p = game.player.state.position;
     clouds.update(dt, p);
+    skyDome.update(game.state.runTime, p);
     updateEnvironment(p.y);
     if (skyWorld.group.visible) skyWorld.update(dt, p);
     // the camera owns itself during the cinematic leap
