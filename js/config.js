@@ -296,6 +296,10 @@ export const ATMOSPHERE = {
     // decalScale sizes it against the hull's own half-extents; decalLift keeps it clear of
     // z-fighting with the surface. `opacity` above is the decal's strength.
     decalScale: 1.15, decalLift: 0.04,
+    // wet waterline on the props themselves (2026-10-21): below the waterline a hull is darker
+    // and glossier, and that band is what makes it read as IN the water. wetBand is the height
+    // in metres over which it fades out above the surface.
+    wetBand: 0.75, wetDarken: 0.45, wetColor: 0x0a2a3f, wetEnv: 1.9,
   },
   // horizon depth layer (T12) — inert until then
   horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },

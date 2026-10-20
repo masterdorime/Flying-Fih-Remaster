@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { WORLD, COLLISION, ATMOSPHERE } from './config.js';
 import { composeChunk, capsuleHit, validateChunkGaps } from './worldgen.js';
 import { templateFor } from './models.js';
-import { waveOffset } from './wave.js';
+import { waveOffset, surfaceHeight } from './wave.js';
+import { applyWetMaterials, setWetWaterline } from './wet-props.js';
 
 // Live world: chunk pool of instanced Kenney props + rock clusters, moving
 // hazards, and deterministic overlap collision against the player (PRD §11).
@@ -55,8 +56,11 @@ export function createWorld(scene, templates) {
       mesh.rotation.y = WATERCRAFT.has(ob.kind)
         ? BOW_YAW + (ob.phase % 0.07) - 0.035 // ±2°: tips stay inside the capsule grace
         : (ob.phase * 3) % (Math.PI * 2);
+      // wet waterline (2026-10-21): per-prop material instances, because the template's material
+      // is shared by every clone of the variant and a shared uWaterlineY would snap between hulls
+      const wetHandles = applyWetMaterials(mesh);
       group.add(mesh);
-      obstacles.push({ spec: ob, mesh, baseX: ob.x, hit: false });
+      obstacles.push({ spec: ob, mesh, baseX: ob.x, hit: false, wetHandles });
     }
     scene.add(group);
     return { group, obstacles, difficulty, z0: index * WORLD.chunkLength };
@@ -94,6 +98,13 @@ export function createWorld(scene, templates) {
         mesh.position.y = dzToPlayer <= ATMOSPHERE.props.sampleRange
           ? spec.y + waveOffset(mesh.position.x, mesh.position.z, elapsed)
           : spec.y;
+
+        // wet waterline (2026-10-21): the hull's own darker band at the surface. Budgeted to the
+        // same near-props window as the riding, and driven from the SAME surface function the
+        // water shader uses, so the band sits exactly where the sea meets the hull.
+        if (ob.wetHandles && dzToPlayer <= ATMOSPHERE.props.sampleRange) {
+          setWetWaterline(ob.wetHandles, surfaceHeight(mesh.position.x, mesh.position.z, elapsed));
+        }
 
         // Collect the nearest few hulls for the sea's contact foam (T11). world.js already
         // walks every prop here, so this is nearly free — no extra query in the render path.

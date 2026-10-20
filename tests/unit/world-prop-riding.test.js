@@ -25,8 +25,8 @@ test('the collision gate reads the canonical layout height, never the rendered o
 });
 
 test('hulls ride the shared wave field, budgeted by range', () => {
-  assert.ok(src.includes("import { waveOffset } from './wave.js';"),
-    'world.js must use the SAME field the fish and the shader ride, not its own copy');
+  assert.ok(/import \{[^}]*waveOffset[^}]*\} from '\.\/wave\.js';/.test(src),
+    'world.js must import the SHARED wave field (waveOffset from ./wave.js), not its own copy');
   assert.ok(/spec\.y \+ waveOffset\(mesh\.position\.x, mesh\.position\.z, elapsed\)/.test(src),
     'the rendered y must be the canonical height plus the shared wave offset at that x/z');
   assert.ok(src.includes('ATMOSPHERE.props.sampleRange'),

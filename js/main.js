@@ -22,6 +22,7 @@ import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
 import { createSkyDome } from './sky-dome.js';
 import { createContactDecals } from './contact-decals.js';
+import { setWetDarken } from './wet-props.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -566,6 +567,7 @@ window.__FFM_API = {
   // test-only: flip the setting at runtime so the OFF path can be proven to render too
   debugSetPostFx: (v) => { settings.postFx = v; },
   debugDecals: () => contactDecals.debugInfo(),
+  debugSetWetDarken: (v) => setWetDarken(v),
   // test-only: disable the bloom PASS while leaving the rest of the chain (RenderPass +
   // OutputPass) running, so a rendering fault can be attributed to the bloom or to the chain
   debugSetBloom: (on) => { if (bloomPass) bloomPass.enabled = !!on; return !!bloomPass; },
