@@ -203,6 +203,45 @@ spawn-time nudge with the same corridor, lead, and zShiftMax. Unit ruling
 tests use numeric fixtures mirroring real hulls (rx 3.6 / rz 9.4 ship);
 browser t19 phase 4 samples every live spawn for zero footprint-overlaps.
 
+### 7.4 Live re-clear — the invariant is continuous (2026-10-20)
+
+**Report and root cause (audited).** The 2026-10-18 ruling above checked a ring's clearance
+**once, at spawn**, against the discs visible then. `world.js`'s `ensureChunks` composes
+ahead and REMOVES chunks behind, so that is not the disc set the gate goes on to live in.
+The armed t19 sampler caught the consequence twice: a gate at `(x -0.64, z 45.41)` with a
+16 m liner (`rx 2.09, rz 8.4, x -2.65, z 52.7`) underneath it — `lat -0.08`, i.e. dead
+through the hull — while `legalCount` was **125** and `resolveGatePlacement` re-run on the
+same discs returned a clear `x -14`. **The placement was correct when it was made**; the
+water around it changed. (Second occurrence, same shape, seed 994027071.)
+
+**Contract.** While a gate is live, its clearance is re-asserted every frame by
+`clearGateX` (js/timing.js), which shares the spawn resolver's z-band and clearance helpers
+so there is ONE scope rule, not two:
+
+1. **Idempotent.** A gate already meeting the §7.2 bar returns its own x, so a legal ring
+   **never moves**. Only a gate that has actually become blocked is repaired.
+2. **X only, never z.** A live gate's z is committed: the QTE window origin and
+   `gateBehind` both read it, so shifting z would move the objective in time as well as
+   space.
+3. **Nearest legal x, not clearest.** The spawn resolver takes the clearest x (spec §7.2 —
+   there it may choose the best water). A live repair takes the **smallest correction**,
+   searching outward from the ring's own x on the 0.5 m grid. Clearest-x is often the far
+   lane edge, so a repair could otherwise drag a ring ~13 m sideways. Spawn behaviour is
+   unchanged.
+4. **`GATE.clearRepairRange 12`.** A repair only happens while the ring is still this far
+   ahead of the fish, so a ring the player has already lined up **never moves**. The
+   observed bug appeared with the ring well ahead, which is where it still fixes it.
+5. **Rate-limited** (`GATE.clearRate 30` m/s of sim time), so a correction reads as the ring
+   drifting to clear water rather than teleporting.
+
+**Evidence.** `t08-gates` forced item 3 and item 4 by construction: it parks the fish 2 m in
+front of a ring and crosses it, and the first version of this fix (clearest-x, no range
+gate) slid the mouth out from under it — a 60 s QTE timeout, not an assertion. Watched RED
+at the unit layer was the missing export; the live proof is `t22-cohesion` §3, which samples
+the live gate every frame and counts sub-bar frames (a gate left blocked stays blocked for
+its whole life, so the old failure cannot hide from it). Unit `tests/unit/gate-clearance-live.test.js`
+carries the pure contract, including the observed hull as a fixture.
+
 ## 8. Per-run world seed (2026-10-18 stage A)
 
 **Root cause (audited):** `js/world.js buildChunk` passes the literal seed
