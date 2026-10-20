@@ -108,13 +108,19 @@ let bloomPass = null;
 try {
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2))),
-    ATMOSPHERE.postFx.bloomStrength,
-    ATMOSPHERE.postFx.bloomRadius,
-    ATMOSPHERE.postFx.bloomThreshold,
-  );
-  composer.addPass(bloomPass);
+  // The bloom pass is OPTIONAL and currently DISABLED — it renders the frame black in this
+  // vendored r170 setup (see ATMOSPHERE.postFx.bloom for the bisection evidence). The chain
+  // without it is RenderPass -> OutputPass, which is what actually does the cohesion work:
+  // one tone map over the whole frame.
+  if (ATMOSPHERE.postFx.bloom) {
+    bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      ATMOSPHERE.postFx.bloomStrength,
+      ATMOSPHERE.postFx.bloomRadius,
+      ATMOSPHERE.postFx.bloomThreshold,
+    );
+    composer.addPass(bloomPass);
+  }
   composer.addPass(new OutputPass());
 } catch (e) {
   // Reviewed failure mode (plan Review Focus 4): if the composer or its addons cannot build on
@@ -212,7 +218,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   // composer.setSize hands every pass the FULL size, so put the bloom back to half res
   if (composer) composer.setSize(window.innerWidth, window.innerHeight);
-  if (bloomPass) bloomPass.setSize(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2)));
+  if (bloomPass) bloomPass.setSize(window.innerWidth, window.innerHeight);
 });
 
 function readInput() {
@@ -554,6 +560,9 @@ window.__FFM_API = {
   }),
   // test-only: flip the setting at runtime so the OFF path can be proven to render too
   debugSetPostFx: (v) => { settings.postFx = v; },
+  // test-only: disable the bloom PASS while leaving the rest of the chain (RenderPass +
+  // OutputPass) running, so a rendering fault can be attributed to the bloom or to the chain
+  debugSetBloom: (on) => { if (bloomPass) bloomPass.enabled = !!on; return !!bloomPass; },
   // live fog vs the config it must come from (T4): reported together so a browser
   // test can prove the ONE owner without duplicating the numbers in the test.
   debugFog: () => ({

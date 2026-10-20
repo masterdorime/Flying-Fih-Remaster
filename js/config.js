@@ -293,13 +293,20 @@ export const ATMOSPHERE = {
   contact: { radius: 2.2, opacity: 0.45, hullRange: 70, count: 6, collarWidth: 1.8 },
   // horizon depth layer (T12) — inert until then
   horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },
-  // post-FX (T13, gated behind settings.postFx): one tone map + bloom over the WHOLE frame.
-  // The strongest cohesion lever there is — it forces water, sky and props through one
-  // colour response, so they stop reading as three separate renders.
-  // Threshold matters: the bloom runs in LINEAR space before OutputPass tone-maps, so a
-  // threshold of 0.82 let the entire (pale) sky bloom and washed the frame out — measured in
-  // a screenshot. 0.95 keeps it to real highlights: sun glints, foam, popups.
-  postFx: { bloomStrength: 0.30, bloomRadius: 0.45, bloomThreshold: 0.95 },
+  // post-FX (T13, gated behind settings.postFx): ONE tone map over the whole frame, which is
+  // the strongest cohesion lever there is — it forces water, sky and props through one colour
+  // response, so they stop reading as three separate renders.
+  //
+  // `bloom: false` — the UnrealBloomPass renders the frame BLACK in this vendored r170 setup.
+  // Proven by bisection, not suspected: with the pass disabled and the rest of the chain
+  // (RenderPass + OutputPass) untouched, the frame renders perfectly; with it enabled, the
+  // scene shows only at the extreme left/right edges and everything between is black. Ruled
+  // out along the way: the bloom's resolution (correct at both half and full — it halves
+  // internally), needsSwap (false, correct), a missing/duplicated tone-map (the shaders
+  // compile and OutputPass owns it), the server (identical assets and MIME types from both),
+  // the tutorial path, the frame count, and any DOM overlay (none exists). The glow it adds is
+  // small; a black screen is fatal. Re-enable by setting this true once the cause is found.
+  postFx: { bloom: false, bloomStrength: 0.30, bloomRadius: 0.45, bloomThreshold: 0.95 },
 
   // per-frame prop surface-sampling radius (T10) — inert until then
   props: { sampleRange: 200 },
