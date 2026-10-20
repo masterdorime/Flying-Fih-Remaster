@@ -28,6 +28,23 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const app = document.getElementById('app');
 
+// Opened as a FILE, not served: modules, models and textures are all subject to CORS on
+// file://, so the page half-loads — DOM and HUD work while the 3D scene comes up empty, which
+// reads as "the game is broken" rather than "the game is not being served" (a black canvas
+// with a working HUD is exactly what that looks like). Fail LOUDLY and early instead.
+if (location.protocol === 'file:') {
+  const el = document.getElementById('loading');
+  if (el) {
+    el.innerHTML = '<div style="text-align:center;max-width:640px;line-height:1.7">'
+      + 'This game must be <b>served over HTTP</b>, not opened as a file.<br><br>'
+      + 'Run <code style="color:#7dd3ff">npm run serve</code> in the project folder, '
+      + 'then open <code style="color:#7dd3ff">http://127.0.0.1:8123</code><br><br>'
+      + '<span style="opacity:.7;font-size:15px">Browsers block ES modules, models and '
+      + 'textures on <code>file://</code>, so the 3D scene cannot load this way.</span></div>';
+  }
+  throw new Error('refusing to boot from file:// — serve over HTTP (npm run serve)');
+}
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -86,22 +103,33 @@ scene.background = new THREE.Color(ATMOSPHERE.fog.color);
 // renderer's own tone mapping is stood down and the custom shaders' tonemapping include
 // becomes a no-op automatically (TONE_MAPPING is simply undefined) — which is exactly why
 // the in-shader parity in T5 exists rather than being redundant.
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2))),
-  ATMOSPHERE.postFx.bloomStrength,
-  ATMOSPHERE.postFx.bloomRadius,
-  ATMOSPHERE.postFx.bloomThreshold,
-);
-composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
+let composer = null;
+let bloomPass = null;
+try {
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2))),
+    ATMOSPHERE.postFx.bloomStrength,
+    ATMOSPHERE.postFx.bloomRadius,
+    ATMOSPHERE.postFx.bloomThreshold,
+  );
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+} catch (e) {
+  // Reviewed failure mode (plan Review Focus 4): if the composer or its addons cannot build on
+  // this GPU, that must cost the GRADE — never the game. Fall back to the direct render path
+  // rather than leaving a black frame.
+  console.warn('[postFx] composer unavailable - using the direct render path:', e?.message ?? e);
+  composer = null;
+  bloomPass = null;
+}
 
 // Only touch tone mapping when the SETTING changes: flipping it every frame would recompile
 // every program in the scene.
 let postFxActive = null;
 function applyPostFx() {
-  const want = settings.postFx > 0;
+  const want = settings.postFx > 0 && !!composer;
   if (want === postFxActive) return;
   postFxActive = want;
   renderer.toneMapping = want ? THREE.NoToneMapping : THREE.NeutralToneMapping;
@@ -182,9 +210,9 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
   // composer.setSize hands every pass the FULL size, so put the bloom back to half res
-  bloomPass.setSize(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2)));
+  if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+  if (bloomPass) bloomPass.setSize(Math.max(1, Math.floor(window.innerWidth / 2)), Math.max(1, Math.floor(window.innerHeight / 2)));
 });
 
 function readInput() {
@@ -303,8 +331,21 @@ function loop(now) {
 
   cameraRig.update(dt, game.player.state, game.profile().fov);
   applyPostFx();
-  if (postFxActive) composer.render(dt); // one transform over the whole frame (T13)
-  else renderer.render(scene, camera);
+  if (postFxActive && composer) {
+    try {
+      composer.render(dt); // one transform over the whole frame (T13)
+    } catch (e) {
+      // a failing pass or a lost context must not black the frame for the rest of the run
+      console.warn('[postFx] composer render failed - falling back to the direct path:', e?.message ?? e);
+      composer = null;
+      bloomPass = null;
+      postFxActive = null;
+      applyPostFx();
+      renderer.render(scene, camera);
+    }
+  } else {
+    renderer.render(scene, camera);
+  }
 
   window.__FFM = { ready: true, frames, fps: Math.round(fps) };
   requestAnimationFrame(loop);
@@ -508,7 +549,7 @@ window.__FFM_API = {
     postFx: settings.postFx,
     active: postFxActive,
     toneMapping: renderer.toneMapping,
-    bloom: { x: bloomPass.resolution.x, y: bloomPass.resolution.y },
+    bloom: bloomPass ? { x: bloomPass.resolution.x, y: bloomPass.resolution.y } : null,
     viewport: { x: window.innerWidth, y: window.innerHeight },
   }),
   // test-only: flip the setting at runtime so the OFF path can be proven to render too
