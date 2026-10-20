@@ -109,37 +109,79 @@ export function qteRemaining(qte, now) {
 // best-effort fallback (row-legality validation gives every row a true ≥3 m
 // gap, so saturating water is rare in composed layouts).
 const MIN_CLEAR = GATE.mouthRadius + GATE.clearanceMargin;
+
+// z-band scope (spec §7.1): a disc is in play when the gate plane sits inside its z-reach
+// plus the mouth. Hoisted so the spawn-time resolver and the live re-check share ONE rule —
+// two copies of this filter would be free to drift apart.
+const inBand = (discs, z) => discs.filter(d => Math.abs(d.z - z) <= (d.rz ?? d.radius) + GATE.mouthRadius);
+
+// worst lateral clearance at (z, x): distance to the nearest in-band hull's edge
+function clearanceAt(z, x, discs) {
+  let c = Infinity;
+  for (const d of inBand(discs, z)) c = Math.min(c, Math.abs(x - d.x) - (d.rx ?? d.radius));
+  return c;
+}
+
+// clearest legal x at a FIXED z: keep the caller's x when it is already clear, else search the
+// lane in 0.5 m steps, preferring candidates closest to the caller's x
+function clearestXAt(z, fromX, discs) {
+  if (clearanceAt(z, fromX, discs) >= MIN_CLEAR) return fromX;
+  const lane = WORLD.laneHalfWidth;
+  const candidates = [];
+  for (let x = -lane; x <= lane; x += 0.5) candidates.push(x);
+  candidates.sort((a, b) => Math.abs(a - fromX) - Math.abs(b - fromX) || a - b);
+  let best = fromX, bestScore = clearanceAt(z, fromX, discs);
+  for (const x of candidates) {
+    const s = clearanceAt(z, x, discs);
+    if (s > bestScore + 1e-9) { bestScore = s; best = x; }
+  }
+  return best;
+}
+
 export function resolveGatePlacement(gateX, gateZ, discs) {
-  const near = (z) => discs.filter(d => Math.abs(d.z - z) <= (d.rz ?? d.radius) + GATE.mouthRadius);
-  const clearance = (z, x) => {
-    let c = Infinity;
-    for (const d of near(z)) c = Math.min(c, Math.abs(x - d.x) - (d.rx ?? d.radius));
-    return c;
-  };
-  const clearestX = (z, fromX) => {
-    if (clearance(z, fromX) >= MIN_CLEAR) return fromX;
-    const lane = WORLD.laneHalfWidth;
-    const candidates = [];
-    for (let x = -lane; x <= lane; x += 0.5) candidates.push(x);
-    candidates.sort((a, b) => Math.abs(a - fromX) - Math.abs(b - fromX) || a - b);
-    let best = fromX, bestScore = clearance(z, fromX);
-    for (const x of candidates) {
-      const s = clearance(z, x);
-      if (s > bestScore + 1e-9) { bestScore = s; best = x; }
-    }
-    return best;
-  };
-  if (clearance(gateZ, gateX) >= MIN_CLEAR) return { x: gateX, z: gateZ };
-  const x = clearestX(gateZ, gateX);
-  if (clearance(gateZ, x) >= MIN_CLEAR) return { x, z: gateZ };
+  if (clearanceAt(gateZ, gateX, discs) >= MIN_CLEAR) return { x: gateX, z: gateZ };
+  const x = clearestXAt(gateZ, gateX, discs);
+  if (clearanceAt(gateZ, x, discs) >= MIN_CLEAR) return { x, z: gateZ };
   for (let dz = 4; dz <= GATE.zShiftMax; dz += 4) {
     const z = gateZ + dz;
-    if (clearance(z, gateX) >= MIN_CLEAR) return { x: gateX, z };
-    const cx = clearestX(z, gateX);
-    if (clearance(z, cx) >= MIN_CLEAR) return { x: cx, z };
+    if (clearanceAt(z, gateX, discs) >= MIN_CLEAR) return { x: gateX, z };
+    const cx = clearestXAt(z, gateX, discs);
+    if (clearanceAt(z, cx, discs) >= MIN_CLEAR) return { x: cx, z };
   }
   // dense water: clearest x at the ideal plane — the fish still fits the mouth
   return { x, z: gateZ };
+}
+
+// STRUCTURAL INVARIANT (2026-10-20, §4 row 4). A gate's clearance used to be checked ONCE, at
+// spawn, against the discs visible then. world.js's ensureChunks composes ahead and REMOVES
+// chunks behind, so that is not the disc set the gate goes on to live in — a legally placed
+// gate can end up with a hull underneath it. Observed live twice: a 16 m liner dead-centre
+// under a gate (lat -0.08) with 125 legal planes available.
+//
+// Re-checking the LIVE gate makes the invariant unconditional. It is idempotent (a clear gate
+// returns its own x, so a legal ring never moves). It repairs X ONLY and never z: a live gate's
+// z is committed, because the QTE window origin and gateBehind both read it — shifting z would
+// move the objective in time as well as space.
+//
+// It deliberately takes the NEAREST legal x, NOT the clearest (which is what the spawn-time
+// resolver wants, spec §7: there it is free to choose the best water). A live repair wants the
+// SMALLEST disturbance instead — the clearest x is often the far lane edge, so a repair could
+// drag a ring 13 m sideways while the player is lining it up. (t08-gates caught exactly that
+// shape from the first version of this fix: it parks the fish 2 m in front of a ring and then
+// crossed it, and the ring slid out from under the mouth.)
+export function clearGateX(gateX, gateZ, discs) {
+  if (clearanceAt(gateZ, gateX, discs) >= MIN_CLEAR) return gateX;
+  const lane = WORLD.laneHalfWidth;
+  // search OUTWARD from the caller's x in the resolver's own 0.5 m grid: the first legal
+  // candidate found is by construction the smallest correction
+  for (let i = 1; i <= Math.ceil((lane * 2) / 0.5); i++) {
+    for (const cand of [gateX - i * 0.5, gateX + i * 0.5]) {
+      if (cand < -lane || cand > lane) continue;
+      if (clearanceAt(gateZ, cand, discs) >= MIN_CLEAR) return cand;
+    }
+  }
+  // nowhere legal on this plane: best effort, the clearest x (the gate still fits the mouth)
+  return clearestXAt(gateZ, gateX, discs);
 }
 
 // The player sailed past the gate without entering it.

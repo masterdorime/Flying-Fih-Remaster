@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement } from './timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -184,6 +184,24 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     if (state.ended) return;
     const pos = player.state.position;
     if (activeGate) {
+      // STRUCTURAL gate clearance (§4 row 4, 2026-10-20). A gate's clearance used to be checked
+      // ONCE, at spawn, against the discs visible then — but ensureChunks composes ahead and
+      // REMOVES chunks behind, so that is not the disc set the gate goes on to live in, and a
+      // hull can become relevant underneath a legally-placed ring (observed live twice: a 16 m
+      // liner dead-centre under a gate, with 125 legal planes available). Re-asserting it every
+      // frame makes the invariant unconditional. It is idempotent (a clear ring returns its own
+      // x, so a legal gate NEVER moves) and rate-limited, so a needed repair reads as the ring
+      // drifting to clear water rather than teleporting. Z is never touched: a live gate's z is
+      // committed, since the QTE window origin and gateBehind both read it.
+      // ...but only while it is still well ahead: a ring the player has already committed to
+      // must not move (see GATE.clearRepairRange).
+      if (pos.z !== undefined && activeGate.z - pos.z > GATE.clearRepairRange) {
+        const wantX = clearGateX(activeGate.x, activeGate.z, world.obstaclesNear(activeGate.z, GATE.placementRange));
+        if (wantX !== activeGate.x) {
+          const step = GATE.clearRate * dt;
+          activeGate.x += Math.max(-step, Math.min(step, wantX - activeGate.x));
+        }
+      }
       // swim gates ride the wave: grade and draw read the same center
       if (activeGate.locomotion !== 'fly' && activeGate.locomotion !== 'leap') {
         reseatSwimGate(activeGate, state.runTime);
@@ -531,6 +549,15 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugObstaclesNear: (z, halfRange) => world.obstaclesNear(z, halfRange),
     debugSetLateral: (x) => {
       player.state.position.x = Math.min(WORLD.laneHalfWidth, Math.max(-WORLD.laneHalfWidth, x));
+      return player.state.position.x;
+    },
+    // test hook: set the lateral line AND kill sideways momentum. debugSetLateral leaves
+    // residual lateralVel alone, so a probe that parks the fish beside a hull and advances
+    // can be carried INTO it by momentum — testing the drift, not the clearance claim it
+    // means to prove (t19's side-pass regression).
+    debugHoldLateral: (x) => {
+      player.state.position.x = Math.min(WORLD.laneHalfWidth, Math.max(-WORLD.laneHalfWidth, x));
+      player.state.lateralVel = 0;
       return player.state.position.x;
     },
     debugTeleportToCoin: () => coins.debugTeleport(player),

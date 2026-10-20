@@ -489,6 +489,7 @@ window.__FFM_API = {
   debugChunksValid: () => game.debugChunksValid(),
   debugObstaclesNear: (z, halfRange) => game.debugObstaclesNear(z, halfRange),
   debugSetLateral: (x) => game.debugSetLateral(x),
+  debugHoldLateral: (x) => game.debugHoldLateral(x),
   debugCoins: () => game.debugCoins(),
   debugFish: () => game.debugFish(),
   seed: () => game.state.runSeed ?? 0,

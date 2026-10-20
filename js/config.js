@@ -41,6 +41,16 @@ export const GATE = {
   // distance (the old bar accepted exactly mouth-radius edges: ring grazing
   // the hull edge, reported as "really near").
   clearanceMargin: 0.8,
+  // live correction rate for a gate that has BECOME blocked (2026-10-20, §4 row 4): the
+  // clearance is re-asserted every frame, and a needed repair slides at this many metres per
+  // sim second rather than teleporting under the player. At 30 u/s a 13 m correction takes
+  // ~0.45 sim-s, so a ring 45 m ahead settles long before the fish reaches it.
+  clearRate: 30,
+  // A live repair only happens while the ring is still this far ahead. A ring the player has
+  // already lined up must NOT move: t08-gates parks the fish 2 m in front of one before crossing,
+  // and an unconditional repair slid the mouth out from under it. The observed bug appeared with
+  // the ring far ahead, which is exactly where this still fixes it.
+  clearRepairRange: 12,
 };
 
 // Obstacle patterns (Phase 3): freeform rows with a validated gap — see

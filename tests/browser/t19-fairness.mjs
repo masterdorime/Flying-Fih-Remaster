@@ -187,9 +187,20 @@ test('t19: fairness in the running game', async () => {
       __FFM_API.debugTeleportToObstacle(0); // near the first obstacle ahead
       const near = __FFM_API.debugObstaclesNear(__FFM_API.state().position[2] + 20, 18);
       const target = near[0];
-      __FFM_API.debugSetLateral(target.x + Math.sign(target.x || 1) * (target.radius + 1.45));
+      // Pick the side that stays INSIDE the lane. The lateral setter clamps to
+      // WORLD.laneHalfWidth, so aiming beyond the edge silently pulls the fish back toward the
+      // hull it is supposed to miss — with a hull near the lane edge the probe was destroying
+      // its own clearance (observed: target x -13.15, offset wanted -15.45, clamped to -14,
+      // leaving 0.85 m against a 1.94 m capsule). Prefer the side nearer the lane centre.
+      const off = target.radius + 1.45;
+      const sides = [target.x + off, target.x - off]
+        .filter(v => Math.abs(v) <= 14)
+        .sort((a, b) => Math.abs(a) - Math.abs(b));
+      const held = sides.length ? sides[0] : target.x;
+      __FFM_API.debugHoldLateral(held);
       const stats = () => __FFM_API.debugAudioStats().calls;
       const before = (stats().collision ?? 0);
+      const startX = __FFM_API.state().position[0];
       // pass ONLY the target hull: once the fish is past its capsule tail the
       // geometry claim is proven. Later rows sit ≥22 m off and are unrelated
       // to this regression (their own lanes can legitimately hold hulls).
@@ -198,13 +209,18 @@ test('t19: fairness in the running game', async () => {
       while (__FFM_API.state().position[2] < targetTail && performance.now() < deadline) {
         await new Promise(r => setTimeout(r, 80));
       }
+      const endX = __FFM_API.state().position[0];
       return {
         collided: (stats().collision ?? 0) > before,
         crossed: __FFM_API.state().position[2] >= targetTail,
+        target: { x: +target.x.toFixed(2), z: +target.z.toFixed(2), r: +target.radius.toFixed(2) },
+        held: +held.toFixed(2),
+        drift: +(endX - startX).toFixed(2),
         offset: 0,
       };
     });
-    assert.equal(sidePass.collided, false, 'side pass outside the hull capsule must miss');
+    assert.equal(sidePass.collided, false,
+      `side pass outside the hull capsule must miss (target ${JSON.stringify(sidePass.target)}, held x ${sidePass.held}, drift ${sidePass.drift}, crossed ${sidePass.crossed})`);
     assert.equal(sidePass.crossed, true, 'the fish crossed the hull plane during the probe');
 
     // ---- 4: gate-clearance ruling in the live game (2026-10-18 ruling) ----
