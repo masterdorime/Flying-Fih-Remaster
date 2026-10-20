@@ -190,6 +190,27 @@ behind the existing `settings.postFx` (already wired at `main.js:246`), so
 disabling it degrades prettiness and never cohesion — §4.3's parity holds on the
 direct path too.
 
+**Status 2026-10-20 — the bloom pass is DISABLED (`f63c845`).** As implemented, this stage's
+`UnrealBloomPass` renders the frame **black**: a huge black band covers the middle of the canvas
+with the picture visible only at the extreme left and right edges, while the HTML HUD keeps
+working. Established by bisection, not inference — disabling just that pass, leaving
+`RenderPass` + `OutputPass` in place, renders correctly. Reproduced on both the dev server and
+the test harness server, in and out of the tutorial, at 6/12/16/30/90 frames, and at both half
+and full constructor resolution. Ruled out by check: the bloom's resolution (it halves
+internally, so the spec's "half resolution" is satisfied by passing the FULL size — a half size
+double-halves it; corrected, and the black persisted), `needsSwap` (`false` on the bloom and on
+`RenderPass`), tone mapping (shaders compile, no console errors), the server (identical assets,
+status and MIME types from both), the tutorial path, the frame count, any DOM overlay (every
+large element is transparent — the black is inside the canvas), and the composer throwing
+(no `[postFx]` fallback warning). The cause remains **unfound**.
+
+What ships instead is `RenderPass` → `OutputPass`, which is the part that does the cohesion
+work: ONE tone map over the whole frame, so water, sky and props share a colour response. `main.js`
+constructs and renders the composer inside `try/catch`, so a future composer or addon failure
+falls back to the direct render path rather than blacking the frame, and it is gated behind
+`ATMOSPHERE.postFx.bloom`, which can be turned back on once the cause is found. The vendored
+addon files stay in place for that.
+
 ## 5. Staging
 
 Feeds the implementation plan; each stage lands its own watched-RED tests.
