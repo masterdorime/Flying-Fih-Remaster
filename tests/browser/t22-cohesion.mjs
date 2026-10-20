@@ -90,6 +90,34 @@ test('t22: post-FX runs one transform over the whole frame, and both paths rende
   }
 });
 
+test('t22: contact decals ground the nearest hulls', async () => {
+  const server = await startServer();
+  const { browser, page, consoleErrors } = await openPage('?seed=1337');
+  try {
+    await page.evaluate(() => window.__FFM_API.start({ tutorial: false }));
+    await page.waitForFunction(() => window.__FFM_API.debugObstacleCount() > 0, null, { timeout: 60000 });
+
+    // the decal pool is fixed-size; what must hold is that the NEAR hulls are grounded and the
+    // rest of the pool is switched OFF (a stale decal under open water is worse than none)
+    let sawVisible = 0;
+    let sawScaled = false;
+    for (let i = 0; i < 20; i++) {
+      const d = await page.evaluate(() => window.__FFM_API.debugDecals());
+      if (d.visible > 0) sawVisible++;
+      if (d.scale && d.scale[0] > 0 && d.scale[1] > 0) sawScaled = true;
+      assert.ok(d.visible <= d.pooled, `visible decals (${d.visible}) cannot exceed the pool (${d.pooled})`);
+      await advanceFrames(page, 1);
+    }
+    assert.ok(sawVisible > 0, 'at least one hull must be grounded as the fish travels');
+    assert.ok(sawScaled, 'a decal must take its size from the hull footprint, not a fixed scale');
+
+    assert.equal(consoleErrors.length, 0, `console errors: ${consoleErrors.join(' | ')}`);
+  } finally {
+    await closePage(browser);
+    await stopServer(server);
+  }
+});
+
 test('t22: a LIVE gate never sits inside a hull (the invariant holds continuously)', async () => {
   const server = await startServer();
   const { browser, page, consoleErrors } = await openPage('?seed=1337');

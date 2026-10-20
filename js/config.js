@@ -289,8 +289,14 @@ export const ATMOSPHERE = {
   // wake foam dissolve colour (formerly js/wake.js:14)
   wake: { fade: 0x0a3f7a },
   // prop grounding (T11, cohesion): the sea paints a foam collar around nearby hulls and a
-  // pooled sprite darkens the water under them, so props sit IN the water rather than on it.
-  contact: { radius: 2.2, opacity: 0.45, hullRange: 70, count: 6, collarWidth: 1.8 },
+  // pooled decal darkens the water under them, so props sit IN the water rather than on it.
+  contact: {
+    radius: 2.2, opacity: 0.75, hullRange: 70, count: 6, collarWidth: 1.8,
+    // contact decals (spec §4.6): a pooled dark sprite on the water under each near hull.
+    // decalScale sizes it against the hull's own half-extents; decalLift keeps it clear of
+    // z-fighting with the surface. `opacity` above is the decal's strength.
+    decalScale: 1.15, decalLift: 0.04,
+  },
   // horizon depth layer (T12) — inert until then
   horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },
   // post-FX (T13, gated behind settings.postFx): ONE tone map over the whole frame, which is

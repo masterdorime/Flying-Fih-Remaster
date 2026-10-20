@@ -21,6 +21,7 @@ import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
 import { createSkyWorld } from './sky-world.js';
 import { createSkyDome } from './sky-dome.js';
+import { createContactDecals } from './contact-decals.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -88,6 +89,9 @@ try {
 // and its own horizon: the water could never meet it, which is the hard dark band on the
 // horizon. The dome's horizon colour IS the fog colour, so sea and sky meet by construction.
 const skyDome = createSkyDome(scene);
+// contact darkening under the nearest hulls (spec §4.6) — fed by the same nearHulls list the
+// water's foam collar uses, so the two cues cannot disagree about which props are being grounded
+const contactDecals = createContactDecals(scene);
 // beyond the dome there is nothing to photograph: a flat horizon-coloured background is the
 // safe fallback and matches the dome and the water's far colour exactly
 scene.background = new THREE.Color(ATMOSPHERE.fog.color);
@@ -296,6 +300,7 @@ function loop(now) {
       };
     }
     water.update(game.state.runTime, game.player.state.position, wakeU, game.nearHulls());
+    contactDecals.update(game.state.runTime, game.nearHulls());
     wake.update(dt, game.player.state, game.player.state.locomotion, game.state.runTime);
     // sky/curtain ride along with the fish; the swap is altitude-driven
     const p = game.player.state.position;
@@ -560,6 +565,7 @@ window.__FFM_API = {
   }),
   // test-only: flip the setting at runtime so the OFF path can be proven to render too
   debugSetPostFx: (v) => { settings.postFx = v; },
+  debugDecals: () => contactDecals.debugInfo(),
   // test-only: disable the bloom PASS while leaving the rest of the chain (RenderPass +
   // OutputPass) running, so a rendering fault can be attributed to the bloom or to the chain
   debugSetBloom: (on) => { if (bloomPass) bloomPass.enabled = !!on; return !!bloomPass; },
