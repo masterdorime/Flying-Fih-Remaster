@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { profileFor } from './flight-state.js';
 import { ATMOSPHERE } from './config.js';
 import { sunVector } from './atmosphere.js';
-import { WAVE_AMPLITUDE, WATER_BASE_Y } from './wave.js';
+import { WAVE_AMPLITUDE, WATER_BASE_Y, TONE_GAIN } from './wave.js';
 
 // Animated low-poly water + gradient sky. Purely environmental.
 
@@ -25,6 +25,10 @@ export function createWater(scene) {
       uSpecular: { value: ATMOSPHERE.water.specular },
       uCrestFoam: { value: ATMOSPHERE.water.crestFoam },
       uAmplitude: { value: WAVE_AMPLITUDE },  // crest thresholds are amplitude-relative
+      // Tone normalisation (2026-10-21). The value comes from js/wave.js by construction —
+      // the shader reads a uniform, never a copied literal, so wave.js and the shader cannot
+      // drift. ±2σ of the field maps onto the full 0..1 tone span; see wave.js TONE_GAIN.
+      uToneGain: { value: TONE_GAIN },
       uPlayer: { value: new THREE.Vector3(0, 0, 0) },
       uWakeDir: { value: new THREE.Vector2(0, 1) }, // fish heading (xz)
       uWakeStrength: { value: 0 },                  // 0 = calm/hidden, 1 = full churn
@@ -34,6 +38,7 @@ export function createWater(scene) {
       uHulls: { value: Array.from({ length: ATMOSPHERE.contact.count }, () => new THREE.Vector4()) },
       uHullCount: { value: 0 },
       uCollarWidth: { value: ATMOSPHERE.contact.collarWidth },
+      uCollarPeak: { value: ATMOSPHERE.contact.collarPeak },
     },
     defines: { HULL_MAX: ATMOSPHERE.contact.count },
     vertexShader: /* glsl */`
@@ -66,6 +71,7 @@ export function createWater(scene) {
       uniform float uSpecular;
       uniform float uCrestFoam;
       uniform float uAmplitude;
+      uniform float uToneGain;
       uniform float uTime;
       uniform vec3 uPlayer;
       uniform vec2 uWakeDir;
@@ -73,6 +79,7 @@ export function createWater(scene) {
       uniform vec4 uHulls[HULL_MAX];
       uniform float uHullCount;
       uniform float uCollarWidth;
+      uniform float uCollarPeak;
       varying vec3 vPos;
       varying float vFogDepth;
 
@@ -97,19 +104,24 @@ export function createWater(scene) {
         float ddz = 0.125 * 0.5 * c1 + 0.045 * 0.26 * c2 + 0.055 * 0.52 * c3 + 0.205 * 0.25 * c4;
 
         // ---- layered deep-blue ocean, amplitude-relative ----
-        // normalised by the field's own envelope so the bands and crest thresholds mean
-        // the same thing at any amplitude (they used to hard-code the old 0.93 envelope)
-        float t = clamp(hField / uAmplitude * 0.5 + 0.5, 0.0, 1.0);
-        // quantized cartoon bands, BLENDED toward the continuous value: a hard floor()
-        // steps the tone across the mesh's ~7.8 m cells and the facets read as polygons
-        // (caught in the S2 screenshot). 55% quantized keeps the banded style without the
-        // steps reading as geometry.
-        // Mostly SMOOTH (0.25 quantized, was 0.6): hard floor() bands etch the field's own
-        // interference contours, which is what turned the crossing wave systems into a
-        // visible checkerboard. A little quantization keeps the banded style.
-        float band = mix(t, floor(t * 5.0) / 5.0, 0.25);
-        vec3 col = mix(uDeep, uOcean, 0.14 + 0.86 * band);
-        col = mix(col, uAqua, 0.12 + band * 0.24);
+        // Normalised by the field's own SPREAD via uToneGain, so the tone and the crest
+        // thresholds mean the same thing at any amplitude. NOT by uAmplitude alone: that is
+        // the ENVELOPE (every term peaking together), which this field effectively never
+        // reaches — measured, normalising by it compressed the tone's q05-q95 span to 0.621
+        // of [0,1] and left the crest band below clearing on only 2.29% of the surface
+        // (against 0.833 and 8.13% with the spread normalisation). The water read flat
+        // (2026-10-21).
+        float t = clamp(hField / uAmplitude * uToneGain * 0.5 + 0.5, 0.0, 1.0);
+        // CONTINUOUS — there is deliberately NO floor()/quantized band here. hField is a sum
+        // of crossing wave systems, so its contours are a LATTICE of alternating extrema, and
+        // a hard step keyed to that lattice prints it as a rhombus checkerboard across the
+        // whole sea (caught in the 2026-10-21 frame, at 4x zoom: hard-edged parallelograms).
+        // The step is the mechanism, not the angle between the terms — the 2026-10-19 pass
+        // changed the angles and only changed the cell from square to rhombus. Banded style,
+        // where wanted, belongs on the large tonal masses below (hundreds of metres), whose
+        // extrema lattice is far too big to read as cells.
+        vec3 col = mix(uDeep, uOcean, 0.14 + 0.86 * t);
+        col = mix(col, uAqua, 0.12 + t * 0.24);
 
         // ---- large-scale tonal masses, DE-LATTICED ----
         // Sums of NON-PARALLEL, mutually incommensurate travelling waves. A product such as
@@ -162,20 +174,33 @@ export function createWater(scene) {
           // the response itself is the honest test of whether it can be resolved at all.
           float specFade = 1.0 - smoothstep(0.20, 0.75, max(fwidth(gloss), fwidth(fres)));
           col = mix(col, uAqua * 1.2 + uFoam * 0.15, fres * uSpecular * 0.25 * specFade);
-          // Glitter breakup: an APERIODIC hash, NOT a product of two sines. The previous
-          // version multiplied sin(x*7.3..) by sin(x*3.1..) — ~0.9 m and ~2 m wavelengths,
-          // and a sine *product* is a 2-D lattice: it printed a fine checkered weave wherever
-          // the gloss was non-zero (which is why the artifact was a bounded region, and why
-          // it vanished with uSpecular 0). fract(sin(dot(...))*large) has no period at all.
-          vec2 gcell = floor(vPos.xz * 3.0 + uTime * 1.5);
-          float sparkle = mix(0.55, 1.0, fract(sin(dot(gcell, vec2(12.9898, 78.233))) * 43758.5453));
-          col += uFoam * gloss * sparkle * uSpecular * 1.2 * specFade;
+          // NO per-cell hash here. There used to be one:
+          //     vec2 gcell = floor(vPos.xz * 3.0 + uTime * 1.5);
+          //     float sparkle = mix(0.55, 1.0, fract(sin(dot(gcell, vec2(...))) * 43758.5453));
+          // It was added 2026-10-19 to break up the glitter, reasoning that fract(sin(dot(..)))
+          // "has no period at all". The HASH VALUE does not — but its CELLS are a perfect
+          // 0.333 m lattice in world space, and the glitter term is broad and view-dependent
+          // (gloss = pow(dot(n, H), 22) fires over most of the lit sea, not only on the sun
+          // path), so modulating it by those cells printed the lattice across the whole lit
+          // surface as a rhombus checkerboard.
+          //
+          // Located by BISECTION 2026-10-21, one term at a time on a frozen vantage: setting
+          // sparkle to 1.0 removes it entirely; forcing specFade on and zeroing the fresnel
+          // sheen each leave it unchanged. It also predates nothing — this is the same artefact
+          // the 2026-10-19 pass thought it had fixed by changing the wave angles, which only
+          // changed the cell from square to rhombus.
+          //
+          // It is not needed: the glitter is already broken up by the field's own per-pixel
+          // slope, which varies over every wave. A hash is only aperiodic in value; if one is
+          // ever wanted here it must not be built on a grid (floor() of position), which is
+          // guarded in tests/unit/wave-port.test.js.
+          col += uFoam * gloss * uSpecular * 1.2 * specFade;
         }
 
         // fine bright wave lines streaming past — diagonal too, so the two line families do
         // not cross the swell at right angles and re-introduce a grid by hand
         float fine = sin((vPos.x * 0.55 + vPos.z * 1.35) * 0.30 - uTime * 2.6);
-        col = mix(col, uFoam, smoothstep(0.78, 1.0, fine) * 0.30 * (0.35 + 0.65 * band) * fineFade);
+        col = mix(col, uFoam, smoothstep(0.78, 1.0, fine) * 0.30 * (0.35 + 0.65 * t) * fineFade);
 
         // crests: aqua flash on the rise, foam caps on the highest crests
         col = mix(col, uAqua, smoothstep(0.35, 0.88, t) * 0.50);
@@ -217,10 +242,14 @@ export function createWater(scene) {
           );
           float dh = length(rel);
           // irregular edge, so the collar does not read as a drawn ring
-          float wobble = sin(dh * 6.0 + uTime * 2.2 + float(i) * 2.1) * 0.12;
-          hullFoam = max(hullFoam, live * smoothstep(1.35 + wobble, 0.90, dh));
+          float wobble = sin(dh * 6.0 + uTime * 2.2 + float(i) * 2.1) * 0.22;
+          // A NARROW break at the waterline, not a filled white plate: the collar starts at
+          // the hull's own footprint edge (dh = 1.0) and is gone by ~1.15, so it hugs the hull
+          // instead of pancaking out past the beam. (Its inner region is occluded by the hull
+          // itself, so only the outer fade is ever visible.)
+          hullFoam = max(hullFoam, live * smoothstep(1.15 + wobble, 0.92, dh));
         }
-        float foamAmt = clamp(contact * 0.85 + streak * 0.5 * uWakeStrength + hullFoam * 0.6, 0.0, 1.0);
+        float foamAmt = clamp(contact * 0.85 + streak * 0.5 * uWakeStrength + hullFoam * uCollarPeak, 0.0, 1.0);
         float bob = 0.85 + 0.15 * sin(uTime * 3.0);
         col = mix(col, uFoam, foamAmt * bob);
 
@@ -301,6 +330,20 @@ export function createWater(scene) {
         skirt.position.x = playerPos.x;
         skirt.position.z = playerPos.z;
       }
+    },
+    // Dev seam for the frozen-vantage A/B (probe-water-look.mjs): the tone gain and the hull
+    // collar are the two water dials that need an EYE on a still frame, and the ledgers for
+    // both (wet band, collarWidth) recorded that a drifting vantage made the comparison
+    // illegible. Inert in production — nothing calls it but a probe or a test.
+    setLook({ toneGain, collarWidth, collarPeak } = {}) {
+      if (typeof toneGain === 'number') mat.uniforms.uToneGain.value = toneGain;
+      if (typeof collarWidth === 'number') mat.uniforms.uCollarWidth.value = collarWidth;
+      if (typeof collarPeak === 'number') mat.uniforms.uCollarPeak.value = collarPeak;
+      return {
+        toneGain: mat.uniforms.uToneGain.value,
+        collarWidth: mat.uniforms.uCollarWidth.value,
+        collarPeak: mat.uniforms.uCollarPeak.value,
+      };
     },
   };
 }

@@ -16,6 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -52,5 +53,23 @@ test('no custom shader re-declares the tone-map pars the renderer prefix injects
   for (const { f, src } of customShaderFiles()) {
     assert.ok(!src.includes('#include <tonemapping_pars_fragment>'),
       `${f} must NOT include the tonemapping PARS chunk: the prefix already injects it, so a second include re-declares uniform toneMappingExposure and the shader fails to compile`);
+  }
+});
+
+test('every custom shader file still PARSES as JavaScript', () => {
+  // 2026-10-21, caught by a browser boot: a new comment inside js/water.js's fragmentShader
+  // template literal used a backtick to quote a function name. A backtick TERMINATES the
+  // literal, so the module became a syntax error ("Unexpected identifier 'fract'"), main.js
+  // threw on its first frame, and the page hung at the loading overlay — while the entire unit
+  // suite stayed GREEN, because every other test here reads the file as TEXT. Text cannot see
+  // a broken literal; a parse can, and it costs one `node --check` per shader file.
+  const files = customShaderFiles();
+  assert.ok(files.length > 0, 'expected at least one custom fragment shader (js/water.js)');
+  for (const { f } of files) {
+    try {
+      execFileSync(process.execPath, ['--check', join(jsDir, f)], { stdio: 'pipe' });
+    } catch (e) {
+      assert.fail(`${f} does not parse as JavaScript — a shader string or one of its comments has broken the module:\n${e.stderr ?? e.message}`);
+    }
   }
 });

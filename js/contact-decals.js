@@ -38,9 +38,12 @@ export function createContactDecals(scene) {
       uniform float uOpacity;
       varying vec2 vUv;
       void main() {
-        // elliptical radial falloff: solid-ish at the hull, gone before the edge
+        // elliptical radial falloff: a soft contact darkening that is strongest under the hull
+        // and gone before the sprite edge. Deliberately NOT flat-topped (it was: solid to 0.30
+        // of the radius) — a flat top reads as a drawn dark oval rather than a shadow, which is
+        // what made the decal+foam pair look like a fried egg (2026-10-21).
         vec2 d = vUv * 2.0 - 1.0;
-        float a = (1.0 - smoothstep(0.30, 1.0, length(d))) * uOpacity;
+        float a = (1.0 - smoothstep(0.05, 1.0, length(d))) * uOpacity;
         gl_FragColor = vec4(0.0, 0.05, 0.11, a); // a cool water shadow, not a black blob
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -76,7 +79,14 @@ export function createContactDecals(scene) {
         pooled: pool.length,
         visible: pool.filter((m) => m.visible).length,
         scale: pool[0] ? [+pool[0].scale.x.toFixed(2), +pool[0].scale.y.toFixed(2)] : null,
+        opacity: mat.uniforms.uOpacity.value,
       };
+    },
+    // Dev seam (see water.js setLook): the decal's strength is a look number that needs an eye
+    // on a still frame, and it is the other half of the contact cue.
+    setOpacity(v) {
+      if (typeof v === 'number') mat.uniforms.uOpacity.value = Math.min(1, Math.max(0, v));
+      return mat.uniforms.uOpacity.value;
     },
   };
 }

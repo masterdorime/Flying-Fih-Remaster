@@ -291,11 +291,20 @@ export const ATMOSPHERE = {
   // prop grounding (T11, cohesion): the sea paints a foam collar around nearby hulls and a
   // pooled decal darkens the water under them, so props sit IN the water rather than on it.
   contact: {
-    radius: 2.2, opacity: 0.75, hullRange: 70, count: 6, collarWidth: 1.8,
+    radius: 2.2, opacity: 0.5, hullRange: 70, count: 6, collarWidth: 1.0,
+    // collarPeak: how white the foam break at a hull's waterline gets (was a hardcoded 0.6).
+    // The collar used to be a filled white plate reaching 1.35x the hull's footprint, which
+    // read as a pancake the hull sat ON rather than foam breaking AT it (2026-10-21 frame).
+    // It is now a narrow break hugging the hull (narrower collarWidth, wobble 0.22).
+    collarPeak: 0.45,
     // contact decals (spec §4.6): a pooled dark sprite on the water under each near hull.
     // decalScale sizes it against the hull's own half-extents; decalLift keeps it clear of
     // z-fighting with the surface. `opacity` above is the decal's strength.
-    decalScale: 1.15, decalLift: 0.04,
+    // 2026-10-21: 1.15 -> 0.95 and 0.75 -> 0.5. At 1.15 the decal reached PAST the hull's own
+    // footprint and, with a flat-topped falloff, nested a dark ellipse inside the white collar
+    // — a fried egg, not one grounded contact. Now it stays under the hull, so what shows is a
+    // soft darkening around the base, with the foam break OUTSIDE it.
+    decalScale: 0.95, decalLift: 0.04,
     // wet waterline on the props themselves (2026-10-21): below the waterline a hull is darker
     // and glossier, and that band is what makes it read as IN the water. wetBand is the height
     // in metres over which it fades out above the surface.

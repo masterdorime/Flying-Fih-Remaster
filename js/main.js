@@ -568,6 +568,11 @@ window.__FFM_API = {
   debugSetPostFx: (v) => { settings.postFx = v; },
   debugDecals: () => contactDecals.debugInfo(),
   debugSetWetDarken: (v) => setWetDarken(v),
+  // test-only: the water's own look dials, for a FROZEN-vantage A/B (probe-water-look.mjs
+  // pauses the sim so a shader change is the only difference between two shots — the
+  // drifting-vantage problem that left the wet-waterline's strength unverified).
+  debugSetWaterLook: (o) => water.setLook(o),
+  debugSetDecalOpacity: (v) => contactDecals.setOpacity(v),
   // test-only: disable the bloom PASS while leaving the rest of the chain (RenderPass +
   // OutputPass) running, so a rendering fault can be attributed to the bloom or to the chain
   debugSetBloom: (on) => { if (bloomPass) bloomPass.enabled = !!on; return !!bloomPass; },
