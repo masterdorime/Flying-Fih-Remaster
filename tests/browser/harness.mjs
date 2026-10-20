@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PORT = 8123;
+// Port is overridable so a browser run can never fight the dev server (npm run serve) for 8123.
+// Clearing the port to free it has repeatedly killed the user's running server instead; setting
+// FFM_PORT lets a suite run alongside it. Default keeps the documented 8123 behaviour.
+const PORT = Number(process.env.FFM_PORT) || 8123;
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.glb': 'model/gltf-binary', '.fbx': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.json': 'application/json' };
 
