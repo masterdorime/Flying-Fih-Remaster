@@ -211,6 +211,83 @@ falls back to the direct render path rather than blacking the frame, and it is g
 `ATMOSPHERE.postFx.bloom`, which can be turned back on once the cause is found. The vendored
 addon files stay in place for that.
 
+### 4.9 Status 2026-10-21 — the near-water lattice, classified and FIXED
+
+**The defect.** Since S2 a "faint regular hatch" sat in the near water — recorded in the phase
+ledger as unclassified, and carried in `HANDOFF.md` §8 as "bisect it next time". A user frame
+showing it at full strength, cropped 4×, resolved it unambiguously: hard-edged PARALLELOGRAMS in
+a checkerboard. A lattice — not a blur, not a weave.
+
+**The cause, and the wrong answer first.** The first hypothesis was the tone mapping: §4.3
+quantized the wave tone with `floor(t * 5.0)`, and a hard step keyed to a sum of crossing wave
+systems *does* print that field's extrema lattice — geometrically true, and **not this artefact**.
+Removing it changed nothing. The house lesson (recorded three times in this phase) is *bisect, do
+not reason at it*; reasoning came first anyway.
+
+**The bisect.** A frozen-vantage probe (`probe-water-look.mjs`, added to the phase's scratch
+folder) pins `?seed=1337`, parks the fish behind a known hull, then pauses: the sim and the
+water's `uTime` stop while rendering continues, so the camera converges to a **bit-identical
+vantage on every run** — verified identical to 1e-13 across runs. That is the clean A/B §8
+records the wet-waterline pass as never having achieved. `probe-water-bisect.mjs` then patches the
+live `ShaderMaterial` one term at a time and screenshots each, with a magenta canary proving the
+patches land. (v1 of that probe was a silent lie: three reuses the compiled program unless
+`customProgramCacheKey` changes too, so every source patch was a no-op reporting "not this term"
+for the wrong reason.)
+
+**Result, measured.** The lattice is the glitter's per-cell hash — `floor(vPos.xz * 3.0 + uTime *
+1.5)` + `fract(sin(dot(gcell, ...)))`, added by the 2026-10-19 pass. Setting `sparkle` to 1.0
+removes it entirely; forcing `specFade` on does nothing; zeroing the fresnel sheen does nothing.
+The insight the previous pass missed: `fract(sin(dot(...)))` is aperiodic in **value**, but its
+**cells** are a perfect 0.333 m world-space lattice — and `gloss = pow(dot(n, H), 22)` fires over
+most of the lit sea, not only along the sun path, so the grid printed across the whole lit
+surface. The 2026-10-19 pass had changed the wave *angles* to kill a lattice of the same family,
+which only changed the cell from square to rhombus.
+
+**The fixes.**
+
+1. **`js/water.js` — the cell grid is gone.** The glitter keeps its fresnel sheen and its gloss;
+   it is broken up by the field's own per-pixel slope, which varies over every wave. No hash
+   sampled on a grid. (A hash is only aperiodic in value; the guard against grid-sampled hashes
+   is source-level, below.)
+2. **`js/wave.js` + `js/water.js` — the tone is normalised by the field's SPREAD.** The palette
+   and the crest thresholds were normalised by `WAVE_AMPLITUDE` — the ENVELOPE, i.e. every term
+   peaking together, which this field never reaches. Measured on a uniform sample: the tone's
+   q05–q95 span was **0.621** of [0, 1] and the crest band `smoothstep(0.86, 1.0, t)` cleared on
+   **2.29%** of the surface. `TONE_GAIN = WAVE_AMPLITUDE / (2σ)` with σ = √(Σa²/2) maps ±2σ onto
+   the full span: **0.833** and **8.13%** now. The quantization goes with it — with the corrected
+   range, five hard levels would only pack the contour bands tighter.
+3. **`js/config.js` + `js/water.js` + `js/contact-decals.js` — one grounded contact, not two
+   stacked ovals.** The collar reached 1.35× the hull's footprint at a hardcoded 0.6 white, and
+   the decal reached 1.15× at 0.75 with a flat-topped falloff, so the pair read as a white plate
+   with a dark ellipse inside it. Now `collarWidth` 1.8 → 1.0 and `collarPeak` 0.45 make the
+   collar a narrow break hugging the hull (wobble 0.12 → 0.22 breaks its edge), and
+   `decalScale` 1.15 → 0.95 with `opacity` 0.75 → 0.5 and a monotone radial falloff keeps the
+   decal under the hull, with the foam OUTSIDE it.
+
+**Guards (watched-RED).** `tests/unit/wave-tone.test.js` (new) pins the tone as a measurement:
+σ and the gain's derivation, the ±2σ full-scale point, the q05–q95 span ≥ 0.75, and the crest band
+reachable on 4–25% of the surface. Both behavioural thresholds were chosen to FAIL the
+envelope normalisation and pass the spread one. `wave-port.test.js` gains the mirror guard (the
+shader's tone expression, plus `TONE_GAIN` imported rather than copied) and two source rules: no
+cell grid from position, no quantization of the tone. `shader-parity.test.js` gains a parse guard
+— a backtick inside a shader template literal broke the module and hung the page at the loading
+overlay while the **entire** unit suite stayed green, because every other test there reads that
+file as TEXT.
+
+**Verification.** Unit **118/118**; full browser gate **18/18** on `FFM_PORT=8143` beside the
+user's dev server (which survives it — that is what `b2a9d87` is for), console clean on every
+file. The water shader is shared by every browser file, so the full gate was required here, not
+optional.
+
+**Dev seams added (inert in production):** `__FFM_API.debugSetWaterLook({toneGain, collarWidth,
+collarPeak})` and `debugSetDecalOpacity(v)`, so the next look question has the frozen-vantage A/B
+this phase kept needing.
+
+**Flagged, NOT fixed, and now confirmed live:** §1's gate discrepancy is *real* — in the frozen
+frames the ring renders as a heavy black hoop with a near-transparent mouth, not the bright cyan
+torus `gate-view.js` specifies. It is a separate concern from this spec's contract and remains
+open in `HANDOFF.md` §8.
+
 ## 5. Staging
 
 Feeds the implementation plan; each stage lands its own watched-RED tests.
