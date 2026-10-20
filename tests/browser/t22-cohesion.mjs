@@ -118,6 +118,44 @@ test('t22: contact decals ground the nearest hulls', async () => {
   }
 });
 
+test('t22: the water-look dev seams reach the live uniforms, and the shipped tone is spread-normalised', async () => {
+  const server = await startServer();
+  const { browser, page, consoleErrors } = await openPage('?seed=1337');
+  try {
+    await page.evaluate(() => window.__FFM_API.start({ tutorial: false }));
+    await page.waitForFunction(() => window.__FFM_API.debugObstacleCount() > 0, null, { timeout: 60000 });
+
+    // Read the SHIPPED values first (empty patch = a pure read). This is the live half of the
+    // tone guard in tests/unit/wave-tone.test.js: a gain of ~1.0 means the palette is being
+    // normalised by the field's ENVELOPE again, which is the flat-water defect (measured
+    // q05-q95 span 0.621 of [0,1], crest band clearing only 2.29% of the surface).
+    const shipped = await page.evaluate(() => window.__FFM_API.debugSetWaterLook({}));
+    assert.ok(shipped.toneGain > 1.05,
+      `the shipped tone gain must be the spread-derived one (> 1.05), got ${shipped.toneGain} — a value near 1.0 is envelope normalisation`);
+    assert.ok(shipped.collarWidth > 0 && shipped.collarWidth <= 2.0,
+      `the hull collar must stay a narrow break hugging the hull, got collarWidth ${shipped.collarWidth}`);
+    assert.ok(shipped.collarPeak > 0 && shipped.collarPeak < 0.7,
+      `the collar must not be a filled white plate again, got collarPeak ${shipped.collarPeak}`);
+
+    // The seam must actually move the live uniforms, and echo what it applied.
+    const applied = await page.evaluate(() => window.__FFM_API.debugSetWaterLook({ toneGain: 1.5, collarWidth: 2.4, collarPeak: 0.2 }));
+    assert.equal(applied.toneGain, 1.5, 'debugSetWaterLook must apply toneGain to the water uniform');
+    assert.equal(applied.collarWidth, 2.4, 'debugSetWaterLook must apply collarWidth to the water uniform');
+    assert.equal(applied.collarPeak, 0.2, 'debugSetWaterLook must apply collarPeak to the water uniform');
+
+    // The decal's strength: setter and the reported state share ONE number (AGENTS §3).
+    const set = await page.evaluate(() => window.__FFM_API.debugSetDecalOpacity(0.31));
+    assert.equal(set, 0.31, 'debugSetDecalOpacity must return the value it applied');
+    const d = await page.evaluate(() => window.__FFM_API.debugDecals());
+    assert.equal(d.opacity, 0.31, 'the decal report must read the same uniform the setter wrote');
+
+    assert.equal(consoleErrors.length, 0, `console errors: ${consoleErrors.join(' | ')}`);
+  } finally {
+    await closePage(browser);
+    await stopServer(server);
+  }
+});
+
 test('t22: a LIVE gate never sits inside a hull (the invariant holds continuously)', async () => {
   const server = await startServer();
   const { browser, page, consoleErrors } = await openPage('?seed=1337');
