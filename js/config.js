@@ -281,8 +281,14 @@ export const ATMOSPHERE = {
   // horizon IS the fog colour — that is the seam: the dome paints the fog colour
   // at the horizon and the sea fades to it, so they meet by construction
   sky: { zenith: 0x2f8fc4, horizon: 0xcfe8f5 },
-  // one fade curve, matching three's linear fog: smoothstep(near, far, depth)
-  fog: { color: 0xcfe8f5, near: 120, far: 480 },
+  // one fade curve, matching three's linear fog: smoothstep(near, far, depth).
+  // RETUNED 2026-10-21 (horizon-depth H4): 120/480 -> 60/620. The old curve barely bit before
+  // 200 m — measured 2.0% at 150 m — while the SEA lifts with distance on its own term
+  // (water.js's aerial lift), so props at normal viewing range stayed crisp against water that had
+  // already lifted. That is what made them read as stickers on the sea. The SHAPE is unchanged
+  // (three's linear smoothstep), so scene.fog, the water shader and every existing test keep their
+  // parity; only where the ramp sits moved. Pinned by atmosphere.test.js's near-mid-field test.
+  fog: { color: 0xcfe8f5, near: 60, far: 620 },
   // water palette + sun response. The wave AMPLITUDE is not a knob here: it is derived
   // from WAVE_TERMS in js/wave.js and asserted into the contracted 1.2-1.6 m band.
   water: { deep: 0x063a7a, ocean: 0x0d5cb0, aqua: 0x3ec3f0, foam: 0xffffff, specular: 1.0, crestFoam: 0.5 },

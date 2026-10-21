@@ -101,6 +101,24 @@ test('fogFactorAt endpoints: 0 at or before near, 1 at or after far', () => {
   assert.ok(fogFactorAt((near + far) / 2) > 0 && fogFactorAt((near + far) / 2) < 1, 'partially fogged midway');
 });
 
+test('the curve is meaningful in the near-mid field, not only near the horizon', () => {
+  // What this pins (horizon-depth spec §1 fault 2): the SEA lifts with distance
+  // (`water.js` aerial lift, `smoothstep(80.0, 300.0, dist)`) while the PROPS were fogged on a
+  // curve that barely bit before 200 m — measured 2.0% at 150 m. A hull at normal viewing range
+  // therefore stayed crisp while the water beneath it had already lifted, which is the "props
+  // read as stickers on the sea" half of the user's original note.
+  //
+  // The thresholds are the PURPOSE, not a taste: 5% is a readable depth cue, and more than half
+  // faded by 400 m is what lets the distant stacks dissolve into the horizon seam. ATMOSPHERE.fog
+  // is tuned against this test, never the inverse.
+  assert.ok(fogFactorAt(150) >= 0.05,
+    `150 m must carry a readable amount of haze (>= 0.05), got ${fogFactorAt(150).toFixed(4)} — this is the flat-props fault`);
+  assert.ok(fogFactorAt(400) >= 0.5,
+    `400 m must be more than half faded (>= 0.5), got ${fogFactorAt(400).toFixed(4)}`);
+  assert.equal(fogFactorAt(30), 0,
+    'nothing within the fish\'s own water may be hazed — the near field must stay clean');
+});
+
 test('horizonColor equals the configured fog colour and is stable', () => {
   const hex = (n) => ({ r: (n >> 16 & 255) / 255, g: (n >> 8 & 255) / 255, b: (n & 255) / 255 });
   const expected = hex(ATMOSPHERE.fog.color);
