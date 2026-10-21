@@ -23,6 +23,7 @@ import { createSkyWorld } from './sky-world.js';
 import { createSkyDome } from './sky-dome.js';
 import { createContactDecals } from './contact-decals.js';
 import { setWetDarken } from './wet-props.js';
+import { createHorizon } from './horizon.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -184,7 +185,11 @@ const audio = createAudio(settings, bus);
 const clouds = createClouds(scene);
 const skyWorld = createSkyWorld(scene, game.templates, game.coinTemplate);
 skyWorld.group.visible = false; // the sky exists only above the clouds
+// The horizon layer is the OCEAN's far field: visible from the water, hidden under the sky swap
+// (updateEnvironment). Built here so it shares the same per-run seed the chunks do.
+const horizon = createHorizon(scene, game.state.runSeed ?? 0);
 bus.on('run:start', () => skyWorld.reset(game.player.state.position.z));
+bus.on('run:start', () => horizon.reset(game.state.runSeed ?? 0));
 bus.on('run:start', () => wake.reset());
 // takeoff + landing bursts originate at the body-water contact point
 bus.on('launch:charge', () => wake.burst(game.player.state.position.x, game.player.state.position.z, 6));
@@ -262,6 +267,7 @@ function updateEnvironment(y) {
   if (!above) scene.background = dayBg;
   water.mesh.visible = !above;
   skyWorld.group.visible = above;
+  horizon.group.visible = !above; // the far field belongs to the ocean, not the sky
   skyDome.setVisible(!above); // the crafted dome is the OCEAN's sky only (T9)
   // the curtain also hides the ocean world itself: obstacles + ocean shrimp
   game.setOceanVisible(!above);
@@ -309,6 +315,8 @@ function loop(now) {
     skyDome.update(game.state.runTime, p);
     updateEnvironment(p.y);
     if (skyWorld.group.visible) skyWorld.update(dt, p);
+    // the far field follows the fish's z; it early-returns when the sky world owns the view
+    horizon.update(dt, p.z, game.state.runTime);
     // the camera owns itself during the cinematic leap
     cameraRig.setCinematic(game.player.state.locomotion === 'leap', game.player.state.leapT);
     // adaptive soundtrack rides the same speed value the game uses (single source of truth)
@@ -587,8 +595,10 @@ window.__FFM_API = {
   debugVisibility: () => ({
     sky: skyWorld.group.visible,
     water: water.mesh.visible,
+    horizon: horizon.group.visible,
     skyInfo: skyWorld.debugInfo(game.player.state.position.z),
   }),
+  debugHorizon: (z) => horizon.debugInfo(z ?? game.player.state.position.z),
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),

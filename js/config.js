@@ -326,14 +326,26 @@ export const ATMOSPHERE = {
                           // unmistakably not a hazard. Unit-tested, not a convention.
     zBand: 600,           // m. The recycled band's length: a stack behind the fish respawns
                           // ahead by this much.
-    count: 5,             // stacks alive at once. H9 sets this from a measured fps, not taste.
-    spread: 300,          // m. How far off the lane axis a stack may sit (beyond the lane).
-    minScale: 0.6, maxScale: 1.8,   // scale multipliers on the rock's normalised size
-    minZSeparation: 55,   // m. Below this, consecutive stacks read as a WALL rather than scenery.
+    count: 7,             // stacks alive at once. H9 sets this from a measured fps, not taste.
+    // How far off the lane axis a stack may sit. Was 300: measured live, that put three of five
+    // stacks at 26-36 degrees off-axis, i.e. outside a 60-degree view entirely — the far field was
+    // mostly off-camera. At 150 the band ahead actually fills.
+    spread: 150,
+    // Rock height in METRES after each template is normalised to height 1, so `scale` reads
+    // directly as "how tall is this sea-stack" (the big ship hazard is 18 m, for comparison).
+    // Raised from 6-22 after the first look: at 365 m a 6 m stack is ~20 px, which is a speck.
+    minScale: 10, maxScale: 30,
+    sink: 0.22,           // fraction of a stack's height that sits BELOW the waterline. This is
+                          // what makes it read as standing IN the swell rather than on it.
+    fadeIn: 40,           // m. A stack shrinks to nothing over the last stretch before the floor.
+                          // Without it the recycle is a POP: the floor is a render boundary the
+                          // player crosses constantly, and a 10-30 m rock at 240 m is 30-90 px.
+                          // Shrinking is a lie you cannot see at 24% haze; a pop you can.
+    minZSeparation: 45,   // m. Below this, consecutive stacks read as a WALL rather than scenery.
     driftCount: 18,       // mid-ground fragments alive at once
     driftNear: 120, driftFar: 300,  // m. The empty band this exists to fill.
     driftSpread: 120,     // m. Drift MAY cross the lane (no hitbox) — the empty band is dead ahead.
-    driftScale: 0.25,     // drift is a fragment, not a landmark
+    driftScale: 2.5,      // m of height (same convention as the stacks)
     // The roster, by filename in assets/models/rocks/. Loaded LAZILY by js/horizon.js so
     // loadModels' boot path is untouched (the cohesion commit unloaded these files).
     rocks: ['basaltic-columns.fbx', 'column-rocks.fbx', 'extra-large-rocks.fbx', 'pile-rocks.fbx'],
