@@ -108,7 +108,11 @@ export function createWorld(scene, templates) {
         // (a ~1 m buoy) 25 cm down while a liner hit a cap. VISUAL only: collision, the teleport
         // helper and debugChunksValid keep reading `spec.y`, exactly as the wave offset does.
         const sinkCfg = ATMOSPHERE.contact.sink;
-        const sink = Math.max(sinkCfg.min, Math.min(sinkCfg.max, ob.height * sinkCfg.ofHeight));
+        // size-dependent fraction: small props submerge, big ones keep their waterline. Blended with
+        // a smoothstep so there is no visible step between a 2.4 m prop and a 2.6 m one.
+        const st = Math.min(1, Math.max(0, (ob.height - sinkCfg.smallHeight) / (sinkCfg.bigHeight - sinkCfg.smallHeight)));
+        const frac = sinkCfg.ofHeightSmall + (sinkCfg.ofHeightBig - sinkCfg.ofHeightSmall) * (st * st * (3 - 2 * st));
+        const sink = Math.max(sinkCfg.min, Math.min(sinkCfg.max, ob.height * frac));
         mesh.position.y = dzToPlayer <= ATMOSPHERE.props.sampleRange
           ? spec.y - sink + waveOffset(mesh.position.x, mesh.position.z, elapsed)
           : spec.y - sink;

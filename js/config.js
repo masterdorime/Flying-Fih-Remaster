@@ -331,14 +331,15 @@ export const ATMOSPHERE = {
     // ship. At 0.14 a liner's collar sits within a few percent of what it always was. Same lesson as
     // `sink`: an absolute constant breaks at the small end of the size range.
     collarPeak: 0.45,
-    // Prop sink (2026-10-21). models.js normalises every prop's BASE onto y=0, so without this the
+    // Prop sink (2026-10-21/22). models.js normalises every prop's BASE onto y=0, so without this the
     // whole hull sits ON the surface with its bottom in the air. Scaled by the prop's own MEASURED
-    // HEIGHT (world.js measures it once at build time; config carries no per-kind height): a draft
-    // is a fraction of how TALL a thing is. The first attempt scaled by half-LENGTH with a 0.25 m
-    // floor, which left a ~1 m buoy 25 cm down — the user's "the buoy still floats" — while a liner
-    // hit the ceiling. Visual only: collision and every debug read keep the canonical spec.y
-    // (world-prop-riding.test.js pins that split).
-    sink: { ofHeight: 0.28, min: 0.45, max: 2.6 },
+    // HEIGHT (world.js measures it once at build time; config carries no per-kind height).
+    // Fraction is SIZE-DEPENDENT (2026-10-22, user: "the buoy still floats — we need to make them
+    // submerged"): a 2.6 m buoy at a flat 28% left 1.9 m of it above water, which is standing, not
+    // floating. Small props now sink ~62% — submerged, as asked — while a 6.7 m ship keeps ~28%,
+    // because sinking a ship 62% buries it. Blended across smallHeight..bigHeight. Visual only:
+    // collision and every debug read keep the canonical spec.y (world-prop-riding.test.js pins that).
+    sink: { ofHeightSmall: 0.62, ofHeightBig: 0.28, smallHeight: 2.5, bigHeight: 6, min: 0.45, max: 3.4 },
     // contact decals (spec §4.6): a pooled dark sprite on the water under each near hull.
     // decalScale sizes it against the hull's own half-extents; decalLift keeps it clear of
     // z-fighting with the surface. `opacity` above is the decal's strength.
