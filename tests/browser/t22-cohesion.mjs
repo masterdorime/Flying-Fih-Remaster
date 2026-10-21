@@ -7,6 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, stopServer, openPage, closePage } from './harness.mjs';
+import { ATMOSPHERE } from '../../js/config.js';
+import { WAVE_AMPLITUDE } from '../../js/wave.js';
 
 // advance N rendered frames (poll, never sleep; 3-arg waitForFunction or the options object
 // is read as the predicate ARG and the timeout silently becomes 30 s — AGENTS §5.4)
@@ -24,23 +26,41 @@ test('t22: hulls ride the swell instead of floating on a flat plane', async () =
 
     // The field moves, so sample across frames: at least one nearby hull must be sitting
     // somewhere other than its canonical layout height.
+    // The rendered y is canonical MINUS the sink PLUS the shared wave offset (2026-10-21), so the
+    // bound is those two real numbers rather than a magic one.
+    const RIDE_BOUND = ATMOSPHERE.contact.sink.max + WAVE_AMPLITUDE + 0.2;
+
+    // Track ONE hull by its fixed x/z across frames. Without that, a "range" measured over all
+    // nearby discs would move when the POOL changes — i.e. from a different hull's different sink —
+    // and would not be evidence that anything is riding the swell.
+    let tracked = null;
+    const seen = [];
     let maxDelta = 0;
     for (let i = 0; i < 10; i++) {
-      const deltas = await page.evaluate(() => {
+      const discs = await page.evaluate(() => {
         const p = window.__FFM_API.state().position;
-        return window.__FFM_API.debugObstaclesNear(p[2], 120)
-          .map((d) => Math.abs((d.meshY ?? d.y) - d.y));
+        return window.__FFM_API.debugObstaclesNear(p[2], 120).map((d) => ({
+          x: d.x, z: d.z, y: d.y, meshY: d.meshY ?? d.y, rz: d.rz ?? d.radius,
+        }));
       });
-      for (const d of deltas) if (d > maxDelta) maxDelta = d;
+      for (const d of discs) maxDelta = Math.max(maxDelta, Math.abs(d.meshY - d.y));
+      if (!tracked && discs.length) tracked = discs.find((d) => d.rz >= 5) ?? discs[0];
+      const hit = tracked && discs.find((d) => Math.abs(d.z - tracked.z) < 0.01 && Math.abs(d.x - tracked.x) < 0.01);
+      if (hit) seen.push(Math.abs(hit.meshY - hit.y));
       await advanceFrames(page, 1);
     }
 
-    // enough to be unmistakably riding (a flat plane gives exactly 0)
-    assert.ok(maxDelta > 0.06,
-      `hulls must ride the swell: max |rendered - canonical| = ${maxDelta.toFixed(3)} m`);
-    // and it must stay inside the field's own envelope, or the offset is not the wave field
-    assert.ok(maxDelta < 2.0,
-      `riding must stay inside the field range: max = ${maxDelta.toFixed(3)} m`);
+    // THE RIDING CLAIM, with teeth: the tracked hull's offset must MOVE with the field.
+    // `maxDelta > 0.06` alone no longer proves anything — the constant sink already clears it, so it
+    // would pass with the wave-riding completely broken.
+    const range = seen.length > 1 ? Math.max(...seen) - Math.min(...seen) : 0;
+    assert.ok(range > 0.06,
+      `a tracked hull's rendered offset must move with the field: range over ${seen.length} frames = ${range.toFixed(3)} m `
+      + '(a constant offset means the sink is rendering and the wave-riding is not)');
+    // and it must stay inside sink + the field's own envelope, or the offset is not those two things
+    assert.ok(maxDelta < RIDE_BOUND,
+      `riding must stay inside sink + field range: max = ${maxDelta.toFixed(3)} m, bound = ${RIDE_BOUND.toFixed(3)} m `
+      + `(sink.max ${ATMOSPHERE.contact.sink.max} + envelope ${WAVE_AMPLITUDE.toFixed(2)} + 0.2)`);
 
     assert.equal(consoleErrors.length, 0, `console errors: ${consoleErrors.join(' | ')}`);
   } finally {

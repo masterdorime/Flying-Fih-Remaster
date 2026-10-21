@@ -24,11 +24,15 @@ test('the collision gate reads the canonical layout height, never the rendered o
     'the dy gate must NOT read mesh.position.y — that now carries the wave offset');
 });
 
-test('hulls ride the shared wave field, budgeted by range', () => {
+test('hulls ride the shared wave field, budgeted by range, and sit sunk into the surface', () => {
   assert.ok(/import \{[^}]*waveOffset[^}]*\} from '\.\/wave\.js';/.test(src),
     'world.js must import the SHARED wave field (waveOffset from ./wave.js), not its own copy');
-  assert.ok(/spec\.y \+ waveOffset\(mesh\.position\.x, mesh\.position\.z, elapsed\)/.test(src),
-    'the rendered y must be the canonical height plus the shared wave offset at that x/z');
+  assert.ok(/spec\.y - sink \+ waveOffset\(mesh\.position\.x, mesh\.position\.z, elapsed\)/.test(src),
+    'the rendered y must be the canonical height MINUS the sink plus the shared wave offset at that x/z');
+  assert.ok(src.includes('ATMOSPHERE.contact.sink'),
+    'the sink must come from config (one home), not a literal in the render path');
+  assert.ok(/const halfLen = spec\.rz \?\? spec\.radius/.test(src),
+    'the sink must scale with the prop\'s OWN half-length — a fixed sink would swallow a buoy');
   assert.ok(src.includes('ATMOSPHERE.props.sampleRange'),
     'sampling must be budgeted by ATMOSPHERE.props.sampleRange, not applied to every prop in the pool');
 });

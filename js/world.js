@@ -95,9 +95,16 @@ export function createWorld(scene, templates) {
         // hitbox) is about the horizontal plane anyway. Before this change mesh.position.y
         // WAS spec.y, so the gate is bit-for-bit what it always was.
         const dzToPlayer = Math.abs(mesh.position.z - playerPos.z);
+        // SINK (2026-10-21, user report: the boats still looked like they floated in air).
+        // models.js normalises each prop's BASE onto y=0, so the whole hull sat on the surface.
+        // Scaled by the prop's own half-length, clamped, and VISUAL only — collision, the teleport
+        // helper and debugChunksValid keep reading `spec.y`, exactly as the wave offset does.
+        const sinkCfg = ATMOSPHERE.contact.sink;
+        const halfLen = spec.rz ?? spec.radius ?? 2;
+        const sink = Math.max(sinkCfg.min, Math.min(sinkCfg.max, halfLen * sinkCfg.fraction));
         mesh.position.y = dzToPlayer <= ATMOSPHERE.props.sampleRange
-          ? spec.y + waveOffset(mesh.position.x, mesh.position.z, elapsed)
-          : spec.y;
+          ? spec.y - sink + waveOffset(mesh.position.x, mesh.position.z, elapsed)
+          : spec.y - sink;
 
         // wet waterline (2026-10-21): the hull's own darker band at the surface. Budgeted to the
         // same near-props window as the riding, and driven from the SAME surface function the
