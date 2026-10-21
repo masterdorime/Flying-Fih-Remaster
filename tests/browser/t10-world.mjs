@@ -16,14 +16,30 @@ await page.waitForFunction(() => window.__FFM_API.state().distance > 30, { timeo
 const s1 = await page.evaluate(() => window.__FFM_API.state());
 assert(s1.difficulty > 0, `difficulty ramps (${s1.difficulty.toFixed(3)})`);
 
-// 3. minor collision: teleport fish into an obstacle's lane and check speed loss
+// 3. minor collision: teleport fish into an obstacle's lane and check speed loss.
+//
+// The speed RECOVERS after the cut (drag + buoyancy), so waiting for a low reading and then sampling
+// again later races the recovery: observed a 2.7 drop against a >3 bar purely because the second
+// read landed after the bounce-back. Track the MINIMUM over the window instead — a collision is a
+// floor, not a snapshot — and sample inside ONE evaluate so the loop and the reading cannot drift
+// apart.
 const before = await page.evaluate(() => {
   window.__FFM_API.debugTeleportToObstacle();
   return window.__FFM_API.state();
 });
-await page.waitForFunction((s) => window.__FFM_API.state().speed < s - 3, before.speed, { timeout: 20000 });
-const after = await page.evaluate(() => window.__FFM_API.state());
-assert(after.speed < before.speed - 3, `collision cuts speed (${before.speed.toFixed(1)} -> ${after.speed.toFixed(1)})`);
+const cut = await page.evaluate(async (startSpeed) => {
+  const t0 = performance.now();
+  let min = startSpeed;
+  while (performance.now() - t0 < 20000) {
+    const s = window.__FFM_API.state().speed;
+    if (s < min) min = s;
+    if (min < startSpeed - 3) return { min, ms: Math.round(performance.now() - t0) };
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return { min, ms: null };
+}, before.speed);
+assert(cut.min < before.speed - 3,
+  `collision cuts speed (${before.speed.toFixed(1)} -> lowest ${cut.min.toFixed(1)} in ${cut.ms ?? '>20000'} ms)`);
 
 // 3b. crash grace (2026-10-17): a crash starts 0.5 s of global i-frames and
 // recovery-flashes the model — a fast on/off blink, not a blackout. Rides §3's

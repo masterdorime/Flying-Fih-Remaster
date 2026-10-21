@@ -314,13 +314,14 @@ export const ATMOSPHERE = {
     // read as a pancake the hull sat ON rather than foam breaking AT it (2026-10-21 frame).
     // It is now a narrow break hugging the hull (narrower collarWidth, wobble 0.22).
     collarPeak: 0.45,
-    // Prop sink (2026-10-21, user report: "the obstacle still looked floating in air").
-    // models.js normalises every prop's BASE onto y=0, so without this the whole hull sits ON the
-    // surface with its bottom in the air. Scaled by the prop's own half-length (config carries no
-    // per-kind HEIGHT), and clamped so a small buoy is not swallowed while a 16 m liner still shows
-    // most of its hull. Visual only, exactly like the wave offset: collision and debug reads keep
-    // the canonical spec.y (world-prop-riding.test.js pins that split).
-    sink: { fraction: 0.22, min: 0.25, max: 1.6 },
+    // Prop sink (2026-10-21). models.js normalises every prop's BASE onto y=0, so without this the
+    // whole hull sits ON the surface with its bottom in the air. Scaled by the prop's own MEASURED
+    // HEIGHT (world.js measures it once at build time; config carries no per-kind height): a draft
+    // is a fraction of how TALL a thing is. The first attempt scaled by half-LENGTH with a 0.25 m
+    // floor, which left a ~1 m buoy 25 cm down — the user's "the buoy still floats" — while a liner
+    // hit the ceiling. Visual only: collision and every debug read keep the canonical spec.y
+    // (world-prop-riding.test.js pins that split).
+    sink: { ofHeight: 0.28, min: 0.45, max: 2.6 },
     // contact decals (spec §4.6): a pooled dark sprite on the water under each near hull.
     // decalScale sizes it against the hull's own half-extents; decalLift keeps it clear of
     // z-fighting with the surface. `opacity` above is the decal's strength.

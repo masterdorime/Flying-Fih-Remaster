@@ -602,6 +602,18 @@ window.__FFM_API = {
   // test-only, and re-added after an attribution run wiped it (ledger H9): the layer's frame cost
   // can only be attributed by turning it on and off on the SAME rig, in one session.
   debugSetHorizonVisible: (on) => { horizon.group.visible = !!on; return horizon.group.visible; },
+  // Tuning seams (2026-10-21): the sky band and the prop sink are the two look dials without a live
+  // control, and both need an eye on a still. config's values are read per frame, so mutating the
+  // block here takes effect immediately — the same shape as debugSetPostFx writing settings.
+  debugSetSkyBand: (o) => skyDome.setBand(o),
+  // Accepts a bare fraction (the common case) or the whole setting, so the sink's CEILING can be
+  // tried live too: the fraction alone saturates for big ships, because sink = clamp(halfLength x
+  // fraction, min, max) and a liner's half-length is 8.4 m.
+  debugSetPropSink: (v) => {
+    if (typeof v === 'number') ATMOSPHERE.contact.sink.fraction = v;
+    else if (v && typeof v === 'object') Object.assign(ATMOSPHERE.contact.sink, v);
+    return { ...ATMOSPHERE.contact.sink };
+  },
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),

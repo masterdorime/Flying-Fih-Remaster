@@ -31,8 +31,11 @@ test('hulls ride the shared wave field, budgeted by range, and sit sunk into the
     'the rendered y must be the canonical height MINUS the sink plus the shared wave offset at that x/z');
   assert.ok(src.includes('ATMOSPHERE.contact.sink'),
     'the sink must come from config (one home), not a literal in the render path');
-  assert.ok(/const halfLen = spec\.rz \?\? spec\.radius/.test(src),
-    'the sink must scale with the prop\'s OWN half-length — a fixed sink would swallow a buoy');
+  assert.ok(/ob\.height \* sinkCfg\.ofHeight/.test(src),
+    'the sink must scale with the prop\'s own measured HEIGHT — a length-based rule left a ~1 m buoy '
+    + '25 cm down while a liner hit a ceiling (the user\'s "the buoy still floats")');
+  assert.ok(/new THREE\.Box3\(\)\.setFromObject\(mesh\)/.test(src),
+    'the height must be MEASURED off the model at build time; config carries no per-kind height');
   assert.ok(src.includes('ATMOSPHERE.props.sampleRange'),
     'sampling must be budgeted by ATMOSPHERE.props.sampleRange, not applied to every prop in the pool');
 });

@@ -60,7 +60,13 @@ export function createWorld(scene, templates) {
       // is shared by every clone of the variant and a shared uWaterlineY would snap between hulls
       const wetHandles = applyWetMaterials(mesh);
       group.add(mesh);
-      obstacles.push({ spec: ob, mesh, baseX: ob.x, hit: false, wetHandles });
+      // Measure the prop's own HEIGHT once, here, and keep it on the record. The sink needs it:
+      // config has no per-kind height, and scaling the sink by LENGTH (the first attempt, 0.22 x
+      // half-length, floor 0.25) left a ~1 m buoy sitting 25 cm down — the user's "the buoy still
+      // floats". A draft is a fraction of how TALL a thing is, not how long.
+      const box = new THREE.Box3().setFromObject(mesh);
+      const height = Math.max(0.1, box.max.y - box.min.y);
+      obstacles.push({ spec: ob, mesh, baseX: ob.x, hit: false, wetHandles, height });
     }
     scene.add(group);
     return { group, obstacles, difficulty, z0: index * WORLD.chunkLength };
@@ -95,13 +101,14 @@ export function createWorld(scene, templates) {
         // hitbox) is about the horizontal plane anyway. Before this change mesh.position.y
         // WAS spec.y, so the gate is bit-for-bit what it always was.
         const dzToPlayer = Math.abs(mesh.position.z - playerPos.z);
-        // SINK (2026-10-21, user report: the boats still looked like they floated in air).
-        // models.js normalises each prop's BASE onto y=0, so the whole hull sat on the surface.
-        // Scaled by the prop's own half-length, clamped, and VISUAL only — collision, the teleport
+        // SINK (2026-10-21, user reports: "the obstacles still looked floating in air", then "the
+        // buoy still floats"). models.js normalises each prop's BASE onto y=0, so without this the
+        // whole hull sits on the surface. Scaled by the prop's own measured HEIGHT — a draft is a
+        // fraction of how tall a thing is, and the earlier length-based rule left small props
+        // (a ~1 m buoy) 25 cm down while a liner hit a cap. VISUAL only: collision, the teleport
         // helper and debugChunksValid keep reading `spec.y`, exactly as the wave offset does.
         const sinkCfg = ATMOSPHERE.contact.sink;
-        const halfLen = spec.rz ?? spec.radius ?? 2;
-        const sink = Math.max(sinkCfg.min, Math.min(sinkCfg.max, halfLen * sinkCfg.fraction));
+        const sink = Math.max(sinkCfg.min, Math.min(sinkCfg.max, ob.height * sinkCfg.ofHeight));
         mesh.position.y = dzToPlayer <= ATMOSPHERE.props.sampleRange
           ? spec.y - sink + waveOffset(mesh.position.x, mesh.position.z, elapsed)
           : spec.y - sink;
@@ -191,9 +198,9 @@ export function createWorld(scene, templates) {
         if (Math.abs(ob.mesh.position.z - z) <= halfRange) {
           const rx = ob.spec.rx ?? ob.spec.radius;
           if (ob.spec.moving) {
-            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick, y: ob.spec.y, meshY: ob.mesh.position.y });
+            discs.push({ x: ob.baseX, z: ob.mesh.position.z, radius: rx + (ob.spec.range || 0), rx, rz: ob.spec.rz ?? ob.spec.radius, moving: true, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick, y: ob.spec.y, meshY: ob.mesh.position.y, kind: ob.spec.kind, height: ob.height });
           } else {
-            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick, y: ob.spec.y, meshY: ob.mesh.position.y });
+            discs.push({ x: ob.mesh.position.x, z: ob.mesh.position.z, radius: rx, rx, rz: ob.spec.rz ?? ob.spec.radius, pattern: ob.spec.pattern, form: ob.spec.form, formPick: ob.spec.formPick, y: ob.spec.y, meshY: ob.mesh.position.y, kind: ob.spec.kind, height: ob.height });
           }
         }
       }

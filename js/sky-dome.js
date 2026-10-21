@@ -96,5 +96,13 @@ export function createSkyDome(scene) {
       if (playerPos) { mesh.position.x = playerPos.x; mesh.position.z = playerPos.z; }
     },
     setVisible(v) { mesh.visible = v; },
+    // Dev seam (2026-10-21 tuning round): the band's two dials are look numbers that need an EYE on
+    // a still, and the phase ledger records the cloud band as reading too subtle — i.e. exactly the
+    // number someone will tune. Inert in production; only a probe or a test calls it.
+    setBand({ strength, hazeStrength } = {}) {
+      if (typeof strength === 'number') mat.uniforms.uCloudStrength.value = strength;
+      if (typeof hazeStrength === 'number') mat.uniforms.uHazeStrength.value = hazeStrength;
+      return { strength: mat.uniforms.uCloudStrength.value, haze: mat.uniforms.uHazeStrength.value };
+    },
   };
 }
