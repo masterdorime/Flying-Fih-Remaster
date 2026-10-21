@@ -28,6 +28,14 @@ export function createSkyDome(scene) {
       uSunDir: { value: new THREE.Vector3(sunVector().x, sunVector().y, sunVector().z) },
       uSunColor: { value: new THREE.Color(ATMOSPHERE.sun.color) },
       uCloud: { value: new THREE.Color(0xffffff) },
+      // band numbers from their one home (AGENTS §3)
+      uCloudStrength: { value: ATMOSPHERE.sky.cloudBand.strength },
+      uCloudLow: { value: ATMOSPHERE.sky.cloudBand.low },
+      uCloudHigh: { value: ATMOSPHERE.sky.cloudBand.high },
+      uCloudFallLow: { value: ATMOSPHERE.sky.cloudBand.fallLow },
+      uCloudFallHigh: { value: ATMOSPHERE.sky.cloudBand.fallHigh },
+      uHazeStrength: { value: ATMOSPHERE.sky.hazeBand.strength },
+      uHazeElevation: { value: ATMOSPHERE.sky.hazeBand.elevation },
       uTime: { value: 0 },
     },
     vertexShader: /* glsl */`
@@ -38,6 +46,8 @@ export function createSkyDome(scene) {
       }`,
     fragmentShader: /* glsl */`
       uniform vec3 uZenith, uHorizon, uSunColor, uCloud, uSunDir;
+      uniform float uCloudStrength, uCloudLow, uCloudHigh, uCloudFallLow, uCloudFallHigh;
+      uniform float uHazeStrength, uHazeElevation;
       uniform float uTime;
       varying vec3 vDir;
 
@@ -60,12 +70,12 @@ export function createSkyDome(scene) {
         // not a parallel of latitude, which would read as a painted stripe.
         float az = atan(d.z, d.x);
         float puff = sin(az * 3.0 + 1.3) * 0.5 + sin(az * 5.0 - 0.7) * 0.32 + sin(az * 8.0 + 2.1) * 0.18;
-        float band = smoothstep(0.05, 0.18, elev) * (1.0 - smoothstep(0.40, 0.78, elev));
-        col = mix(col, uCloud, band * smoothstep(0.30, 0.92, puff + 0.35) * 0.80);
+        float band = smoothstep(uCloudLow, uCloudHigh, elev) * (1.0 - smoothstep(uCloudFallLow, uCloudFallHigh, elev));
+        col = mix(col, uCloud, band * smoothstep(0.30, 0.92, puff + 0.35) * uCloudStrength);
 
         // haze: lift the last few degrees above the horizon toward the seam colour, so the
         // join is a soft gradient rather than a line even if sea and sky are ever tuned apart
-        col = mix(col, uHorizon, (1.0 - smoothstep(0.0, 0.12, elev)) * 0.55);
+        col = mix(col, uHorizon, (1.0 - smoothstep(0.0, uHazeElevation, elev)) * uHazeStrength);
 
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>

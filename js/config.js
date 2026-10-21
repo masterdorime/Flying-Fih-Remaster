@@ -280,7 +280,18 @@ export const ATMOSPHERE = {
   sun: { dir: [40, 80, 30], color: 0xfff2dd, intensity: 2.3 },
   // horizon IS the fog colour — that is the seam: the dome paints the fog colour
   // at the horizon and the sea fades to it, so they meet by construction
-  sky: { zenith: 0x2f8fc4, horizon: 0xcfe8f5 },
+  // The dome's two bands, one home each (2026-10-21, horizon-depth H8). They were hardcoded in
+  // this file's shader (:64 cloud strength 0.80; :68 haze elevation 0.12 / strength 0.55) — look
+  // numbers on a shared horizon that someone WILL tune (the phase ledger records the cloud band as
+  // reading too subtle), and a number someone will tune belongs where it can be tuned (AGENTS §3).
+  // Their SHAPE (the puff frequencies below) deliberately stays in the shader: style, not a dial.
+  sky: {
+    zenith: 0x2f8fc4, horizon: 0xcfe8f5,
+    cloudBand: { strength: 0.80, low: 0.05, high: 0.18, fallLow: 0.40, fallHigh: 0.78 },
+    // the static far haze band: the horizon layer's own half of "stacks recycle, the haze holds
+    // station" — it is painted on the dome, so it can never be bare and never needs recycling.
+    hazeBand: { strength: 0.55, elevation: 0.12 },
+  },
   // one fade curve, matching three's linear fog: smoothstep(near, far, depth).
   // RETUNED 2026-10-21 (horizon-depth H4): 120/480 -> 60/620. The old curve barely bit before
   // 200 m — measured 2.0% at 150 m — while the SEA lifts with distance on its own term

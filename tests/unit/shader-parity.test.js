@@ -19,6 +19,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { ATMOSPHERE } from '../../js/config.js';
 
 const jsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 
@@ -54,6 +55,30 @@ test('no custom shader re-declares the tone-map pars the renderer prefix injects
     assert.ok(!src.includes('#include <tonemapping_pars_fragment>'),
       `${f} must NOT include the tonemapping PARS chunk: the prefix already injects it, so a second include re-declares uniform toneMappingExposure and the shader fails to compile`);
   }
+});
+
+test('the sky dome\'s band numbers have ONE home in ATMOSPHERE.sky', () => {
+  // sky-dome.js hardcoded the cloud band's strength (0.80 at :64) and the horizon haze band's
+  // elevation and strength (0.12 / 0.55 at :68). Those are LOOK numbers on a shared horizon — the
+  // ledger already records the cloud band as reading too subtle, i.e. they are numbers someone will
+  // tune, and a number someone will tune belongs where it can be tuned (AGENTS §3). The band's
+  // SHAPE (the puff frequencies) deliberately stays in the shader: that is style, not a dial.
+  for (const key of ['cloudBand', 'hazeBand']) {
+    const v = ATMOSPHERE.sky[key];
+    assert.ok(v && typeof v === 'object', `ATMOSPHERE.sky.${key} must exist — one home for the dome's ${key} numbers`);
+    for (const [k, n] of Object.entries(v)) {
+      assert.equal(typeof n, 'number', `ATMOSPHERE.sky.${key}.${k} must be a number, got ${typeof n}`);
+    }
+  }
+  assert.ok(ATMOSPHERE.sky.hazeBand.strength > 0 && ATMOSPHERE.sky.hazeBand.strength <= 1,
+    `haze strength must be a fraction in (0, 1], got ${ATMOSPHERE.sky.hazeBand.strength}`);
+  assert.ok(ATMOSPHERE.sky.cloudBand.strength > 0 && ATMOSPHERE.sky.cloudBand.strength <= 1,
+    `cloud band strength must be a fraction in (0, 1], got ${ATMOSPHERE.sky.cloudBand.strength}`);
+
+  // and the dome must READ them rather than restate them
+  const dome = readFileSync(join(jsDir, 'sky-dome.js'), 'utf8');
+  assert.ok(/ATMOSPHERE\.sky\.cloudBand/.test(dome), 'sky-dome.js must read ATMOSPHERE.sky.cloudBand');
+  assert.ok(/ATMOSPHERE\.sky\.hazeBand/.test(dome), 'sky-dome.js must read ATMOSPHERE.sky.hazeBand');
 });
 
 test('every custom shader file still PARSES as JavaScript', () => {
