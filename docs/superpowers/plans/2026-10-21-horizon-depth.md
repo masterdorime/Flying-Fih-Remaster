@@ -6,7 +6,7 @@
 **Spec:** `docs/superpowers/specs/2026-10-21-horizon-depth-design.md` — stages H1–H6. The spec travels with this plan; executors read both.
 **Completes:** `docs/superpowers/plans/2026-10-19-ocean-cohesion.md` T12 (the horizon layer), which was never started.
 **Method:** TDD, audit-first; native in-session execution
-**Status:** awaiting user review
+**Status:** H1–H8 **done and committed**. H9 **stopped part-way** — see *Status at stop* below.
 
 ## Goal
 
@@ -51,15 +51,31 @@ Inputs and failure modes the spec implies but no task's happy path exercises. Ea
 
 ## Ledger
 
-- [ ] **H1** docs commit: this plan.
-- [ ] **H2** H1-stage RED: `tests/unit/farfield.test.js` — determinism, own-stream, the 240 m floor, caps, scale bounds, lane exclusion, z-separation. Watched fail: the module does not exist.
-- [ ] **H3** H1-stage GREEN: `js/farfield.js` + the `ATMOSPHERE.horizon` block populated (names disposed per spec §4.5).
-- [ ] **H4** H2-stage: fog retune — mid-field pin added to `atmosphere.test.js` (RED), then `near`/`far` (GREEN) + frozen-vantage A/B screenshots.
-- [ ] **H5** H3-stage RED: `tests/browser/t23-horizon.mjs` stacks section; watched fail (no horizon group in the scene).
-- [ ] **H6** H3-stage GREEN: `js/horizon.js` (lazy rock load, recycler, wave-riding, wet band) + `main.js` wiring + `debugHorizon`/`debugVisibility`. Review Focus 1, 2, 3, 4's tests land here.
-- [ ] **H7** H4-stage: mid-ground drift (instanced fragments) + the water shader's mid-distance foam lines.
-- [ ] **H8** H5-stage: haze band + one home for its numbers (`ATMOSPHERE.sky.cloudBand`/`hazeBand`, read by `sky-dome.js`).
-- [ ] **H9** H6-stage closure: before/after fps (single workload), caps set from the measurement, browser-budget recalibration, full unit suite + full browser gate, feat commit, HANDOFF §3/§5/§6, SDD ledger closure.
+- [x] **H1** docs commit: this plan.
+- [x] **H2** H1-stage RED: `tests/unit/farfield.test.js` — determinism, own-stream, the 240 m floor, caps, scale bounds, lane exclusion, z-separation. Watched fail: the module does not exist.
+- [x] **H3** H1-stage GREEN: `js/farfield.js` + the `ATMOSPHERE.horizon` block populated (names disposed per spec §4.5).
+- [x] **H4** H2-stage: fog retune — mid-field pin added to `atmosphere.test.js` (RED), then `near`/`far` (GREEN) + frozen-vantage A/B screenshots.
+- [x] **H5** H3-stage RED: `tests/browser/t23-horizon.mjs` stacks section; watched fail (no horizon group in the scene).
+- [x] **H6** H3-stage GREEN: `js/horizon.js` (lazy rock load, recycler, wave-riding, wet band) + `main.js` wiring + `debugHorizon`/`debugVisibility`. Review Focus 1, 2, 3, 4's tests land here.
+- [x] **H7** H4-stage: mid-ground drift (foam slabs) + the water shader's mid-distance foam lines.
+- [x] **H8** H5-stage: haze band + one home for its numbers (`ATMOSPHERE.sky.cloudBand`/`hazeBand`, read by `sky-dome.js`).
+- [ ] **H9** H6-stage closure — **STOPPED part-way.** Done: the cost measurement (both caps kept, the layer's cost is below the rig's 0.64 fps resolution), the full unit suite (**127/127**), the full browser gate, and the diagnosis + fix of one `t19` driver defect. NOT done: the gate reads **18/19** (see below), the fresh-context branch review, the closure commit, HANDOFF §3/§5/§6, and the zip (never owed by default).
+
+## Status at stop (2026-10-21)
+
+**Shipped and verified:** H1–H8, six commits (`1379556` farfield+config, `14a5300` fog retune, `5b69852` stacks+wiring, `e0cddf2` drift+whitecaps, `e376aca` haze band, `5b3714f` the t19 driver fix). Unit **127/127**. Every browser file green — t21 (layout + formations), t22 (5/5), the new t23 (2/2) — **except** `t19`.
+
+**The one open item: `t19-fairness` fails, and it fails in a different driver each run.**
+
+1. **Driver defect 1 — the side pass — found, fixed, verified.** It parked the fish `radius + 1.45` from ONE hull without checking the others, so a small hull beside a liner aimed the fish *inside* the liner. Measured from a real failure: `target x -13.15 rx 0.84 gap 0.35` (exactly as asked) while a liner at `x -9.28 rx 2.09` had the fish **1.61 m inside it**. The driver now requires its parking spot to be clear of *every* hull it will swim past, retries up to four layouts otherwise, asserts `noLane` explicitly, and reports geometry on failure. **`t19` passed 5 consecutive runs after it**, against roughly half failing before.
+2. **Driver defect 2 — the high-tier steering pass — diagnosed, deliberately NOT fixed.** Its own snitch: the fish's path jumps `x -5.52 → -0.08 → 2.646` (a 5.4 m lateral step in one tick) and it is hit by the liner at `x 0.68 rx 2.09`, **1.2 m inside**. The driver aims *straight* at the committed gap centre, and its per-tick cap at the high tier is `70 u/s × 0.08 s = 5.6 m` — wider than a liner — so a legitimate lateral move steps *through* an intervening hull. A real fish at that cap would be hit too.
+
+**Driver defect 2 is an open question with two readings, and they are different tasks:**
+
+- **(a) The driver should route like a player** (clear the blocking hull before committing). The unit corpus (`worldgen-fairness.test.js` — 120 seeds × difficulty × speed, 0 chain violations) supports this, so the game is fine and the fix is a test rebuild.
+- **(b) The rows really can offer a gap reachable in *time* at the steering cap but only by crossing another hull's body.** That would be a genuine §4-row-1 fairness gap which the corpus's *corridor* model does not model.
+
+**The order matters and is why it was stopped rather than guessing:** fixing the test first could *hide* (b). Check the game, then fix the test. Evidence in full in `.superpowers/sdd/2026-10-21-horizon-depth/progress.md`.
 
 ---
 

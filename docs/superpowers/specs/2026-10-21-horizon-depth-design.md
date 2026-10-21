@@ -8,6 +8,16 @@ its character. This document fixes the character and widens the scope to the nea
 **Scope:** the swimming-phase environment only. HUD, gameplay, worldgen layout and RNG draw order,
 coins/scoring, and the flight/sky world are all untouched.
 
+**Status 2026-10-21 — stages H1–H5 (the plan's H2–H8) are SHIPPED; the phase stopped inside its
+verification stage.** Distant rock stands in the swell and recycles, the mid-ground carries foam
+slabs and distance-graded whitecaps, the shared fog curve ramps across the near-mid field, and the
+haze band's numbers have one home. Unit **127/127**. Every browser file is green except
+`t19-fairness`, which fails inside **its own scripted drivers** — one of which was diagnosed and
+fixed (5 consecutive passing runs), and one of which is **deliberately left open** because its two
+possible readings are different tasks and fixing the test first could hide a real fairness gap.
+`docs/superpowers/plans/2026-10-21-horizon-depth.md` carries the full *Status at stop* section and
+the evidence; `.superpowers/sdd/2026-10-21-horizon-depth/progress.md` carries the rulings.
+
 ## 1. Problem (audited in code, 2026-10-21)
 
 Evidence: a live swim frame (`Screenshot 2026-10-21 003020.png`) plus the code read below. Three
