@@ -180,23 +180,41 @@ test('t19: fairness in the running game', async () => {
     const sidePass = await page.evaluate(async () => {
       __FFM_API.setGauge(15);
       __FFM_API.debugSetSpeed(25);
-      // a liner-class hull: teleport just before it, offset beyond its capsule
-      const specs = __FFM_API.debugObstaclesNear(__FFM_API.state().position[2] + 60, 40);
-      const hull = specs.find(o => o.kind === 'rock') || specs[0];
-      const reach = (hull.rx ?? hull.radius) + 1.1 + 0.35; // capsule + fish + 0.35 clear
-      __FFM_API.debugTeleportToObstacle(0); // near the first obstacle ahead
-      const near = __FFM_API.debugObstaclesNear(__FFM_API.state().position[2] + 20, 18);
-      const target = near[0];
-      // Pick the side that stays INSIDE the lane. The lateral setter clamps to
-      // WORLD.laneHalfWidth, so aiming beyond the edge silently pulls the fish back toward the
-      // hull it is supposed to miss — with a hull near the lane edge the probe was destroying
-      // its own clearance (observed: target x -13.15, offset wanted -15.45, clamped to -14,
-      // leaving 0.85 m against a 1.94 m capsule). Prefer the side nearer the lane centre.
-      const off = target.radius + 1.45;
-      const sides = [target.x + off, target.x - off]
-        .filter(v => Math.abs(v) <= 14)
-        .sort((a, b) => Math.abs(a) - Math.abs(b));
-      const held = sides.length ? sides[0] : target.x;
+      // Find a pass whose PARKING SPOT is clear of EVERY hull sharing the stretch of z the fish
+      // will swim, not just of the one it aims at.
+      //
+      // The old driver picked the nearest hull and parked `radius + 1.45` from it without looking at
+      // its neighbours, so a small hull next to a big one aimed the fish INSIDE the big one. Caught
+      // from a real failure (the test now reports geometry on failure): target x -13.15 rx 0.84 with
+      // gap 0.35 — exactly as asked — while a liner at x -9.28 rx 2.09 had the fish 1.61 m inside
+      // it. The claim "a pass outside the capsule misses" was then failing on the driver's own
+      // setup, which is why it read as a coin flip on a fresh layout every run.
+      const CLEAR = 1.1 + 0.2; // the fish, plus a little
+      let target = null;
+      let held = 0;
+      for (let attempt = 0; attempt < 4 && !target; attempt++) {
+        __FFM_API.debugTeleportToObstacle(0); // near the first obstacle ahead
+        // a window wide enough to hold every hull this stretch will pass
+        const span = __FFM_API.debugObstaclesNear(__FFM_API.state().position[2] + 40, 45);
+        for (const hull of span) {
+          const rx = hull.rx ?? hull.radius;
+          // The lateral setter clamps to laneHalfWidth, so an aim beyond the edge silently pulls
+          // the fish back toward the hull it is meant to miss. Prefer the side nearer the centre.
+          const sides = [hull.x + rx + 1.45, hull.x - rx - 1.45]
+            .filter(v => Math.abs(v) <= 14)
+            .sort((a, b) => Math.abs(a) - Math.abs(b));
+          for (const v of sides) {
+            if (span.every(o => Math.abs(o.x - v) - (o.rx ?? o.radius) >= CLEAR)) {
+              target = hull;
+              held = v;
+              break;
+            }
+          }
+          if (target) break;
+        }
+        if (!target) { __FFM_API.debugRestart(); await new Promise(r => setTimeout(r, 400)); }
+      }
+      if (!target) return { noLane: true };
       __FFM_API.debugHoldLateral(held);
       const stats = () => __FFM_API.debugAudioStats().calls;
       const before = (stats().collision ?? 0);
@@ -210,17 +228,37 @@ test('t19: fairness in the running game', async () => {
         await new Promise(r => setTimeout(r, 80));
       }
       const endX = __FFM_API.state().position[0];
+      const collided = (stats().collision ?? 0) > before;
+      // On failure, capture WHAT it hit and WHERE — the failure should describe itself rather than
+      // needing a second guess (this driver's near-misses have twice been mis-attributed already).
+      let where = null;
+      if (collided) {
+        const p = __FFM_API.state().position;
+        where = {
+          fish: [+p[0].toFixed(2), +p[2].toFixed(2)],
+          hulls: __FFM_API.debugObstaclesNear(p[2], 30).map((o) => ({
+            x: +o.x.toFixed(2), z: +o.z.toFixed(2),
+            rx: +(o.rx ?? o.radius).toFixed(2), rz: +(o.rz ?? o.radius).toFixed(2),
+            gap: +(Math.abs(o.x - p[0]) - (o.rx ?? o.radius) - 1.1).toFixed(2),
+            dz: +(o.z - p[2]).toFixed(2),
+          })).sort((a, b) => a.gap - b.gap).slice(0, 3),
+        };
+      }
       return {
-        collided: (stats().collision ?? 0) > before,
+        collided,
         crossed: __FFM_API.state().position[2] >= targetTail,
         target: { x: +target.x.toFixed(2), z: +target.z.toFixed(2), r: +target.radius.toFixed(2) },
         held: +held.toFixed(2),
         drift: +(endX - startX).toFixed(2),
         offset: 0,
+        where,
       };
     });
+    assert.ok(!sidePass.noLane,
+      'no layout in 4 draws offered a clean side-pass lane — that would be a fairness finding about the ROWS, not a flake');
     assert.equal(sidePass.collided, false,
-      `side pass outside the hull capsule must miss (target ${JSON.stringify(sidePass.target)}, held x ${sidePass.held}, drift ${sidePass.drift}, crossed ${sidePass.crossed})`);
+      `side pass outside the hull capsule must miss (target ${JSON.stringify(sidePass.target)}, held x ${sidePass.held}, drift ${sidePass.drift}, crossed ${sidePass.crossed})`
+      + (sidePass.where ? ` — hit at ${JSON.stringify(sidePass.where)}` : ''));
     assert.equal(sidePass.crossed, true, 'the fish crossed the hull plane during the probe');
 
     // ---- 4: gate-clearance ruling in the live game (2026-10-18 ruling) ----

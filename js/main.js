@@ -599,6 +599,9 @@ window.__FFM_API = {
     skyInfo: skyWorld.debugInfo(game.player.state.position.z),
   }),
   debugHorizon: (z) => horizon.debugInfo(z ?? game.player.state.position.z),
+  // test-only, and re-added after an attribution run wiped it (ledger H9): the layer's frame cost
+  // can only be attributed by turning it on and off on the SAME rig, in one session.
+  debugSetHorizonVisible: (on) => { horizon.group.visible = !!on; return horizon.group.visible; },
   debugTeleportToCoin: () => game.debugTeleportToCoin(),
   debugTeleportFar: (z) => { game.player.state.position.z = z; },
   debugCameraPos: () => camera.position.toArray(),
