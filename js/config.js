@@ -35,6 +35,15 @@ export const GATE = {
   flightReach: 8,       // max altitude offset from the fish at spawn (W/S-alignable)
   corridorX: 4,         // |x| bound for placement (inside the old safe corridor)
   zShiftMax: 20,        // max forward z-shift when the mouth clips a wall row
+  // The ring's CORRIDOR (2026-10-22 spec stage A). The ruling bar above only ever looked at ONE
+  // plane; measured live, 28% of rings then left under 18 m of clear water BEHIND them in their own
+  // lane window (worst case 2.7 m), which is the user's "very in front of / right behind an
+  // obstacle". An accepted plane must now leave this much clear water behind and ahead of it, inside
+  // the corridor the player has to occupy. The search for such a plane runs the whole spawn lead band
+  // (spawnMin..spawnAhead), not the old ±20, because the measurement showed the water is usually
+  // only 20-48 m away.
+  corridorBefore: 18,   // m of clear water behind the plane, in the ring's lane window
+  corridorAfter: 10,    // m ahead of it
   placementRange: 30,   // obstacle query window around the gate z (zShiftMax 20 + biggest hull reach 9.4 + margin)
   // 2026-10-18 gate-clearance ruling: an accepted ring keeps a mouth+margin
   // edge gap to every hull in its z-band — never grazes a hull at mouth
@@ -235,6 +244,9 @@ export const DIFFICULTY = {
 export const COLLISION = {
   minorSpeedLoss: 8,
   majorSpeedLoss: 20,
+  // the fish's own radius: its collision radius and the clearance its body needs to pass. One home —
+  // the ring corridor (js/timing.js) reads it for the same reason capsuleHit does.
+  fishRadius: 1.1,
   graceSeconds: 0.5, // global crash grace (2026-10-17, was per-obstacle): i-frames + fish invisibility share this window
   blinkPeriod: 0.1,  // recovery-flash on/off period while the grace window is open
 };

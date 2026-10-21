@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement } from '../../js/timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt } from '../../js/timing.js';
 import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -125,6 +125,14 @@ function mouthClearance(z, x, discs) {
   return near.length ? Math.min(...near.map(d => Math.abs(x - d.x) - (d.rx ?? d.radius))) : Infinity;
 }
 
+// Mirrors the 2026-10-22 corridor contract (spec stage A) independently of the implementation: clear
+// water BEHIND and AHEAD of the plane inside the ring's own lane window. If this and the
+// implementation drift, these tests stop meaning anything — which is the point of restating it here.
+function corridorClearAt(x, z, discs) {
+  const g = corridorGapAt(x, z, discs);
+  return g.before >= GATE.corridorBefore - 1e-9 && g.after >= GATE.corridorAfter - 1e-9;
+}
+
 test('resolveGatePlacement: open water keeps the gate exactly put', () => {
   const discs = [{ x: 2, z: 100, radius: 1 }];
   assert.deepEqual(resolveGatePlacement(-3, 100, discs), { x: -3, z: 100 }); // clear: unchanged
@@ -179,11 +187,14 @@ test('resolveGatePlacement: wall row the mouth cannot fit shifts the ring forwar
     { x: 7.7, z: 100, radius: 2.7 }, { x: 12.3, z: 100, radius: 1.7 },
   ];
   assert.ok(mouthClearance(100, 3.5, wall) < 3, 'precondition: gap too tight for the mouth');
-  const out = resolveGatePlacement(3.5, 100, wall);
-  assert.ok(out.z > 100, `ring moves to the first plane the mouth clears (z=${out.z})`);
-  assert.ok(out.z - 100 <= 20 + 1e-9, `shift bounded (dz=${out.z - 100})`);
+  // window stated explicitly (2026-10-22): the search now runs the whole spawn lead band, not the old
+  // ±20, because the clear water a ring needs is usually further away than that
+  const out = resolveGatePlacement(3.5, 100, wall, { minZ: 100, maxZ: 220 });
+  assert.ok(out.z > 100, `ring moves to a plane the mouth clears (z=${out.z})`);
+  assert.ok(out.z - 100 <= 120 + 1e-9, `shift stays inside the lead band (dz=${out.z - 100})`);
   assert.ok(mouthClearance(out.z, out.x, wall) >= 3.8,
     `mouth clears at the landed plane (${mouthClearance(out.z, out.x, wall)})`);
+  assert.ok(corridorClearAt(out.x, out.z, wall), 'and the corridor is clear there too');
 });
 
 test('resolveGatePlacement: hulls reach the plane from farther off than a fixed window', () => {
@@ -201,7 +212,7 @@ test('resolveGatePlacement: mover sweeps are respected via envelope discs', () =
     { x: -9, z: 100, radius: 8, moving: true },
     { x: 9, z: 100, radius: 8, moving: true },
   ];
-  const out = resolveGatePlacement(0, 100, movers);
+  const out = resolveGatePlacement(0, 100, movers, { minZ: 100, maxZ: 220 });
   assert.ok(out.z > 108, `ring lands past the sweep reach (z=${out.z})`);
   assert.ok(mouthClearance(out.z, out.x, movers) >= 3.8,
     `mouth clears the sweeps (${mouthClearance(out.z, out.x, movers)})`);
@@ -218,6 +229,59 @@ test('config: gate clearance margin is 0.8 (accepted planes clear mouth+margin)'
   assert.equal(GATE.clearanceMargin, 0.8);
 });
 
+// ---- ring corridor (2026-10-22 spec, stage A) ----------------------------------------------
+// Measured live: the "inside a hull" case is gone (0/25), but 28% of rings left under 18 m of clear
+// water BEHIND them in their own lane window — worst case 2.7 m — because the ruling bar only ever
+// looked at ONE plane, never at the water the player has to line up in. These fixtures are drawn from
+// the live shapes: a plane the old bar calls perfectly clear, with a hull squarely in its corridor.
+// Non-vacuity: two of these demand a move and one demands no move, so the set cannot pass by
+// returning the ideal plane every time.
+
+test('ring corridor: a hull in the lane BEHIND the ring moves it forward', () => {
+  const discs = [{ x: 0.5, z: 92, radius: 1.5, rz: 2 }];
+  // the OLD bar sees nothing at all: the hull's z-band is 8 m from the plane
+  assert.equal(mouthClearance(100, 0, discs), Infinity, 'the ruling bar alone sees nothing wrong here');
+  const out = resolveGatePlacement(0, 100, discs, { minZ: 40, maxZ: 120 });
+  assert.notDeepEqual(out, { x: 0, z: 100 }, 'a ring with 4.9 m of water behind it must not stay put');
+  const gap = corridorGapAt(out.x, out.z, discs);
+  assert.ok(gap.before >= GATE.corridorBefore - 1e-9,
+    `ring opens only ${gap.before.toFixed(1)} m of water behind it, needs ${GATE.corridorBefore} (x=${out.x}, z=${out.z})`);
+});
+
+test('ring corridor: a hull in the lane AHEAD of the ring moves it BACK, into the water it has', () => {
+  // A fence across the whole lane, just past the plane: no lateral escape exists, so the only legal
+  // move is z — and the water is BEHIND. (A small hull would let the ring dodge sideways instead,
+  // which is why this fixture fences the lane: it pins the backward move, not the dodge.)
+  const discs = [{ x: 0, z: 108, radius: 20, rz: 2 }]; // 4.9 m of water after the plane
+  const out = resolveGatePlacement(0, 100, discs, { minZ: 40, maxZ: 120 });
+  const gap = corridorGapAt(out.x, out.z, discs);
+  assert.ok(gap.after >= GATE.corridorAfter - 1e-9,
+    `ring leaves only ${gap.after.toFixed(1)} m of water ahead, needs ${GATE.corridorAfter} (x=${out.x}, z=${out.z})`);
+  assert.ok(out.z < 100, `the water is behind it, so the ring must move back — got z=${out.z}`);
+});
+
+test('ring corridor: a ring never slides behind the player', () => {
+  const discs = [{ x: 0.5, z: 108, radius: 1.5, rz: 2 }];
+  // the only legal plane for this fixture is ~92; minZ forbids it
+  const out = resolveGatePlacement(0, 100, discs, { minZ: 95, maxZ: 120 });
+  assert.ok(out.z >= 95 - 1e-9, `the ring must never land behind the player: z=${out.z}`);
+});
+
+test('ring corridor: a plane whose corridor is already clear does not move at all', () => {
+  const discs = [{ x: 0.5, z: 300, radius: 1.5, rz: 2 }];
+  assert.deepEqual(resolveGatePlacement(0, 100, discs, { minZ: 40, maxZ: 120 }), { x: 0, z: 100 });
+});
+
+test('ring corridor: a hull that clears the circle but stands in the lane is still in the way', () => {
+  // lateral edge 2.4 m from the ring centre: inside the mouth's own span, and NOT flagged by the
+  // plane bar because it never touches the plane's z-band
+  const discs = [{ x: 2.9, z: 86, radius: 0.5, rz: 1 }];
+  const out = resolveGatePlacement(0, 100, discs, { minZ: 40, maxZ: 120 });
+  const gap = corridorGapAt(out.x, out.z, discs);
+  assert.ok(gap.before >= GATE.corridorBefore - 1e-9,
+    `a hull 2.4 m off the mouth line still blocks the approach: before=${gap.before.toFixed(1)} (x=${out.x}, z=${out.z})`);
+});
+
 test('resolveGatePlacement: fuzz — capsules, in bounds, shifts land only on legal planes', () => {
   let rngState = 12345;
   const frand = () => (rngState = (rngState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
@@ -231,11 +295,11 @@ test('resolveGatePlacement: fuzz — capsules, in bounds, shifts land only on le
       discs.push(disc);
     }
     const gx = frand() * 8 - 4;
-    const r = resolveGatePlacement(gx, 100, discs);
+    const r = resolveGatePlacement(gx, 100, discs, { minZ: 100, maxZ: 120 });
     assert.ok(Number.isFinite(r.x) && Math.abs(r.x) <= 14, `x in bounds (${r.x})`);
     assert.ok(r.z >= 100 && r.z <= 120 + 1e-9, `z within [ideal, ideal+20] (${r.z})`);
-    if (mouthClearance(100, gx, discs) >= 3.8) {
-      assert.deepEqual(r, { x: gx, z: 100 }, 'a spawn the mouth+margin already clears never moves');
+    if (corridorClearAt(gx, 100, discs)) {
+      assert.deepEqual(r, { x: gx, z: 100 }, 'a spawn with clear water AND a clear corridor never moves');
     }
     if (r.z > 100 + 1e-9) {
       // the ruling's core: a chosen shift plane is capsule-legal, never an
@@ -243,6 +307,12 @@ test('resolveGatePlacement: fuzz — capsules, in bounds, shifts land only on le
       const edge = mouthClearance(r.z, r.x, discs);
       assert.ok(edge >= 3.8 - 1e-9, `shift landed at a near/overlapping plane (edge ${edge})`);
     }
-    assert.deepEqual(resolveGatePlacement(gx, 100, discs), r, 'deterministic');
+    if (r.z !== 100) {
+      // a z move only ever happens on ACCEPTANCE, so the corridor must hold there. (An x-only change
+      // cannot be asserted this way: the clearest-x fallback also moves x, and it is best-effort.)
+      assert.ok(corridorClearAt(r.x, r.z, discs),
+        `a moved plane must have a clear corridor: b=${corridorGapAt(r.x, r.z, discs).before.toFixed(1)} a=${corridorGapAt(r.x, r.z, discs).after.toFixed(1)}`);
+    }
+    assert.deepEqual(resolveGatePlacement(gx, 100, discs, { minZ: 100, maxZ: 120 }), r, 'deterministic');
   }
 });

@@ -6,7 +6,7 @@
 // mouth opens one SPACE window (QTE.perfectWindow / goodWindow) and the press
 // time picks the grade (assist multiplies both windows, never the geometry).
 
-import { GATE, ASSIST, QTE, WORLD } from './config.js';
+import { GATE, ASSIST, QTE, WORLD, COLLISION } from './config.js';
 import { surfaceHeight } from './wave.js';
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
@@ -138,18 +138,71 @@ function clearestXAt(z, fromX, discs) {
   return best;
 }
 
-export function resolveGatePlacement(gateX, gateZ, discs) {
-  if (clearanceAt(gateZ, gateX, discs) >= MIN_CLEAR) return { x: gateX, z: gateZ };
+export function resolveGatePlacement(gateX, gateZ, discs, { minZ = gateZ - GATE.zShiftMax, maxZ = gateZ + GATE.zShiftMax } = {}) {
+  const acceptable = (x, z) => clearanceAt(z, x, discs) >= MIN_CLEAR && corridorClear(x, z, discs);
+  if (acceptable(gateX, gateZ)) return { x: gateX, z: gateZ };
   const x = clearestXAt(gateZ, gateX, discs);
-  if (clearanceAt(gateZ, x, discs) >= MIN_CLEAR) return { x, z: gateZ };
-  for (let dz = 4; dz <= GATE.zShiftMax; dz += 4) {
-    const z = gateZ + dz;
-    if (clearanceAt(z, gateX, discs) >= MIN_CLEAR) return { x: gateX, z };
-    const cx = clearestXAt(z, gateX, discs);
-    if (clearanceAt(z, cx, discs) >= MIN_CLEAR) return { x: cx, z };
+  if (acceptable(x, gateZ)) return { x, z: gateZ };
+  // The ladder, TWO passes. Pass 1 keeps the ring's own column and moves only in z — a ring that
+  // stays on its line reads as "it moved because the water is better there", where a 14 m sideways
+  // jump to the lane edge reads as the objective wandering off. Pass 2 allows the clearest x at each
+  // plane, but only if the column cannot be won anywhere in the window. Smallest move first, forward
+  // on ties, inside the window the caller allows: the spawn LEAD BAND (spawnMin..spawnAhead ahead of
+  // the player), not the old ±20 — measured, the clear water a ring needs is usually 20-48 m away, so
+  // a ±20 search would spend its whole budget inside the tight stretch it is trying to escape.
+  const walk = (allowLateral) => {
+    for (let k = 1; k <= 400; k++) {
+      const fwd = gateZ + k * 4;
+      const back = gateZ - k * 4;
+      const inFwd = fwd <= maxZ + 1e-9;
+      const inBack = back >= minZ - 1e-9;
+      if (!inFwd && !inBack) break;
+      for (const z of [fwd, back]) {
+        if (z > maxZ + 1e-9 || z < minZ - 1e-9) continue;
+        if (acceptable(gateX, z)) return { x: gateX, z };
+        if (allowLateral) {
+          const cx = clearestXAt(z, gateX, discs);
+          if (acceptable(cx, z)) return { x: cx, z };
+        }
+      }
+    }
+    return null;
+  };
+  return walk(false) ?? walk(true) ?? { x, z: gateZ };
+}
+
+// THE RING'S CORRIDOR (2026-10-22 spec stage A). `clearanceAt` above answers "does the ring overlap
+// a hull AT ITS OWN PLANE". It cannot answer "is there room to line up": measured live, a quarter of
+// rings left under 18 m of clear water behind them inside their own lane window, worst case 2.7 m —
+// the user's "it can be very in front of the obstacle, and it can be right behind the obstacle".
+//
+// A hull is IN THE WAY when its lateral extent crosses the ring's water column, meaning it comes
+// within MIN_CLEAR of the ring's x — the same bar the plane test uses, so the two cannot disagree
+// about what "clear" means. It counts wherever it stands in z, INCLUDING a hull that never touches
+// the ring's plane, which is exactly the case the old bar could not see.
+//
+// Returns the clear metres behind and ahead. A hull straddling the plane returns -1 for both: there
+// is no corridor at all through it.
+export function corridorGapAt(x, z, discs) {
+  const fish = COLLISION.fishRadius;
+  let before = Infinity;
+  let after = Infinity;
+  for (const d of discs) {
+    const rx = d.rx ?? d.radius;
+    if (Math.abs(d.x - x) - rx >= MIN_CLEAR) continue; // laterally clear of the ring's column
+    const rz = d.rz ?? d.radius;
+    const zNear = d.z - rz - fish;
+    const zFar = d.z + rz + fish;
+    if (zFar <= z) before = Math.min(before, z - zFar);
+    else if (zNear >= z) after = Math.min(after, zNear - z);
+    else return { before: -1, after: -1 };
   }
-  // dense water: clearest x at the ideal plane — the fish still fits the mouth
-  return { x, z: gateZ };
+  return { before, after };
+}
+
+function corridorClear(x, z, discs) {
+  const gap = corridorGapAt(x, z, discs);
+  return gap.before >= GATE.corridorBefore && gap.after >= GATE.corridorAfter;
 }
 
 // STRUCTURAL INVARIANT (2026-10-20, §4 row 4). A gate's clearance used to be checked ONCE, at

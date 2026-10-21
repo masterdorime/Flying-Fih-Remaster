@@ -147,10 +147,19 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       runTime: state.runTime,
       speed: state.speed,
     });
-    // place the gate in clear water: clean spawns stay exactly put, mouths a
-    // wall row would clip shift forward to the first plane between rows
-    // (best-effort — dense water keeps today's clearest-x nudge)
-    const placed = resolveGatePlacement(activeGate.x, activeGate.z, world.obstaclesNear(activeGate.z, GATE.placementRange));
+    // place the gate in clear water: clean spawns stay exactly put; a blocked mouth takes the
+    // clearest x; then the plane searches for one with a clear CORRIDOR (the water the player lines
+    // up in), sliding either way inside the spawn lead band and never nearer than spawnMin
+    // (best-effort — dense water keeps today's clearest-x nudge). Spec stage A, 2026-10-22.
+    const pz = player.state.position.z;
+    const placed = resolveGatePlacement(activeGate.x, activeGate.z, world.obstaclesNear(activeGate.z, GATE.placementRange + GATE.spawnMin), {
+      // Backward room is bounded by the MINIMUM lead (never nearer than spawnMin ahead of the player);
+      // forward room is `zShiftMax` beyond the ideal plane, which resolveGatePlacement defaults to.
+      // Measured 2026-10-22: bounding forward room by spawnAhead leaves NO forward room at all above
+      // ~22 u/s, because the lead clamp already puts the ideal plane at spawnAhead — the ring could
+      // then only slide backwards, which shortens the water ahead of it.
+      minZ: pz + GATE.spawnMin,
+    });
     activeGate.x = placed.x;
     activeGate.z = placed.z;
     bus.emit('gate:spawn', activeGate);

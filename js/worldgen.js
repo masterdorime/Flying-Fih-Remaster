@@ -6,7 +6,7 @@
 // cursor-based rows ≥1.2 s apart at every speed (walls ≥1.35 s), add-only
 // jitter, steering-reachable chain validation between consecutive rows, and
 // honest per-variant hull capsules (measured bounds + approved grace).
-import { WORLD, DIFFICULTY, PATTERN, TIER_PROFILE, HULLS, KIND_VARIANTS, FORMATIONS } from './config.js';
+import { WORLD, DIFFICULTY, PATTERN, TIER_PROFILE, HULLS, KIND_VARIANTS, FORMATIONS, COLLISION } from './config.js';
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -91,7 +91,7 @@ function deterministicFallbackRng() { return reserveStream; }
 
 // Point-in-hull-capsule: 2D distance from (px, pz) to the z-axis capsule
 // centered on (o.x, o.z) — half-beam rx, half-length rz (caps included).
-export function capsuleHit(px, pz, o, playerRadius = 1.1) {
+export function capsuleHit(px, pz, o, playerRadius = COLLISION.fishRadius) {
   const rx = o.rx ?? o.radius;
   const rz = Math.max(o.rz ?? o.radius, 0);
   const dzRaw = Math.abs(pz - o.z);
