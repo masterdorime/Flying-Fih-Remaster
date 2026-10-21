@@ -29,12 +29,16 @@ export async function startServer() {
 
 export async function stopServer(server) { await new Promise(resolve => server.close(resolve)); }
 
-export async function openPage(query = '') {
+// `configure` is an optional hook run on the page BEFORE it navigates — the only place a test can
+// install a route (Playwright must own the route before the request is made). Additive and
+// backwards-compatible: existing callers pass a query string and nothing else.
+export async function openPage(query = '', configure = null) {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const consoleErrors = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => consoleErrors.push(String(e)));
+  if (configure) await configure(page);
   await page.goto(`http://127.0.0.1:${PORT}/index.html${query}`);
   // 3-arg form: a bare {timeout} object is read as the predicate ARG and the timeout
   // silently becomes Playwright's 30 s default (AGENTS §5.4). This site was missed by

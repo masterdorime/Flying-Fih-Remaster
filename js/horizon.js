@@ -4,6 +4,7 @@ import { ATMOSPHERE } from './config.js';
 import { surfaceHeight } from './wave.js';
 import { applyWetMaterials, setWetWaterline } from './wet-props.js';
 import { stackSlots, driftSlots } from './farfield.js';
+import { slabTexture } from './clouds.js';
 
 // The horizon layer (2026-10-21, horizon-depth plan H5/H6 — spec §4.2).
 //
@@ -59,13 +60,14 @@ export function createHorizon(scene, runSeed = 0) {
 
   const finishLoad = () => {
     if (!templates.length) {
+      // Degrade, never throw: no rock means no stacks, but the drift and the haze band are
+      // independent of the templates and keep rendering (spec §7).
       state.ready = false;
       console.warn('[horizon] no rock template loaded — the layer degrades to drift and haze only');
       return;
     }
     state.ready = true;
     buildStackPool();
-    buildDriftPool();
   };
 
   for (const file of H.rocks) {
@@ -99,12 +101,24 @@ export function createHorizon(scene, runSeed = 0) {
 
   function buildDriftPool() {
     for (const slot of driftSlots(state.seed, { zFrom: 0, ordinal: 0 })) {
-      const mesh = cloneOf(slot.variant, slot.scale);
+      const mesh = new THREE.Mesh(driftGeo, driftMat);
       mesh.rotation.y = slot.yaw;
+      mesh.renderOrder = 1;          // with the contact decals: above the water
       group.add(mesh);
       state.drift.push({ mesh, ...slot });
     }
   }
+
+  // Drift is FOAM, not debris: flat bright slabs lying on the water. Read as a broken sea surface
+  // at 120-300 m, which is what the empty band needed — and unmistakably not an object, unlike a
+  // small rock, which at that range would be 10 px and could be mistaken for a distant stack.
+  // It needs no rock template, so it survives a failed load (spec §7).
+  const driftGeo = new THREE.PlaneGeometry(1, 1);
+  driftGeo.rotateX(-Math.PI / 2);
+  const driftMat = new THREE.MeshBasicMaterial({
+    map: slabTexture(), transparent: true, opacity: 0.75, depthWrite: false, fog: true,
+  });
+  buildDriftPool();
 
   // A recycled slot is re-placed from the pure function's NEXT window, anchored ahead of the
   // furthest thing alive. Reusing stackSlots (rather than a bespoke one-slot generator) keeps ONE
@@ -129,7 +143,11 @@ export function createHorizon(scene, runSeed = 0) {
 
   function recycleDrift(d, fishZ) {
     state.lap++;
-    const fresh = driftSlots(state.seed, { zFrom: fishZ + H.driftFar, ordinal: state.lap })[0];
+    // zFrom is the fish: driftSlots already adds driftNear..driftFar to it. (The first version
+    // passed fishZ + driftFar, which double-offset the band and parked recycled drift 420-600 m
+    // out — outside the band it exists to fill, where it is 3 px and useless. The live read caught
+    // it; the test had only bounded the band from below, so it could not.)
+    const fresh = driftSlots(state.seed, { zFrom: fishZ, ordinal: state.lap })[0];
     d.x = fresh.x;
     d.z = fresh.z;
     d.variant = fresh.variant;
@@ -162,7 +180,9 @@ export function createHorizon(scene, runSeed = 0) {
 
       for (const d of state.drift) {
         if (d.z - fishZ < H.driftNear) recycleDrift(d, fishZ);
-        d.mesh.position.set(d.x, surfaceHeight(d.x, d.z, t) - d.scale * 0.35, d.z);
+        // a flat slab just above the surface, elliptical so it does not read as a card
+        d.mesh.position.set(d.x, surfaceHeight(d.x, d.z, t) + 0.06, d.z);
+        d.mesh.scale.set(d.scale, 1, d.scale * 0.55);
       }
     },
 
@@ -173,22 +193,24 @@ export function createHorizon(scene, runSeed = 0) {
       for (const d of state.drift) { group.remove(d.mesh); }
       state.stacks.length = 0;
       state.drift.length = 0;
-      if (state.ready) { buildStackPool(); buildDriftPool(); }
+      if (state.ready) buildStackPool();
+      buildDriftPool();   // drift needs no rock template, so it survives a failed load
     },
 
     debugInfo(fishZ = 0) {
-      const stacks = state.stacks.map((s) => ({
-        x: +s.x.toFixed(3), y: +s.mesh.position.y.toFixed(3), z: +s.z.toFixed(3),
-      }));
+      const at = (s) => ({ x: +s.x.toFixed(3), y: +s.mesh.position.y.toFixed(3), z: +s.z.toFixed(3) });
+      const stacks = state.stacks.map(at);
+      const drift = state.drift.map(at);
       const zs = stacks.map((s) => s.z);
       return {
         ready: state.ready,
         cap: H.count,                                    // the configured cap, always
         minZ: H.minDistance,
-        laneHalf: ATMOSPHERE.horizon.spread,             // reported so tests carry no literal
-        stacks,
+        stacks,                                          // live positions, so tests prove the floor
+        drift,                                           // live positions, ditto for inertness
         driftCap: H.driftCount,
-        drift: state.drift.length,
+        driftNear: H.driftNear,
+        driftFar: H.driftFar,
         nearest: zs.length ? +Math.min(...zs).toFixed(2) : null,
         maxZ: zs.length ? +Math.max(...zs).toFixed(2) : null,
         rockFiles: H.rocks,

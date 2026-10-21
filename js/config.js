@@ -345,7 +345,7 @@ export const ATMOSPHERE = {
     driftCount: 18,       // mid-ground fragments alive at once
     driftNear: 120, driftFar: 300,  // m. The empty band this exists to fill.
     driftSpread: 120,     // m. Drift MAY cross the lane (no hitbox) — the empty band is dead ahead.
-    driftScale: 2.5,      // m of height (same convention as the stacks)
+    driftScale: 9,        // m across (same convention as the stacks: metres, after normalising)
     // The roster, by filename in assets/models/rocks/. Loaded LAZILY by js/horizon.js so
     // loadModels' boot path is untouched (the cohesion commit unloaded these files).
     rocks: ['basaltic-columns.fbx', 'column-rocks.fbx', 'extra-large-rocks.fbx', 'pile-rocks.fbx'],

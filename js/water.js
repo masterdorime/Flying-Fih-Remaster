@@ -202,6 +202,16 @@ export function createWater(scene) {
         float fine = sin((vPos.x * 0.55 + vPos.z * 1.35) * 0.30 - uTime * 2.6);
         col = mix(col, uFoam, smoothstep(0.78, 1.0, fine) * 0.30 * (0.35 + 0.65 * t) * fineFade);
 
+        // ---- mid-distance whitecaps (2026-10-21, horizon-depth H7) ----
+        // The fine line family above band-limits itself away (fineFade) as soon as its wavelength
+        // stops being resolvable, which leaves the 150-400 m band a featureless sheet — the empty
+        // mid-ground the horizon layer exists to fill. This is a LONGER-wavelength line family
+        // (~36 m) that fades IN with distance instead of out: it is invisible in the near field,
+        // so the approved near-water look is untouched, and it is what carries the band.
+        float cap = sin((vPos.x * 0.42 + vPos.z * 1.0) * 0.16 - uTime * 1.3);
+        float capFade = smoothstep(0.03, 0.10, px);
+        col = mix(col, uFoam, smoothstep(0.70, 1.0, cap) * 0.20 * (0.5 + 0.5 * t) * capFade);
+
         // crests: aqua flash on the rise, foam caps on the highest crests
         col = mix(col, uAqua, smoothstep(0.35, 0.88, t) * 0.50);
         col = mix(col, uFoam, smoothstep(0.86, 1.0, t) * uCrestFoam);

@@ -64,6 +64,24 @@ test('t23: distant stacks keep the floor, the lane, and their distance from coll
         // (3) GROUNDED: a stack rides the swell, so its y must differ from a flat plane's.
         if (prevY !== null && Math.abs(prevY - v.y) > 1e-4) yMoved = true;
       }
+
+      // --- the drift band: same two rules, and the same inertness proof ------------------
+      assert.ok(Array.isArray(s.drift), 'debugHorizon.drift must be a list of live drift positions');
+      assert.equal(s.drift.length, s.driftCap, `every drift slot must be live: ${s.drift.length} of ${s.driftCap}`);
+      for (const d of s.drift) {
+        // tolerance for frame quantisation: the recycle triggers inside the band and the fish
+        // advances ~1.3 m per frame at this speed
+        assert.ok(d.z - s.fishZ >= s.driftNear - 3,
+          `drift must stay in its own band: ${(d.z - s.fishZ).toFixed(1)} m ahead, band starts at ${s.driftNear}`);
+        // BOTH ends of the band: bounding only the near end let a double-offset recycle park drift
+        // 400-600 m out, where it is 3 px and the band it exists to fill stays empty.
+        assert.ok(d.z - s.fishZ <= s.driftFar + 3,
+          `drift must stay in its own band: ${(d.z - s.fishZ).toFixed(1)} m ahead, band ends at ${s.driftFar}`);
+        for (const disc of s.discs) {
+          assert.ok(Math.abs(disc.x - d.x) > 0.5 || Math.abs(disc.z - d.z) > 0.5,
+            `an obstacle disc at (${disc.x}, ${disc.z}) coincides with drift at (${d.x.toFixed(1)}, ${d.z.toFixed(1)}) — drift must not be collidable`);
+        }
+      }
       prevY = s.stacks[0].y;
       await advanceFrames(page, 1);
     }
@@ -89,6 +107,45 @@ test('t23: distant stacks keep the floor, the lane, and their distance from coll
     void zBefore;
 
     assert.equal(consoleErrors.length, 0, `console errors: ${consoleErrors.join(' | ')}`);
+  } finally {
+    await closePage(browser);
+    await stopServer(server);
+  }
+});
+
+// Review Focus 1: the load-failure path the spec's §7 promises (degrade to drift + haze, never
+// throw, never black). Asserted by ABORTING the rock requests, which is the only way to reach the
+// path with real code.
+//
+// Note this file's console-clean rule is deliberately relaxed HERE and only here: an aborted
+// request makes Chrome log a failed-resource error, so the meaningful assertion is that no
+// UNCAUGHT error (pageerror) was thrown by the degraded path.
+test('t23: a failed rock load degrades to drift and haze, and never throws', async () => {
+  const server = await startServer();
+  const pageErrors = [];
+  const { browser, page } = await openPage('?seed=1337', async (p) => {
+    p.on('pageerror', (e) => pageErrors.push(String(e)));
+    await p.route('**/assets/models/rocks/**', (r) => r.abort());
+  });
+  try {
+    await page.evaluate(() => window.__FFM_API.start({ tutorial: false }));
+    await page.waitForFunction(() => window.__FFM_API.debugObstacleCount() > 0, null, { timeout: 60000 });
+    await advanceFrames(page, 6);
+
+    const h = await page.evaluate(() => window.__FFM_API.debugHorizon());
+    assert.equal(h.templates, 0, 'aborted rock requests must leave no rock templates');
+    assert.equal(h.ready, false, 'with no template the layer must report itself not ready');
+    assert.equal(h.stacks.length, 0, 'no template means no stacks');
+    assert.equal(h.drift.length, h.driftCap,
+      'drift must still render: it needs no rock template, which is what makes the degradation real');
+    const vis = await page.evaluate(() => window.__FFM_API.debugVisibility());
+    assert.equal(vis.horizon, true, 'the layer stays in the scene even when degraded');
+    assert.equal(pageErrors.length, 0, `the degraded path must not throw: ${pageErrors.join(' | ')}`);
+
+    // and the game is still alive and rendering after all that
+    await advanceFrames(page, 3);
+    const frames = await page.evaluate(() => window.__FFM.frames);
+    assert.ok(frames > 0, 'the loop must still be running after a failed rock load');
   } finally {
     await closePage(browser);
     await stopServer(server);
