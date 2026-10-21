@@ -152,15 +152,15 @@ test('t22: the water-look dev seams reach the live uniforms, and the shipped ton
     const shipped = await page.evaluate(() => window.__FFM_API.debugSetWaterLook({}));
     assert.ok(shipped.toneGain > 1.05,
       `the shipped tone gain must be the spread-derived one (> 1.05), got ${shipped.toneGain} — a value near 1.0 is envelope normalisation`);
-    assert.ok(shipped.collarWidth > 0 && shipped.collarWidth <= 2.0,
-      `the hull collar must stay a narrow break hugging the hull, got collarWidth ${shipped.collarWidth}`);
+    assert.ok(shipped.collarRel > 0 && shipped.collarRel < 0.6,
+      `the hull collar must stay a narrow break hugging the hull, got collarRel ${shipped.collarRel}`);
     assert.ok(shipped.collarPeak > 0 && shipped.collarPeak < 0.7,
       `the collar must not be a filled white plate again, got collarPeak ${shipped.collarPeak}`);
 
     // The seam must actually move the live uniforms, and echo what it applied.
-    const applied = await page.evaluate(() => window.__FFM_API.debugSetWaterLook({ toneGain: 1.5, collarWidth: 2.4, collarPeak: 0.2 }));
+    const applied = await page.evaluate(() => window.__FFM_API.debugSetWaterLook({ toneGain: 1.5, collarRel: 0.4, collarPeak: 0.2 }));
     assert.equal(applied.toneGain, 1.5, 'debugSetWaterLook must apply toneGain to the water uniform');
-    assert.equal(applied.collarWidth, 2.4, 'debugSetWaterLook must apply collarWidth to the water uniform');
+    assert.equal(applied.collarRel, 0.4, 'debugSetWaterLook must apply collarRel to the water uniform');
     assert.equal(applied.collarPeak, 0.2, 'debugSetWaterLook must apply collarPeak to the water uniform');
 
     // The decal's strength: setter and the reported state share ONE number (AGENTS §3).

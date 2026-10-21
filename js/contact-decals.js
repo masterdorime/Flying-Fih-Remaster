@@ -15,6 +15,9 @@ import { surfaceHeight } from './wave.js';
 // few by ATMOSPHERE.contact.count.
 export function createContactDecals(scene) {
   const { count, opacity, decalScale, decalLift } = ATMOSPHERE.contact;
+  // Mutable so the tuning seam can move them on a live frame (the frozen-vantage A/B needs it).
+  let scale = decalScale;
+  let alpha = opacity;
 
   // A plane, rotated as a MESH rather than baked into the geometry. That matters: baking
   // rotateX into the geometry moves the extent out of the local y axis, so scale.y would then
@@ -27,7 +30,7 @@ export function createContactDecals(scene) {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    uniforms: { uOpacity: { value: opacity } },
+    uniforms: { uOpacity: { value: alpha } },
     vertexShader: /* glsl */`
       varying vec2 vUv;
       void main() {
@@ -71,7 +74,7 @@ export function createContactDecals(scene) {
         if (!h) { m.visible = false; continue; }
         m.visible = true;
         m.position.set(h.x, surfaceHeight(h.x, h.z, t) + decalLift, h.z);
-        m.scale.set(h.rx * 2 * decalScale, h.rz * 2 * decalScale, 1);
+        m.scale.set(h.rx * 2 * scale, h.rz * 2 * scale, 1);
       }
     },
     debugInfo() {
@@ -85,8 +88,16 @@ export function createContactDecals(scene) {
     // Dev seam (see water.js setLook): the decal's strength is a look number that needs an eye
     // on a still frame, and it is the other half of the contact cue.
     setOpacity(v) {
-      if (typeof v === 'number') mat.uniforms.uOpacity.value = Math.min(1, Math.max(0, v));
-      return mat.uniforms.uOpacity.value;
+      if (typeof v === 'number') { alpha = Math.min(1, Math.max(0, v)); mat.uniforms.uOpacity.value = alpha; }
+      return alpha;
+    },
+    // The contact SHADOW's reach. It was shrunk to 0.95 so it would hide under the hull, which also
+    // removed the one cue that grounds an object: measured on a buoy close-up, there was no dark
+    // contact anywhere under the prop, only bright foam — and bright separates. Scaling it back past
+    // the footprint (with the soft falloff) puts the shadow where it reads.
+    setScale(v) {
+      if (typeof v === 'number') scale = Math.max(0.1, v);
+      return scale;
     },
   };
 }

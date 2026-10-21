@@ -37,7 +37,7 @@ export function createWater(scene) {
       // below, so the array and the shader's loop can never disagree.
       uHulls: { value: Array.from({ length: ATMOSPHERE.contact.count }, () => new THREE.Vector4()) },
       uHullCount: { value: 0 },
-      uCollarWidth: { value: ATMOSPHERE.contact.collarWidth },
+      uCollarRel: { value: ATMOSPHERE.contact.collarRel },
       uCollarPeak: { value: ATMOSPHERE.contact.collarPeak },
     },
     defines: { HULL_MAX: ATMOSPHERE.contact.count },
@@ -78,7 +78,7 @@ export function createWater(scene) {
       uniform float uWakeStrength;
       uniform vec4 uHulls[HULL_MAX];
       uniform float uHullCount;
-      uniform float uCollarWidth;
+      uniform float uCollarRel;
       uniform float uCollarPeak;
       varying vec3 vPos;
       varying float vFogDepth;
@@ -240,15 +240,22 @@ export function createWater(scene) {
         // same curve — no per-prop mesh and no decal to keep in sync with the field.
         // The footprint is an ELLIPSE (hulls are long in z): a circle of max(rx, rz) spills far
         // past the beam and reads as a white puddle next to the hull, not foam around it
-        // (caught in a screenshot). Branch-free: dead slots have zero radii but collarWidth
+        // (caught in a screenshot). Branch-free: dead slots have zero radii but uCollarRel
         // keeps the divisor non-zero, and the live multiplier zeroes them.
         float hullFoam = 0.0;
         for (int i = 0; i < HULL_MAX; i++) {
           vec4 hu = uHulls[i];
           float live = float(i) < uHullCount ? 1.0 : 0.0;
+          // The collar's EXTRA width is PROPORTIONAL to the hull (uCollarRel x its larger
+          // half-extent), not a fixed number of metres. A fixed 1 m nearly DOUBLED a 2 m buoy's
+          // footprint — the bright white skirt the user read as the buoy "standing on a plate" —
+          // while being nothing at all on a 16 m ship. Same lesson as the prop sink: an absolute
+          // constant breaks at the small end of the size range. At 0.14 a liner's collar is within
+          // a few percent of what it always was.
+          float w = max(hu.z, hu.w) * uCollarRel;
           vec2 rel = vec2(
-            (vPos.x - hu.x) / (hu.z + uCollarWidth),
-            (vPos.z - hu.y) / (hu.w + uCollarWidth)
+            (vPos.x - hu.x) / (hu.z + w),
+            (vPos.z - hu.y) / (hu.w + w)
           );
           float dh = length(rel);
           // irregular edge, so the collar does not read as a drawn ring
@@ -257,7 +264,14 @@ export function createWater(scene) {
           // the hull's own footprint edge (dh = 1.0) and is gone by ~1.15, so it hugs the hull
           // instead of pancaking out past the beam. (Its inner region is occluded by the hull
           // itself, so only the outer fade is ever visible.)
-          hullFoam = max(hullFoam, live * smoothstep(1.15 + wobble, 0.92, dh));
+          // HOW MUCH foam, from HOW BIG the thing is. Measured on a buoy close-up (5 candidates, ONE
+          // setting apart): with a full-strength ring the ~2 m buoy sat on a bright white puff and
+          // read as "standing on a plate"; removing the foam entirely is what finally made it read as
+          // IN the water. Physically right too — a buoy displaces almost nothing, a 16 m hull breaks
+          // the sea. Half-extents cluster at ~1.1 (buoys/containers) and 4.9-8.4 (ships), so 1.8-4.5
+          // separates them cleanly, leaving a FAINT ring at the small end rather than none at all.
+          float sizeScale = mix(0.18, 1.0, smoothstep(1.8, 4.5, max(hu.z, hu.w)));
+          hullFoam = max(hullFoam, live * sizeScale * smoothstep(1.15 + wobble, 0.92, dh));
         }
         float foamAmt = clamp(contact * 0.85 + streak * 0.5 * uWakeStrength + hullFoam * uCollarPeak, 0.0, 1.0);
         float bob = 0.85 + 0.15 * sin(uTime * 3.0);
@@ -345,13 +359,13 @@ export function createWater(scene) {
     // collar are the two water dials that need an EYE on a still frame, and the ledgers for
     // both (wet band, collarWidth) recorded that a drifting vantage made the comparison
     // illegible. Inert in production — nothing calls it but a probe or a test.
-    setLook({ toneGain, collarWidth, collarPeak } = {}) {
+    setLook({ toneGain, collarRel, collarPeak } = {}) {
       if (typeof toneGain === 'number') mat.uniforms.uToneGain.value = toneGain;
-      if (typeof collarWidth === 'number') mat.uniforms.uCollarWidth.value = collarWidth;
+      if (typeof collarRel === 'number') mat.uniforms.uCollarRel.value = collarRel;
       if (typeof collarPeak === 'number') mat.uniforms.uCollarPeak.value = collarPeak;
       return {
         toneGain: mat.uniforms.uToneGain.value,
-        collarWidth: mat.uniforms.uCollarWidth.value,
+        collarRel: mat.uniforms.uCollarRel.value,
         collarPeak: mat.uniforms.uCollarPeak.value,
       };
     },
