@@ -310,8 +310,28 @@ export const ATMOSPHERE = {
     // in metres over which it fades out above the surface.
     wetBand: 0.75, wetDarken: 0.45, wetColor: 0x0a2a3f, wetEnv: 1.9,
   },
-  // horizon depth layer (T12) — inert until then
-  horizon: { layers: 0, scaleRange: 0, hazeStrength: 0, spacing: 0 },
+  // horizon depth layer (2026-10-21 plan H3; the block these zeros reserved).
+  // Distant rock standing IN the swell, a mid-ground drift band, and the numbers the recycler
+  // moves between. Placed by the pure js/farfield.js from this layer's OWN stream (slot 90), so
+  // worldgen's draw order and the corpus pins cannot move.
+  horizon: {
+    minDistance: 240,     // m. NOTHING stands nearer than this. The playable lane is ±14 m and
+                          // rows compose inside 360 m, so this floor is what keeps distant rock
+                          // unmistakably not a hazard. Unit-tested, not a convention.
+    zBand: 600,           // m. The recycled band's length: a stack behind the fish respawns
+                          // ahead by this much.
+    count: 5,             // stacks alive at once. H9 sets this from a measured fps, not taste.
+    spread: 300,          // m. How far off the lane axis a stack may sit (beyond the lane).
+    minScale: 0.6, maxScale: 1.8,   // scale multipliers on the rock's normalised size
+    minZSeparation: 55,   // m. Below this, consecutive stacks read as a WALL rather than scenery.
+    driftCount: 18,       // mid-ground fragments alive at once
+    driftNear: 120, driftFar: 300,  // m. The empty band this exists to fill.
+    driftSpread: 120,     // m. Drift MAY cross the lane (no hitbox) — the empty band is dead ahead.
+    driftScale: 0.25,     // drift is a fragment, not a landmark
+    // The roster, by filename in assets/models/rocks/. Loaded LAZILY by js/horizon.js so
+    // loadModels' boot path is untouched (the cohesion commit unloaded these files).
+    rocks: ['basaltic-columns.fbx', 'column-rocks.fbx', 'extra-large-rocks.fbx', 'pile-rocks.fbx'],
+  },
   // post-FX (T13, gated behind settings.postFx): ONE tone map over the whole frame, which is
   // the strongest cohesion lever there is — it forces water, sky and props through one colour
   // response, so they stop reading as three separate renders.

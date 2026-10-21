@@ -24,7 +24,12 @@ function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
 // Deterministic mixed stream keys (FNV-1a over small ints) — every decision
 // owns its stream id so attempt re-rolls can't perturb the cursor or neighbors.
-function streamKey(...nums) {
+//
+// EXPORTED 2026-10-21 (horizon-depth H3, ledgered): the far layer needs the same key mixing, and
+// the alternative was a second copy of this hash inside js/farfield.js — exactly the duplicated
+// rule AGENTS §7.2 forbids. Exporting changes no draw order and no behaviour; it only makes the
+// one implementation reachable.
+export function streamKey(...nums) {
   let h = 2166136261 >>> 0;
   for (const n of nums) { h ^= (n | 0) + 0x9e3779b9; h = Math.imul(h, 16777619) >>> 0; }
   return h >>> 0;
