@@ -137,13 +137,14 @@ The zeros at `config.js:314` become the layer's numbers: stack count and cap, `z
 
 **Name disposition, stated explicitly so no stale name survives** (the same housekeeping the gate
 work did when it retired `nudgeMargin`/`nudgeHalfRange`): `spacing` → **renamed** `minZSeparation`
-(it always meant the spacing between things, and now says between what); `scaleRange` **retired** in
-favour of an explicit `minScale`/`maxScale` pair, because `[a, b]` arrays are the only
-array-shaped config in an otherwise flat numeric block; `layers` **retired outright** — the far
-band is painted on the dome, not layered, so a count of "layers" names nothing real;
+(it always meant the spacing between things, and now says between what); `scaleRange` →
+**replaced** by an explicit `minScale`/`maxScale` pair, because a named pair says which bound is
+which where `scaleRange: [a, b]` makes the reader remember an order; `layers` **retired outright** —
+the far band is painted on the dome, not layered, so a count of "layers" names nothing real;
 `hazeStrength` **retired here and placed in `ATMOSPHERE.sky`** instead, because the haze band is a
 dome shader input and `§4.3` is its owner. One number, one home (§3) — this document must not
-half-populate a block and leave a same-named key in two places.
+half-populate a block and leave a same-named key in two places. (A roster of rock filenames *is*
+added to this block: that is data naming which assets exist, not a range pretending to be one.)
 
 ### 4.6 Wiring
 
