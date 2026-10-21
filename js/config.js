@@ -287,7 +287,10 @@ export const ATMOSPHERE = {
   // Their SHAPE (the puff frequencies below) deliberately stays in the shader: style, not a dial.
   sky: {
     zenith: 0x2f8fc4, horizon: 0xcfe8f5,
-    cloudBand: { strength: 0.80, low: 0.05, high: 0.18, fallLow: 0.40, fallHigh: 0.78 },
+    // cloudBand strength 0.80 -> 1.0 (2026-10-21, user-approved): the phase ledger carried the cloud
+    // band as "reads very subtle", and the frozen-vantage sheet (0.40 / 0.80 / 1.00, one setting
+    // apart) confirmed 1.0 as the solid-white one. Elevation bounds unchanged.
+    cloudBand: { strength: 1.0, low: 0.05, high: 0.18, fallLow: 0.40, fallHigh: 0.78 },
     // the static far haze band: the horizon layer's own half of "stacks recycle, the haze holds
     // station" — it is painted on the dome, so it can never be bare and never needs recycling.
     hazeBand: { strength: 0.55, elevation: 0.12 },
