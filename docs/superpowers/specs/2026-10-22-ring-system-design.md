@@ -37,6 +37,29 @@ the plane anywhere in z −12…+48 and choosing the clearest legal lane positio
 **18 of 20 rings could gain more than 5 m.** The rule is satisfiable with headroom, so this is a
 placement fix rather than a row-composition rewrite.
 
+### 1.1 Result (2026-10-22, after stage A shipped)
+
+Same probe, same conditions, 25 fresh rings at 45 u/s:
+
+| | before | after |
+|---|---|---|
+| ring inside / too close to a hull | 0 / 25 | **0 / 25** |
+| clear water **behind** the ring — worst | **2.7 m** | **14.6 m** |
+| rings with under 18 m to line up | **7 / 25** | **1 / 25** |
+| clear water **ahead** — worst | 6.0 m | **10.8 m** |
+| clear water ahead — median | 47.5 m | 57.8 m |
+
+The single remaining 14.6 m ring is the run's FIRST ring, which spawns when the player is barely
+moving: its ideal plane already sits at `minZ` (the minimum lead), so it has forward room but almost
+no backward room. That is the intended behaviour of the bound, not a miss.
+
+**One defect the measurement caught in this stage's own design:** the first version bounded the search
+to the spawn lead band `[spawnMin, spawnAhead]`, which above ~22 u/s leaves **no forward room at all**
+— the lead clamp already places the ideal plane at `spawnAhead` — so the ring could only slide
+backwards and the *exit* corridor got worse (worst ahead 4.7 m, down from 6.0). Re-measured after
+bounding forward room from the ideal plane instead: worst ahead 10.8 m. Recorded because it is the
+second time in this project that a placement change looked right on paper and had to be measured.
+
 ## 2. Contract (stage A)
 
 | Quantity | Contract |
