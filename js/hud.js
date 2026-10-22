@@ -82,7 +82,14 @@ export function createHud(root) {
       background: rgba(8, 30, 46, .72); border: 1px solid rgba(255, 140, 120, .55); overflow: hidden; }
     .ffm-charge-fill { height: 100%; width: 0%; border-radius: 6px;
       background: linear-gradient(90deg, #ffd54a, #ff9430, #ff4d6d); transition: width .08s linear; }
-    #ffm-qte { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+    /* The cue sits UPPER-MIDDLE, not at the bottom (2026-10-22, user: "the qte page currently sitting on
+       bottom which is not ergonomical, player need to divide the focus to diffrent part of screen
+       everytime"). The bottom already carries the gauge and the charge meter, and the gaze during play is
+       on the fish and the water ahead — centre and up toward the horizon — so the cue was in the one busy
+       corner the eye is not in. 12% puts it in the sky band the eye already scans for the next ring,
+       ABOVE the horizon (≈45%) and clear of the grade popups (fixed at top: 34%, 44px tall), which also
+       keeps it out of the way of the water being steered through. */
+    #ffm-qte { position: fixed; left: 50%; top: 12%; transform: translateX(-50%);
       width: 112px; height: 112px; display: flex; align-items: center; justify-content: center;
       pointer-events: none; }
     .ffm-qte-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
