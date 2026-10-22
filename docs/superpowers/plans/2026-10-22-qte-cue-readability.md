@@ -31,22 +31,33 @@ says "hurry" against the cue's "wait".
 
 ## Tasks
 
-- [ ] **T1** docs commit: this plan.
-- [ ] **T2** RED: unit tests for the tick model — the target is `targetTicks × tick`; the window is
-  constant width wherever the target lands; a per-trigger draw varies across triggers and reproduces under
-  a seed; `tick` ≥ the aliasing floor.
-- [ ] **T3** GREEN: `config.QTE` gains `tick` + `targetTicks`; `pickLead` becomes a tick-count draw;
-  `createQte` derives `targetAt` from it. Unit suite green.
-- [ ] **T4** RED: `t08` gains — a static target element exists and is visible before the moment; the beat
-  fires (asserted through `debugAudioStats`, so it is deterministic and not a screenshot); `EARLY`/`LATE`
-  reaches the popup; the target **varies across triggers**; both styles reachable from the first ring.
-- [ ] **T5** GREEN: `hud.js` — the clock dial (ticking hand + gold target band), the closing ring's marked
-  target, the key-as-surface fill, the beat, both styles from ring 1; the arc removed.
-- [ ] **T6** GREEN: `audio.js` synth tick + target beat; `game.js` stamps the press sign; `juice.js` shows
-  it on the popup.
-- [ ] **T7** acceptance: a six-frame montage across one window; two rings side by side showing **different**
-  targets. If the moment is not obvious in a still, it is not fixed.
-- [ ] **T8** closure: full unit suite + full browser gate; HANDOFF; SDD ledger; throwaway screenshots.
+- [x] **T1** docs commit: this plan (`139b3a2`).
+- [x] **T2** RED: unit tests for the tick model — the target is `targetTicks × tick`; the window is
+  constant width wherever the target lands; a per-trigger draw varies across triggers; `tick` ≥ the
+  aliasing floor; no drawn target can let a fresh press score. Watched RED (`QTE.tick` undefined, roster
+  still `sweeping`).
+- [x] **T3** GREEN: `config.QTE` gains `tick` + `targetTicks`; `pickLead` becomes a tick-count draw;
+  `createQte` derives `targetAt` from it and carries `ticks`/`beat`/`tick`. Unit suite green.
+- [x] **T4** RED: `t08` gains — a static target element visible before the moment; the beat fires (asserted
+  through `debugAudioStats`, deterministic and not a screenshot); `dataset.phase` reaches both `now` and
+  `late`; the clock's angles are **discrete**; both styles grade the moment as Perfect. **The target's
+  variation is proved where it is a question of the draw** (unit) **and behaviourally** (triggers drew tick
+  5 and tick 6 in the probe) — a still cannot show a different *question*, only a different answer.
+  *Carried over from T2's RED instead of a second browser RED, and ledgered.*
+- [x] **T5** GREEN: `hud.js` — the clock dial (ticking hand + gold target band), the closing ring's marked
+  target, the key-as-surface fill, the beat, and the tail dim; both styles from ring 1; the arc removed.
+- [x] **T6** GREEN (with one deviation): `audio.js` synthesises the tick + beat and subscribes to
+  `qte:tick` / `qte:beat`; `game.js` owns the clock and edge-triggers both. **Deviation: the `EARLY`/`LATE`
+  popup sign was dropped in favour of `dataset.phase = 'late'` dimming the mark.** Same defect (a cue
+  claiming "now" while grading late), reached without a new text channel and without touching the popup's
+  substring contract; ledgered in the SDD.
+- [x] **T7** acceptance: a six-frame montage across one window (by PAUSING — the only way on this rig); the
+  world ring for both styles; the variation seen as tick counts. If the moment is not obvious in a still, it
+  is not fixed. **It was not obvious in a still: three defects came out of this step and none of them from a
+  failing assertion** (the hand at 9 o'clock, the band a tick clockwise, the frozen post-moment mark).
+- [x] **T8** closure: unit 139/139 + the FULL browser gate (ALL PASS, 19 checks); spec §9 + §8 banner; SDD
+  ledger with 12 rulings; scratch stills in `%TEMP%\opencode\qte-final` and `%TEMP%\opencode\band2`.
+  Zip not rebuilt (§6: no plan span adopted it, and this is not a release point).
 
 ## Risks
 

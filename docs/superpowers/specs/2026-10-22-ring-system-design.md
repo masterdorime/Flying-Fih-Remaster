@@ -139,6 +139,11 @@ this document. **C has since shipped — see §8, which is its authority.**
 
 ## 8. Stage C — two timing styles, SHIPPED 2026-10-22 (`c7734de`, replacing `b05fcdf`)
 
+> **Superseded in part by §9 (2026-10-22, same day).** The anchoring rule below stands, and so do the window
+> widths. §9 replaces the *timing model* (`targetLead` + `targetJitter` → the tick model), the **`sweeping`
+> name** (→ `clock`), the arc cue, and the roster's `minD 0.2`. Read §9 for anything about the moment, the
+> styles, or the cue.
+
 **The anchoring rule: the grade vocabulary and everything downstream are UNCHANGED.** Perfect / Good /
 Miss, +8 / +4, the chain rules, the speed cuts, `applyResult` and scoring are exactly as they were.
 Only **how** a grade is earned differs.
@@ -187,3 +192,77 @@ immediately.
 **Known limits:** the numbers are starting values, not playtested; the tutorial still teaches the old
 mechanic (and still cannot finish — deferred by the user); and the smash's code was removed rather than
 left dormant.
+
+## 9. Stage C3 — the cue states the moment, SHIPPED 2026-10-22
+
+**The anchoring rule still holds:** the grade vocabulary, +8 / +4, the chain rules, the speed cuts,
+`applyResult` and scoring are untouched. This stage is *presentation and when-the-moment-is*, nothing else.
+It exists because the user, shown stage C, reported **"the qte visual still confusing for player"**, and
+answered the narrowing question with **"can't tell when to press"**.
+
+**The diagnosis.** The moment existed ONLY as motion converging — two shapes meeting — with no static
+target, no beat, and a drain arc that said "hurry" while the cue said "wait". Reading a moment is easier
+than feeling one, and nothing on screen stated it.
+
+| quantity | contract |
+|---|---|
+| opportunity | **CONSTANT** — Perfect ±0.16 s, Good ±0.38 s around the target (0.32 s / 0.76 s, unchanged from §8) at **every** ring |
+| the target | **DRAWN per trigger**: `targetTicks` ∈ {4, 5, 6} × `tick` 0.16 s after the crossing ⇒ the moment lands **0.64–0.96 s** out |
+| the tick | the clock's step **and** the unit the target is drawn in, so *"press within one tick of the notch"* is literally the Perfect band. Hard floor ≥ 0.15 s — finer aliases into noise at this rig's ~11 fps |
+| static target | the clock's gold band (one tick wide) / the marked ring the closing ring lands on |
+| the beat | at the moment: the target lights, `SPACE` fills solid, and `qte:tick` / `qte:beat` sound |
+| past the moment | the mark **dims** (`dataset.phase = 'late'`) |
+| the key | the surface itself: it fills toward the moment |
+| deleted | the drain arc and `dataset.progress` |
+| roster | `closing { weight 1.0, minD 0 }`, `clock { weight 1.0, minD 0 }` — **both from the first ring** |
+| names | `closing`, **`clock`** (was `sweeping`) |
+
+**Why the target moves and the window does not.** The user asked for the placement to differ every trigger.
+Moving the *window* is a difficulty lottery — a ring could randomly be more forgiving. Moving the target
+inside a fixed window is variation in *timing*, which is what was asked for. A press the instant you cross
+stays a Miss for every ring: no drawn target can let a fresh press score.
+
+**Why no countdown, and why the tail dims rather than moves.** A clock ticking *down* teaches "press before
+it ends", which is now the opposite input, so the notch states the goal and nothing implies hurry. Past the
+moment, a late press still scores Good for 0.38 s, so the cue must stop claiming the moment — but a moving
+element there reads as "still going" or "hurry", so the *state* changes (the mark dims) instead of the
+geometry.
+
+**Verification:** unit **139/139**; **t08 1/1 green**. t08 now asserts, live: the closing ring lands exactly
+on the marked target (sampled as a minimum over the window — the landing is clamped); the target lights at
+the moment (`dataset.beat`); the counter spans the drawn tick and never outlives the window; the tick and
+beat sounds fire (`debugAudioStats`); `dataset.phase` reaches both `now` and `late`; the clock hand comes to
+rest centred on the gold band and its angles are **discrete** (`distinctAngles <= ticks + 2`, which a smooth
+sweep fails by construction); both styles grade the moment as Perfect.
+
+**Acceptance evidence** (`probe-qte-readability.mjs`, one window shot six times by *pausing* — a screenshot
+costs longer than the window, so this is the only way to montage one window rather than six):
+
+| style | lead | t=0 | 0.25 | 0.5 | 0.75 | moment | past |
+|---|---|---|---|---|---|---|---|
+| closing | 0.96 s (tick 6) | r 67.3, fill 10% | 63.2, 26% | 56.5, 52% | 49.7, 78% | **r 44.0, fill 100%, beat** | r 44.0, dimmed |
+| clock | 0.80 s (tick 5) | hand −187.5°, 12% | −150°, 31% | −112.5°, 50% | −75°, 75% | **hand 0.0° = the band's centre, fill 100%, beat** | hand 0.0°, dimmed |
+
+Triggers drew **tick 5 and tick 6** — the variation, as behaviour rather than as a picture (a still cannot
+show a *different question*, only a different answer).
+
+**What the acceptance still found that the suite could not** (three for three in this stage, which is why a
+still is owed rather than optional):
+
+1. **The hand landed at 9 o'clock while the band sat at 12** — the sweep's inherited `-90`, derived from the
+   path's 3-o'clock start, was never checked against the dot's authored 12 o'clock. An angle-only assertion
+   passed through all of it, because a convention mismatch is not a number.
+2. **The band then sat a full tick *clockwise* of the hand** — a second convention for the same point on the
+   dial (`stroke-dashoffset` + CSS `rotate(-90deg)`). A 4× device-pixel crop of the dial's top settled it,
+   with the hand dead-centre at 12 (`dx = 0`, `dy = −0.88`) and the gold running rightward from it.
+3. **Both styles sat frozen ON the mark after the moment**, while a late press still scores Good for 0.38 s —
+   the cue claiming "now" and the grade saying late. Fixed with the `late` dim.
+
+The hand and the band are now positioned in ONE coordinate system (the element's own `transform`), t08
+checks the hand in rendered **pixels** and ties the band's rotation to the band's own width, and the
+moments above are read from the DOM *and* looked at.
+
+**Trap re-hit and caught before the run:** `js/main.js` fed the F3 overlay the retired `QTE.targetLead` —
+the same `undefined.toFixed()` boot failure §8's trap records. A grep for the retired key found it in one
+step; the overlay now reports the drawn range and the tick.
+
