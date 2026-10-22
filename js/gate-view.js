@@ -35,6 +35,12 @@ export function createGateView(scene) {
   const RING = 0x4dd2ff, GOLD = 0xffd54a, GOOD = 0x7dff9a, BAD = 0xff5e5b, CLOCK = 0xc77dff;
   const baseRing = new THREE.Color(RING);
   const baseClock = new THREE.Color(CLOCK);
+  // `Color.lerp` takes a COLOR, not a hex number (2026-10-22). Passing the number made three read `.r/.g/.b`
+  // off a Number — `undefined` — so every channel became NaN, and a NaN colour renders BLACK. That single
+  // wrong argument is the whole of the long-standing "the gate ring renders as a heavy black hoop" report:
+  // not the geometry, not the post-processing, and not anything a 3D-asset swap would have fixed. It is also
+  // why the ring was sometimes gold or red instead — `Color.set` (the flash) does accept a number.
+  const goldTint = new THREE.Color(GOLD);
   const FLASH_SECONDS = 0.25;
   let flashLeft = 0;
 
@@ -61,7 +67,7 @@ export function createGateView(scene) {
     if (playerPos && flashLeft <= 0) {
       const d = Math.hypot(playerPos.x - gate.x, playerPos.y - y);
       const near = Math.max(0, 1 - d / (GATE.mouthRadius + 2));
-      torus.material.color.copy(isClock ? baseClock : baseRing).lerp(GOLD, near * 0.8);
+      torus.material.color.copy(isClock ? baseClock : baseRing).lerp(goldTint, near * 0.8);
       const pulse = 1 + Math.sin(runTime * 3) * 0.02;
       torus.scale.setScalar(pulse);
     }
@@ -82,7 +88,16 @@ export function createGateView(scene) {
   }
 
   function debugInfo() {
-    return { visible: group.visible, flashLeft: Number(flashLeft.toFixed(2)) };
+    // `ring`/`ringFinite` (2026-10-22): the ring's colour went NaN for a long time and a NaN colour renders
+    // BLACK, which read as a geometry or post-processing problem for weeks. Reporting finiteness here is
+    // what lets a test see it at all.
+    const c = torus.material.color;
+    return {
+      visible: group.visible,
+      flashLeft: Number(flashLeft.toFixed(2)),
+      ring: '#' + c.getHexString(),
+      ringFinite: Number.isFinite(c.r) && Number.isFinite(c.g) && Number.isFinite(c.b),
+    };
   }
 
   return { group, update, flash, resetColors, debugInfo };

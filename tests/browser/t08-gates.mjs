@@ -130,6 +130,32 @@ await page.waitForFunction(() => {
 }, null, { timeout: 90000 });
 assert(true, 'flight gate inside the 63-104 band');
 
+// 6b. the ring's COLOUR survives its own proximity tint (2026-10-22). The tint passed a hex NUMBER to
+//     THREE.Color.lerp, which takes a Color: it read `.r/.g/.b` off a number, so all three channels went
+//     NaN — and a NaN colour renders BLACK. That one wrong argument is the whole of the long-standing "the
+//     gate ring renders as a heavy black hoop" report: not the geometry, not the post-processing, and not
+//     something replacing the ring with a 3D asset would have fixed.
+//
+//     The tint only runs on a frame that no flash owns (`flashLeft === 0`), and a flash sets the colour
+//     directly (and validly). Sampling must therefore happen IN-PAGE, on the same frame it accepts, or a
+//     flash that starts between the wait and the read masks the bug — which it did, twice, before this.
+const ringSamples = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const out = [];
+  const until = performance.now() + 90000;
+  while (performance.now() < until && out.length < 3) {
+    const i = api.debugGateFlash();
+    if (i.visible && i.flashLeft === 0) out.push(i);
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  return out;
+});
+assert(ringSamples.length >= 1, `must catch a frame the tint owns (got ${ringSamples.length})`);
+for (const s of ringSamples) {
+  assertEqual(s.ringFinite, true, `the ring's colour must survive the tint (ring ${s.ring})`);
+  assert(s.ring !== '#000000' && !s.ring.includes('NaN'), `and must not be black/NaN (ring ${s.ring})`);
+}
+
 // 7. the gate flash actually renders: visible + colored after a resolve
 await page.waitForFunction(() => (window.__FFM_API.debugGateFlash()?.flashLeft ?? 0) > 0, null, { timeout: 60000 });
 const flash = await page.evaluate(() => window.__FFM_API.debugGateFlash());
