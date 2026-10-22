@@ -1,4 +1,4 @@
-import { GAUGE, GAMEOVER, FLIGHT } from './config.js';
+import { GAUGE, GAMEOVER, FLIGHT, QTE } from './config.js';
 import { qteRemaining } from './timing.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
@@ -138,8 +138,27 @@ export function createHud(root) {
   // live, then the HUD's cyan for the remainder of the good window.
   const QTE_ARC = 276.5; // 2πr for the r-44 prompt ring
   function updateQte(qte, runTime) {
-    if (!qte) { qteEl.classList.add('hidden'); return; }
+    if (!qte) { qteEl.classList.add('hidden'); qteEl.dataset.mode = ''; return; }
     qteEl.classList.remove('hidden');
+    const mode = qte.style ?? 'ring';
+    qteEl.dataset.mode = mode; // the prompt says which input it is (tests read this too)
+
+    // SMASH (2026-10-22 stage C): the same circle FILLS with presses instead of draining with time,
+    // so one prompt still reads as "this ring's window" for both styles while the motion says which.
+    // Violet until the bar would score a Good (smashGood), gold after — the player can see the Good
+    // already banked and is pushing for the Perfect.
+    if (mode === 'smash') {
+      const fill = Math.min(1, qte.presses / QTE.smashTarget);
+      const good = qte.presses >= QTE.smashGood;
+      drainEl.style.strokeDashoffset = (QTE_ARC * (1 - fill)).toFixed(1);
+      drainEl.dataset.progress = (fill * 100).toFixed(1);
+      drainEl.style.stroke = good ? '#ffd54a' : '#c77dff';
+      drainEl.style.filter = good
+        ? 'drop-shadow(0 0 7px rgba(255, 213, 74, .55))'
+        : 'drop-shadow(0 0 7px rgba(199, 125, 255, .55))';
+      return;
+    }
+
     const t = Math.min(1, Math.max(0, 1 - qteRemaining(qte, runTime) / qte.goodWindow));
     drainEl.style.strokeDashoffset = (QTE_ARC * t).toFixed(1);
     drainEl.dataset.progress = (t * 100).toFixed(1);

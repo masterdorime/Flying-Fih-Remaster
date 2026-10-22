@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt } from '../../js/timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt, pickStyle, evaluateQtePress, expiryResult } from '../../js/timing.js';
 import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -227,6 +227,118 @@ test('resolveGatePlacement: best effort in hopeless water — hold the ideal pla
 
 test('config: gate clearance margin is 0.8 (accepted planes clear mouth+margin)', () => {
   assert.equal(GATE.clearanceMargin, 0.8);
+});
+
+// ---- two QTE styles, varying per ring (2026-10-22 spec stage C) ------------------------------
+// The grade VOCABULARY is unchanged — perfect / good / miss, and everything downstream of applyResult
+// (+8/+4, chain, cuts, scoring) is untouched. Only how a grade is EARNED differs. These tests pin the
+// pure core of that: the roster, and the smash's press-counting state machine.
+
+test('style roster: deterministic per rng, difficulty-gated, and never the same twice in a row', () => {
+  // a stream that always returns the same value lets us drive the weighted pick deterministically
+  const seq = (vals) => { let i = 0; return () => vals[i++ % vals.length]; };
+
+  // every seeded run is reproducible
+  for (const seed of [1, 7, 1234]) {
+    const a = []; const b = [];
+    for (let i = 0; i < 12; i++) { a.push(pickStyle(mulberry32(seed * 31 + i), 1, a[i - 1] ?? null)); }
+    for (let i = 0; i < 12; i++) { b.push(pickStyle(mulberry32(seed * 31 + i), 1, b[i - 1] ?? null)); }
+    assert.deepEqual(a, b, 'the same seed must give the same style sequence');
+  }
+
+  // no immediate repeat while more than one option is unlocked
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const s = pickStyle(seq([0.99, 0.5, 0.1]), 1, last);
+    assert.notEqual(s, last, `style repeated twice in a row (${s})`);
+    last = s;
+  }
+
+  // difficulty gates the roster: at d = 0 the smash must be unavailable
+  for (let i = 0; i < 20; i++) {
+    assert.equal(pickStyle(seq([0.0, 0.5, 0.99]), 0, i > 0 ? 'ring' : null), 'ring',
+      'at difficulty 0 only the timing ring may be picked');
+  }
+  // and at d = 1 both are reachable
+  const seen = new Set();
+  for (let i = 0; i < 40; i++) seen.add(pickStyle(mulberry32(i * 7919), 1, null));
+  assert.deepEqual([...seen].sort(), ['ring', 'smash'], 'both styles must be reachable at full difficulty');
+});
+
+test('createQte: a smash ring gets the smash clock; a timing ring keeps 0.30 / 0.70', () => {
+  const ring = { id: 1, style: 'ring' };
+  const q1 = createQte(ring, 10, {});
+  assert.equal(q1.style, 'ring');
+  assert.equal(q1.perfectWindow, 0.30);
+  assert.equal(q1.goodWindow, 0.70);
+  assert.ok(Math.abs(qteRemaining(q1, 10.3) - 0.4) < 1e-9, 'the deadline for both styles is qteRemaining');
+
+  const smash = { id: 2, style: 'smash' };
+  const q2 = createQte(smash, 10, {});
+  assert.equal(q2.style, 'smash');
+  assert.equal(q2.goodWindow, QTE.smashWindow);
+  assert.equal(q2.presses, 0);
+  assert.ok(Math.abs(qteRemaining(q2, 10) - QTE.smashWindow) < 1e-9, 'a fresh smash window has its whole clock');
+
+  // assist widens TIMING only, for both styles (never geometry)
+  const q3 = createQte({ id: 3, style: 'smash' }, 10, { assist: true });
+  assert.ok(Math.abs(q3.goodWindow - QTE.smashWindow * 1.6) < 1e-9, 'assist scales the smash clock too');
+  const q4 = createQte({ id: 4, style: 'ring' }, 10, { assist: true });
+  assert.ok(Math.abs(q4.perfectWindow - 0.48) < 1e-9, 'assist widens the timing window as it always did');
+});
+
+test('smash: presses count, a full bar resolves Perfect immediately, and it stays open until then', () => {
+  const gate = { id: 9, style: 'smash' };
+  const q = createQte(gate, 0, {});
+  let t = 0;
+  for (let i = 1; i < QTE.smashTarget; i++) {
+    t += 0.15; // comfortably past the anti-turbo gap
+    const r = evaluateQtePress(q, t);
+    assert.equal(r, null, `the window stays open at ${i} press(es)`);
+    assert.equal(q.presses, i);
+    assert.equal(q.resolved, false);
+  }
+  t += 0.15;
+  assert.equal(evaluateQtePress(q, t), 'perfect', 'filling the bar is a Perfect');
+  assert.equal(q.resolved, true);
+  // and it is final: more presses cannot change it
+  assert.equal(evaluateQtePress(q, t + 0.15), 'perfect');
+  assert.equal(q.presses, QTE.smashTarget, 'presses do not accumulate after resolution');
+});
+
+test('smash: presses inside the anti-turbo gap are ignored, not graded', () => {
+  const q = createQte({ id: 10, style: 'smash' }, 0, {});
+  evaluateQtePress(q, 0.10);
+  assert.equal(q.presses, 1);
+  assert.equal(evaluateQtePress(q, 0.10 + QTE.smashMinGap / 2), null, 'too soon: ignored');
+  assert.equal(q.presses, 1, 'an ignored press must not count');
+  assert.equal(evaluateQtePress(q, 0.10 + QTE.smashMinGap + 1e-6), null, 'just past the gap: counted');
+  assert.equal(q.presses, 2);
+});
+
+test('smash: expiry gives Good for a part-filled bar and Miss for a bare one', () => {
+  const partial = createQte({ id: 11, style: 'smash' }, 0, {});
+  for (let i = 0; i < QTE.smashGood; i++) evaluateQtePress(partial, i * 0.2);
+  assert.equal(partial.presses, QTE.smashGood);
+  assert.equal(expiryResult(partial), 'good', 'a part-filled bar is a Good at the deadline');
+
+  const bare = createQte({ id: 12, style: 'smash' }, 0, {});
+  evaluateQtePress(bare, 0.1);
+  assert.equal(expiryResult(bare), 'miss', 'one stray press is not a Good');
+
+  const none = createQte({ id: 13, style: 'smash' }, 0, {});
+  assert.equal(expiryResult(none), 'miss', 'no press at all is a Miss');
+
+  // and the timing ring keeps its own expiry rule: never Good on expiry (a press is what grades it)
+  assert.equal(expiryResult(createQte({ id: 14, style: 'ring' }, 0, {})), 'miss');
+});
+
+test('a timing ring is still graded by the FIRST press alone (evaluateQtePress routes by style)', () => {
+  const q = createQte({ id: 15, style: 'ring' }, 0, {});
+  assert.equal(evaluateQtePress(q, 0.1), 'perfect');
+  assert.equal(evaluateQtePress(q, 0.2), 'perfect', 'idempotent, and a second press still cannot upgrade');
+  const late = createQte({ id: 16, style: 'ring' }, 0, {});
+  assert.equal(evaluateQtePress(late, 0.5), 'good');
 });
 
 // ---- ring corridor (2026-10-22 spec, stage A) ----------------------------------------------

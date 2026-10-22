@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX } from './timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, evaluateQtePress, expiryResult, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -131,6 +131,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
   // applyResult exactly once.
   let activeGate = null;
   let activeQte = null;
+  // QTE styles vary per ring (2026-10-22 stage C). `lastGateStyle` feeds the no-immediate-repeat
+  // guard; `forceStyle` is the inert test seam that pins a style for a deterministic browser test.
+  let lastGateStyle = null;
+  let forceStyle = null;
   let gateCooldown = 0;
   let gateRng = mulberry32(0x9a7e);
 
@@ -146,7 +150,11 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
       playerPos: player.state.position,
       runTime: state.runTime,
       speed: state.speed,
+      difficulty: state.difficulty,
+      lastStyle: lastGateStyle,
+      forceStyle,
     });
+    lastGateStyle = activeGate.style;
     // place the gate in clear water: clean spawns stay exactly put; a blocked mouth takes the
     // clearest x; then the plane searches for one with a clear CORRIDOR (the water the player lines
     // up in), sliding either way inside the spawn lead band and never nearer than spawnMin
@@ -229,7 +237,9 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
         // a pending QTE owns the gate: no behind-miss until the window expires,
         // or a fast fish (6 m behind < 0.70 s) would double-resolve
         if (qteRemaining(activeQte, state.runTime) <= 0) {
-          resolveQte('miss'); // auto-miss on expiry (shared helper — same math as the HUD)
+          // expiryResult, not a flat 'miss': a part-filled SMASH is a Good (stage C). A timing ring
+          // can never be a Good this way — a press is what grades it.
+          resolveQte(expiryResult(activeQte));
         }
       } else if (gateBehind(activeGate, pos)) {
         resolveGateResult('miss'); // sailed past the portal without entering it
@@ -245,10 +255,12 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     // clock (it would grade a moment that never happened). It lives here, not
     // in the keydown, because debug hooks press through queuePress too.
     if (state.phase === 'paused') return;
-    // a pending window grades on the first press: mash-tapping can't score twice
-    // (evaluatePress is idempotent, and the gate resolves in the same call)
+    // A pending window grades on the press. A timing ring resolves on its FIRST press (as it always
+    // did — evaluatePress is idempotent, so mash-tapping can't score twice); a smash ACCUMULATES and
+    // stays open, so it is only resolved when the evaluator returns a grade.
     if (activeQte && !activeQte.resolved) {
-      resolveQte(evaluatePress(activeQte, state.runTime));
+      const graded = evaluateQtePress(activeQte, state.runTime);
+      if (graded) resolveQte(graded);
       return;
     }
     // SPACE keeps exactly one job outside a window: the launch spam lever
@@ -471,6 +483,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     state.endReason = reason;
     state.phase = 'results';
     activeQte = null; // no window outlives a run: no stuck cue, no stale grade
+    lastGateStyle = null; // and no style history leaks into the next run
     player.state.crashHide = 0;
     fish.group.visible = true; // no crash-hide leaks onto the results screen
     bus.emit('run:end', { ...state, endReason: reason });
@@ -528,13 +541,22 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     queuePress,
     gate: () => activeGate,
     qte: () => activeQte,
+    // inert test seam: pin the NEXT gates to one style so a browser test is deterministic without
+    // relying on the roster's draw. Pass null to hand the roster back its job.
+    debugForceStyle: (s) => { forceStyle = s ?? null; return forceStyle; },
+    debugLastStyle: () => lastGateStyle,
     debugPress: () => queuePress(),
     // a press evaluated at an explicit run-time, so browser tests read the
     // grade deterministically instead of racing frame pacing. Pause-guarded
     // for the same reason as queuePress: a frozen runTime must not grade.
     debugPressAt: (t) => {
       if (state.phase === 'paused') return null;
-      return (activeQte && !activeQte.resolved ? resolveQte(evaluatePress(activeQte, t)) : null);
+      if (!activeQte || activeQte.resolved) return null;
+      // MUST route through the same style-aware entry point a real press uses: calling evaluatePress
+      // here graded a SMASH ring as if it were a timing ring, so the browser test would have measured
+      // a rule the game does not follow.
+      const graded = evaluateQtePress(activeQte, t);
+      return graded ? resolveQte(graded) : null;
     },
     // test hook: park the fish on the live gate's plane at ±offsets from its
     // center, so the next crossing resolves deterministically

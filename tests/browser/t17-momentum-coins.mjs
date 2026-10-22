@@ -2,6 +2,9 @@ import { startServer, stopServer, openPage, closePage, assert } from './harness.
 
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
+// This file tests momentum + coin chaining, not the QTE styles: pin the timing ring so a smash ring
+// cannot turn a scripted perfect into a Good (2026-10-22 stage C). Styles are covered by t08.
+await page.evaluate(() => window.__FFM_API.debugForceStyle('ring'));
 
 // 1. Skyfin model is the player (not the procedural fallback)
 const fish = await page.evaluate(() => window.__FFM_API.debugFish());

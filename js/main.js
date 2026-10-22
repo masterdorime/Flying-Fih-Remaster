@@ -582,6 +582,8 @@ window.__FFM_API = {
   debugSetWaterLook: (o) => water.setLook(o),
   debugSetDecalOpacity: (v) => contactDecals.setOpacity(v),
   debugSetDecalScale: (v) => contactDecals.setScale(v),
+  debugForceStyle: (s) => game.debugForceStyle(s),
+  debugLastStyle: () => game.debugLastStyle(),
   // test-only: disable the bloom PASS while leaving the rest of the chain (RenderPass +
   // OutputPass) running, so a rendering fault can be attributed to the bloom or to the chain
   debugSetBloom: (on) => { if (bloomPass) bloomPass.enabled = !!on; return !!bloomPass; },

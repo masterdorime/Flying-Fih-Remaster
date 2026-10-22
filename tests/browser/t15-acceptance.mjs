@@ -2,6 +2,10 @@ import { startServer, stopServer, openPage, closePage, assert } from './harness.
 
 const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
+// This file tests the FLOW (gates, dodging, chaining), not the QTE styles: pin the single-press
+// timing ring so a smash ring cannot turn a scripted perfect into a Good (2026-10-22 stage C). The
+// styles have their own coverage in t08.
+await page.evaluate(() => window.__FFM_API.debugForceStyle('ring'));
 
 // PRD §28.1 acceptance 10: continuous 60-90s run while chaining momentum.
 // Scripted by parking the fish on each gate's center the moment it appears,

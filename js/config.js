@@ -147,6 +147,23 @@ export const KIND_VARIANTS = {
 export const QTE = {
   perfectWindow: 0.30, // seconds after crossing: Perfect
   goodWindow: 0.70,    // seconds after crossing: Good; beyond / no press = Miss
+
+  // ---- two styles, varying per ring (2026-10-22 spec stage C) ----
+  // The GRADE VOCABULARY is unchanged — perfect / good / miss — and everything downstream of
+  // applyResult (+8/+4, chain, the speed cuts, scoring) is untouched. Only HOW a grade is earned
+  // differs: a timing ring is graded by WHEN you press, a smash ring by HOW MANY times you press.
+  // The player learns which from the ring's own look (gate-view), with the HUD prompt confirming.
+  //
+  // Roster shape mirrors FORMATIONS (§4 row 8): weight + a difficulty floor, and no style twice in a
+  // row while a second one is unlocked. These are starting numbers, tuned by play.
+  styles: {
+    ring:  { weight: 1.0, minD: 0 },
+    smash: { weight: 1.0, minD: 0.25 },  // a little way into a run, so the first rings teach the timing
+  },
+  smashWindow: 1.4,  // seconds to fill a smash ring (assist scales this like the timing windows)
+  smashTarget: 5,    // presses that fill the bar -> Perfect
+  smashGood: 3,      // presses that part-fill it -> Good when the window expires
+  smashMinGap: 0.08, // presses closer than this are IGNORED, not graded: a turbo key cannot clear it
 };
 
 export const GAUGE = {

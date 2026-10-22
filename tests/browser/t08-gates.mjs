@@ -220,6 +220,90 @@ assertEqual(postEnd.qte, null, 'ending a run clears a pending QTE');
 assertEqual(postEnd.phase, 'results', 'run ended');
 assertEqual(await page.evaluate(() => document.querySelector('#ffm-qte').classList.contains('hidden')), true, 'the cue hides when the run ends');
 
+// ---- two QTE styles, varying per ring (2026-10-22 spec stage C) ------------------------------
+// The grade vocabulary and everything downstream (applyResult, +8/+4, chain, cuts) is unchanged:
+// only how the grade is EARNED differs. Forced via the inert seam so the test is deterministic
+// instead of depending on the roster's draw.
+
+// (1) a SMASH ring: the world ring looks different, the prompt switches, and mashing fills the bar
+await page.evaluate(() => {
+  window.__FFM_API.debugForceStyle('smash');
+  window.__FFM_API.debugRestart();
+});
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+const smoke = await page.evaluate(() => ({ style: window.__FFM_API.gate()?.style, last: window.__FFM_API.debugLastStyle() }));
+assertEqual(smoke.style, 'smash', 'the forced style reaches the spawned gate');
+assertEqual(smoke.last, 'smash', 'and the no-repeat guard is fed the style that actually spawned');
+
+await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
+const smashOpen = await page.evaluate(() => {
+  const q = window.__FFM_API.qte();
+  return {
+    style: q?.style,
+    window: q?.goodWindow,
+    cueMode: document.querySelector('#ffm-qte').dataset.mode,
+    fill: Number(document.querySelector('#ffm-qte-drain').dataset.progress),
+  };
+});
+assertEqual(smashOpen.style, 'smash', 'crossing a smash ring opens a smash QTE');
+assert(smashOpen.window > 0.7, `a smash window is longer than a timing window (${smashOpen.window})`);
+assertEqual(smashOpen.cueMode, 'smash', 'the prompt switches to the smash mode');
+assertEqual(smashOpen.fill, 0, 'the smash prompt starts EMPTY and fills (a timing ring drains)');
+
+const mashed = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const q = api.qte();
+  const seen = [];
+  for (let i = 0; i < 8; i++) {
+    api.debugPressAt(q.startedAt + 0.1 + i * 0.15); // 0.15 s apart: past the anti-turbo gap
+    await new Promise(r => setTimeout(r, 40));       // let the HUD RENDER the press before reading it
+    seen.push(Number(document.querySelector('#ffm-qte-drain').dataset.progress));
+  }
+  return { result: api.state().lastResult, seen, presses: q.presses };
+});
+assertEqual(mashed.result, 'perfect', 'filling the bar is a Perfect — the same grade a timing ring gives');
+assert(mashed.seen[0] > 0 && mashed.seen[1] > mashed.seen[0], `the smash prompt FILLS with presses (${mashed.seen.join(', ')})`);
+
+// (2) a part-filled smash, left to expire, must be a GOOD and must grant the chain (not a reset)
+await page.evaluate(() => { window.__FFM_API.debugRestart(); });
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
+const partial = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const q = api.qte();
+  const chainBefore = api.state().chain;
+  for (let i = 0; i < 3; i++) api.debugPressAt(q.startedAt + 0.1 + i * 0.15); // exactly smashGood
+  await new Promise(r => setTimeout(r, 60));
+  const presses = q.presses;
+  // let the window expire: the auto-miss must resolve it to Good, not Miss
+  const deadline = performance.now() + 30000;
+  while (api.qte() !== null && performance.now() < deadline) await new Promise(r => setTimeout(r, 50));
+  return { presses, result: api.state().lastResult, chainBefore, chainAfter: api.state().chain };
+});
+assertEqual(partial.presses, 3, 'the anti-turbo gap did not swallow spaced presses');
+assertEqual(partial.result, 'good', 'a part-filled smash expires as a Good');
+assertEqual(partial.chainAfter, partial.chainBefore + 1, 'a Good keeps the chain — only a Miss resets it');
+
+// (3) an IGNORED smash ring must still be a Miss, and it must clear the prompt
+await page.evaluate(() => { window.__FFM_API.debugRestart(); });
+await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
+const ignored = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const deadline = performance.now() + 30000;
+  while (api.qte() !== null && performance.now() < deadline) await new Promise(r => setTimeout(r, 50));
+  return { result: api.state().lastResult, cueHidden: document.querySelector('#ffm-qte').classList.contains('hidden') };
+});
+assertEqual(ignored.result, 'miss', 'not pressing a smash ring is still a Miss');
+assertEqual(ignored.cueHidden, true, 'and the smash prompt clears with the window');
+
+// (4) the roster is free to pick again once the style seam is released
+await page.evaluate(() => window.__FFM_API.debugForceStyle(null));
+assertEqual(await page.evaluate(() => window.__FFM_API.debugForceStyle(null)), null, 'the force seam releases');
+
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 console.log('PASS  t08-gates');
 await closePage(browser);
