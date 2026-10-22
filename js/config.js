@@ -145,27 +145,22 @@ export const KIND_VARIANTS = {
 // Ring-triggered QTE: crossing the mouth opens one SPACE window; the press
 // times the grade (js/timing.js + js/game.js; see the 2026-10-15 spec).
 export const QTE = {
-  // CENTRED timing (2026-10-22, user-directed: "i dont want smash space qte, i want another type of
-  // timing qte"). The QTE is no longer "press as fast as you can" — it is "press at the right
-  // moment": the cue resolves at `targetLead` after the crossing and the window is centred there.
-  // A press the instant you cross is now a MISS.
+  // THE TICK MODEL (2026-10-22). The player reported "can't tell when to press" and asked for the timing
+  // to vary every trigger. Those are ONE change: the TARGET moves per ring while the OPPORTUNITY keeps
+  // the same width, so variation never becomes a difficulty lottery (a moving *window* would randomly
+  // make rings easier or harder).
   //
-  // Two styles, and the player learns which from the RING'S OWN LOOK (gate-view) with the prompt
-  // confirming:
-  //   closing  — an inner ring shrinks onto the track; press as they meet
-  //   sweeping — a marker orbits; press as it enters the lit zone
-  // Both use the SAME window, so the style is presentation, not difficulty. The grade vocabulary and
-  // everything downstream (applyResult, +8/+4, chain, cuts, scoring) are unchanged.
-  //
-  // Widths are deliberately comparable to what they replace: Perfect 2 x 0.16 = 0.32 s and Good
-  // 2 x 0.38 = 0.76 s, against the old 0.30 / 0.70 measured from the crossing.
-  targetLead: 0.62,    // seconds after the crossing that the cue resolves
-  targetJitter: 0.16,  // per-ring ± on that lead, so a fixed rhythm cannot be memorised
-  perfectHalf: 0.16,   // |press - target| <= this  -> Perfect
-  goodHalf: 0.38,      // |press - target| <= this  -> Good; beyond = Miss
+  // A tick is both the clock's step and the unit the target is drawn in, which is what lets the cue state
+  // its own rule: "press within one tick of the notch" IS the Perfect band.
+  tick: 0.16,                       // >= ~0.15 s: finer than that aliases into noise at this rig's ~11 fps
+  targetTicks: { min: 4, max: 6 },  // the moment is N ticks after the crossing — a different question every ring
+  perfectHalf: 0.16,                // ±1 tick
+  goodHalf: 0.38,                   // ±0.38 s, kept so the opportunity is unchanged by the tick model
   styles: {
-    closing:  { weight: 1.0, minD: 0 },
-    sweeping: { weight: 1.0, minD: 0.2 }, // a little way into a run, so the first rings teach one
+    closing: { weight: 1.0, minD: 0 },
+    // both styles from the FIRST ring: holding one back meant the opening fifth of every run was the
+    // same style, which is the opposite of varied where it is felt most
+    clock:   { weight: 1.0, minD: 0 },
   },
 };
 

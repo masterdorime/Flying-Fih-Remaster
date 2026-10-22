@@ -60,14 +60,15 @@ export function mouthHit(gate, sample) {
 // so the grade is how close to that MOMENT the press lands. `deadline` is when the QTE gives up
 // (target + the good half); `qteRemaining` reads it, so the HUD and the auto-miss share one clock.
 //
-// `closing` (an inner ring shrinks onto the track) and `sweeping` (a marker orbits into a lit zone) use
-// the SAME window — the style is presentation, not difficulty. The lead is per-gate (`gate.qteLead`,
-// drawn at spawn) so it varies ring to ring; assist widens the two HALVES, never the geometry.
+// `closing` (an inner ring shrinks onto a marked target) and `clock` (a hand ticks around a dial, and the
+// gold band one tick wide IS the Perfect window) use the SAME window — the style is presentation, not
+// difficulty. The lead is per-gate (`gate.qteLead`, a whole tick count drawn at spawn) so the MOMENT
+// varies ring to ring while the opportunity never does; assist widens the two HALVES, never the geometry.
 export function createQte(gate, now, { assist = false } = {}) {
   const scale = assist ? ASSIST.windowScale : 1;
   const style = gate.style ?? 'closing';
   gate.qteOpened = true;
-  const lead = gate.qteLead ?? QTE.targetLead;
+  const lead = gate.qteLead ?? QTE.targetTicks.min * QTE.tick;
   return {
     gateId: gate.id, startedAt: now, style,
     targetAt: now + lead,
@@ -75,6 +76,11 @@ export function createQte(gate, now, { assist = false } = {}) {
     goodHalf: QTE.goodHalf * scale,
     deadline: now + lead + QTE.goodHalf * scale,
     resolved: false, result: null,
+    // the clock's own counters, so the tick and the beat are edge-triggered exactly once each
+    ticks: 0, beat: false,
+    // and its own tick unit: the cue's clock step. Consumers read it HERE rather than re-reading
+    // config.QTE, so the drawn tick count, the hand's steps and the beat window can never disagree.
+    tick: QTE.tick,
   };
 }
 
@@ -116,12 +122,18 @@ export function pickStyle(rng, difficulty, lastStyle = null) {
   return use[use.length - 1][0];
 }
 
-// The moment the cue resolves, per gate: the base lead with a symmetric per-ring jitter, so a player
-// cannot learn one rhythm and stop watching the rings (the user's "so its not predictable and less
-// repetitive"). Drawn at spawn from the gate's own stream.
+// The tick count before the target — the VARIATION the player asked for ("the perfect, good, miss
+// placement should be different every trigger"). Drawn per trigger from the gate's own stream, so a
+// ?seed= run is still reproducible.
+export function pickTicks(rng) {
+  const { min, max } = QTE.targetTicks;
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+// The moment, in seconds after the crossing: always a WHOLE number of ticks, so the clock's hand lands on
+// the notch exactly and "within one tick" is literally the Perfect band.
 export function pickLead(rng) {
-  const j = (rng() * 2 - 1) * QTE.targetJitter;
-  return Math.max(0.25, QTE.targetLead + j);
+  return pickTicks(rng) * QTE.tick;
 }
 
 // Place a freshly spawned gate in clear water (Phase 3 + 2026-10-17 overlap

@@ -1,11 +1,12 @@
-// t08-gates — ring-triggered QTE (2026-10-15): crossing INSIDE the ring mouth
-// opens exactly one SPACE window and the press time picks the grade (<=0.30 s
-// Perfect, <=0.70 s Good, later or never Miss). Crossing outside the mouth is a
-// plain Miss with no window at all; a pending window owns its gate so the
-// behind-miss can't fire early; one live gate at a time, spaced by the
-// cooldown. Popups use the observer-recorder pattern (~850ms lifetime).
-// The #ffm-qte cue mirrors the window (ring prompt, drain, hide), and a press while
-// paused must not grade.
+// t08-gates — ring-triggered QTE (2026-10-15; CENTRED + tick model 2026-10-22): crossing INSIDE the ring
+// mouth opens exactly one SPACE window and the press time picks the grade against the cue's TARGET moment
+// (within one tick of it = Perfect, within 0.38 s = Good, later or never Miss). The window is a fixed
+// width and the target moves per trigger, so the opportunity never changes but the question does.
+// Crossing outside the mouth is a plain Miss with no window at all; a pending window owns its gate so the
+// behind-miss can't fire early; one live gate at a time, spaced by the cooldown. Popups use the
+// observer-recorder pattern (~850ms lifetime).
+// The #ffm-qte cue carries the window (style cue + static target + beat + the key as its own surface),
+// and a press while paused must not grade.
 import { startServer, stopServer, openPage, closePage, assert, assertEqual } from './harness.mjs';
 
 const server = await startServer();
@@ -179,10 +180,21 @@ await page.waitForFunction(() => {
 }, null, { timeout: 60000 });
 const cue = await page.evaluate(() => {
   const el = document.querySelector('#ffm-qte');
-  const drain = document.querySelector('#ffm-qte-drain');
-  return { progress: drain ? drain.dataset.progress : '', label: el.textContent };
+  return {
+    mode: el.dataset.mode,
+    beat: el.dataset.beat,
+    fill: document.querySelector('.ffm-qte-key').style.getPropertyValue('--fill'),
+    // a static target must be marked BEFORE the moment exists, whichever style the roster drew: the
+    // closing style draws a ring, the clock style's gold band IS its target
+    targetShown: document.querySelector('#ffm-qte-target').style.display !== 'none'
+      || document.querySelector('#ffm-qte-zone').style.display !== 'none',
+    label: el.textContent,
+  };
 });
-assert(Number.isFinite(Number(cue.progress)), `the countdown arc tracks the window (${cue.progress})`);
+assert(['closing', 'clock'].includes(cue.mode), `the cue names a real style (${cue.mode})`);
+assert(['0', '1'].includes(cue.beat), `the cue publishes its beat state (${cue.beat})`);
+assert(/^[\d.]+%$/.test(cue.fill), `the key fills toward the moment (${cue.fill})`);
+assertEqual(cue.targetShown, true, 'a static target is marked before anything moves — motion is not the only cue');
 assert(cue.label.includes('SPACE'), `the prompt names the key (${cue.label})`);
 await page.evaluate(() => window.__FFM_API.debugPress());
 await page.waitForFunction(() => {
@@ -263,25 +275,53 @@ assert(closing.lead > 0.3, `there is a moment to time (lead ${closing.lead.toFix
 assert(closing.deadline > closing.lead, 'and a tail after it before the auto-miss');
 const closeCue = await page.evaluate(() => ({
   r: Number(document.querySelector('#ffm-qte-close').getAttribute('r')),
+  targetShown: document.querySelector('#ffm-qte-target').style.display !== 'none',
   dotHidden: document.querySelector('#ffm-qte-dot').style.display === 'none',
 }));
-assert(closeCue.r > 44, `the closing ring starts OUTSIDE the track and shrinks in (r=${closeCue.r})`);
-assertEqual(closeCue.dotHidden, true, 'the sweeping marker is not drawn for a closing ring');
+assert(closeCue.r > 44, `the closing ring starts OUTSIDE the marked target and shrinks in (r=${closeCue.r})`);
+assertEqual(closeCue.targetShown, true, 'the target it will land on is drawn from the first frame');
+assertEqual(closeCue.dotHidden, true, 'the clock hand is not drawn for a closing ring');
 
-// the meeting is real: sample the radius as the moment arrives
+// the meeting is real, AND the moment carries a second channel (2026-10-22). The report was "can't tell
+// when to press", so the moment is now: the ring landing exactly on a marked target, the target lighting,
+// a tick per step and one beat at the moment. The radius is taken as a MINIMUM over the live window —
+// the landing is clamped, so every frame after the moment reads r=44 and a single "at the moment" sample
+// can no longer miss it on a slow frame.
 const meeting = await page.evaluate(async () => {
   const api = window.__FFM_API;
   const q = api.qte();
-  let best = null;
+  let minR = null, beatSeen = false, phaseSeen = [];
   const deadline = performance.now() + 30000;
   while (api.qte() === q && performance.now() < deadline) {
-    if (Math.abs(api.state().runTime - q.targetAt) < 0.06) best = Number(document.querySelector('#ffm-qte-close').getAttribute('r'));
-    await new Promise((r) => requestAnimationFrame(r));
+    const el = document.querySelector('#ffm-qte');
+    if (el.dataset.beat === '1') beatSeen = true;
+    if (el.dataset.phase && !phaseSeen.includes(el.dataset.phase)) phaseSeen.push(el.dataset.phase);
+    const r = Number(document.querySelector('#ffm-qte-close').getAttribute('r'));
+    if (minR === null || r < minR) minR = r;
+    await new Promise((r2) => requestAnimationFrame(r2));
   }
-  return best;
+  return {
+    minR, beatSeen, phaseSeen, ticks: q.ticks,
+    targetTick: Math.round((q.targetAt - q.startedAt) / q.tick),
+    deadlineTick: Math.ceil((q.deadline - q.startedAt) / q.tick),
+    audio: api.debugAudioStats().calls,
+  };
 });
-assert(meeting !== null && Math.abs(meeting - 44) < 8,
-  `the ring must MEET the track at the target moment (r=${meeting} at the moment)`);
+assert(Math.abs(meeting.minR - 44) < 0.5,
+  `the ring must land exactly ON the marked target (min r=${meeting.minR})`);
+assert(meeting.beatSeen, 'the target must light at the moment — the visual beat, not converging motion alone');
+// the cue must stop CLAIMING the moment once it has passed: a late press still scores Good for 0.38 s, and
+// a cue frozen on the target would tell the player "now" while grading them late
+assert(meeting.phaseSeen.includes('now'), `the cue reports the moment itself (${meeting.phaseSeen.join('/')})`);
+assert(meeting.phaseSeen.includes('late'), `and reports that the moment has passed (${meeting.phaseSeen.join('/')})`);
+// the counter is a CLOCK, so it runs past the target to the deadline; it must span the drawn tick count
+// and never outlive the window it belongs to
+assert(meeting.ticks >= meeting.targetTick,
+  `the clock counts its way to the drawn tick (${meeting.ticks} >= ${meeting.targetTick})`);
+assert(meeting.ticks <= meeting.deadlineTick,
+  `and never past the window's deadline (${meeting.ticks} <= ${meeting.deadlineTick})`);
+assert((meeting.audio.tick ?? 0) >= 1, `the tick is audible (calls.tick=${meeting.audio.tick})`);
+assert((meeting.audio.beat ?? 0) >= 1, `the moment sounds (calls.beat=${meeting.audio.beat})`);
 
 // (2) the grade follows the MOMENT, and jumping the gun is a Miss — the skill is inverted.
 //     NOTE: the sampling loop above runs until the QTE resolves, so every press needs its own crossing.
@@ -308,39 +348,72 @@ const late = await page.evaluate(async () => {
 });
 assertEqual(late, 'miss', 'letting the moment pass un-pressed is a Miss');
 
-// (3) SWEEPING: its own prompt, a lit zone whose width IS the perfect window, and a marker that
-//     arrives in the centre of it exactly at the moment
-const sweeping = await crossWithStyle('sweeping');
-assertEqual(sweeping.style, 'sweeping', 'crossing a sweeping ring opens the sweeping cue');
-assertEqual(sweeping.mode, 'sweeping', 'the prompt reports the sweeping style');
-const sweepCue = await page.evaluate(() => ({
+// (3) CLOCK: a hand that TICKS (discrete steps, not a smooth sweep — a countable beat is readable where
+//     smooth motion is only feelable), a gold band one tick wide whose width IS the Perfect window, and
+//     a static target mark. This is the style the user asked to have REPLACE the old sweep.
+const clock = await crossWithStyle('clock');
+assertEqual(clock.style, 'clock', 'crossing a clock ring opens the clock cue');
+assertEqual(clock.mode, 'clock', 'the prompt reports the clock style');
+const clockCue = await page.evaluate(() => ({
   dotShown: document.querySelector('#ffm-qte-dot').style.display !== 'none',
   zoneShown: document.querySelector('#ffm-qte-zone').style.display !== 'none',
   closeHidden: document.querySelector('#ffm-qte-close').style.display === 'none',
   dash: document.querySelector('#ffm-qte-zone').getAttribute('stroke-dasharray'),
+  zoneTransform: document.querySelector('#ffm-qte-zone').getAttribute('transform'),
 }));
-assertEqual(sweepCue.dotShown, true, 'the marker is drawn for a sweeping ring');
-assertEqual(sweepCue.zoneShown, true, 'and so is the lit zone');
-assertEqual(sweepCue.closeHidden, true, 'the closing ring is not drawn for a sweeping ring');
-assert(/^[\d.]+ 276\.5$/.test(sweepCue.dash), `the zone is an arc on the track, not a full circle (dash ${sweepCue.dash})`);
+assertEqual(clockCue.dotShown, true, 'the hand is drawn for a clock ring');
+assertEqual(clockCue.zoneShown, true, 'and so is the gold band — the static target');
+assertEqual(clockCue.closeHidden, true, 'the closing ring is not drawn for a clock ring');
+assert(/^[\d.]+ 276\.5$/.test(clockCue.dash), `the band is an arc on the dial, not a full circle (dash ${clockCue.dash})`);
+// the band must be CENTRED on the top, in the same convention as the hand. Checked against the band's own
+// width, so an edit that moves one and not the other fails: the dash is the Perfect window (2 ticks), so
+// its centre sits half its width counter-clockwise of the path start (3 o'clock) brought to 12.
+{
+  const dashDeg = Number(clockCue.dash.split(' ')[0]) / 276.5 * 360;
+  const zoneDeg = Number((/rotate\(([-\d.]+)/.exec(clockCue.zoneTransform) || [])[1]);
+  const centred = ((-90 - dashDeg / 2 - zoneDeg) % 360 + 360) % 360;
+  assert(centred < 0.2 || centred > 359.8,
+    `the band must be centred at 12 o'clock, where the hand's origin is (off by ${centred.toFixed(2)} deg)`);
+}
+// the hand must arrive ON the band exactly at the moment, and its steps must be DISCRETE: the angle only
+// ever changes on tick boundaries, so a smooth sweep (the old cue) fails this by construction. WHERE the
+// hand lands is checked in RENDERED POSITION, not angle — an angle-only assertion passed while the hand
+// sat at 9 o'clock with the band at 12 (2026-10-22), because that is a convention mismatch, not a number.
 const arrived = await page.evaluate(async () => {
   const api = window.__FFM_API;
   const q = api.qte();
-  let angle = null;
+  let landed = null, angles = new Set(), bestAngle = null;
   const deadline = performance.now() + 30000;
   while (api.qte() === q && performance.now() < deadline) {
-    if (Math.abs(api.state().runTime - q.targetAt) < 0.06) {
-      const m = /rotate\(([-\d.]+)/.exec(document.querySelector('#ffm-qte-dot').getAttribute('transform') || '');
-      if (m) angle = Number(m[1]);
+    const el = document.querySelector('#ffm-qte');
+    const m = /rotate\(([-\d.]+)/.exec(document.querySelector('#ffm-qte-dot').getAttribute('transform') || '');
+    if (m) {
+      const a = Number(m[1]);
+      angles.add(a.toFixed(2));
+      if (bestAngle === null || Math.abs(a) < Math.abs(bestAngle)) bestAngle = a;
+    }
+    if (!landed && el.dataset.phase === 'late') {
+      const ring = document.querySelector('.ffm-qte-ring').getBoundingClientRect();
+      const dot = document.querySelector('#ffm-qte-dot').getBoundingClientRect();
+      const r = ring.width / 2; // the cue box is square, so this is the dial's radius on screen
+      landed = {
+        dx: +((dot.left + dot.width / 2 - (ring.left + r)) / r).toFixed(3),
+        dy: +((dot.top + dot.height / 2 - (ring.top + r)) / r).toFixed(3),
+      };
     }
     await new Promise((r) => requestAnimationFrame(r));
   }
-  return angle;
+  return { landed, bestAngle, distinctAngles: angles.size, ticks: q.ticks };
 });
-assert(arrived !== null && Math.abs(arrived + 90) < 10,
-  `the marker must reach the lit zone (at the top, -90 deg) at the moment — got ${arrived}`);
-await crossWithStyle('sweeping');
-assertEqual(await pressAtOffset(0), 'perfect', 'the sweeping style grades identically: the moment is a Perfect');
+assert(arrived.landed, 'the hand must be sampled in the frame after the moment');
+assert(Math.abs(arrived.landed.dx) < 0.1,
+  `the hand must sit horizontally centred ON the gold band at the moment (dx ${arrived.landed.dx})`);
+assert(arrived.landed.dy < -0.75,
+  `and ABOVE the dial's centre — the top, where the band is drawn (dy ${arrived.landed.dy})`);
+assert(arrived.distinctAngles <= arrived.ticks + 2,
+  `the hand STEPS rather than sweeping: ${arrived.distinctAngles} distinct angles over ${arrived.ticks} ticks`);
+await crossWithStyle('clock');
+assertEqual(await pressAtOffset(0), 'perfect', 'the clock style grades identically: the moment is a Perfect');
 
 // (4) the roster is free to pick again once the style seam is released
 assertEqual(await page.evaluate(() => window.__FFM_API.debugForceStyle(null)), null, 'the force seam releases');

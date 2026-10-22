@@ -187,6 +187,11 @@ export function createAudio(settings, bus) {
     ui() { tone({ freq: 700, dur: 0.06, type: 'sine', gain: 0.3 }); },
     runEnd() { tone({ freq: 300, slideTo: 120, dur: 0.6, type: 'triangle', gain: 0.4 }); },
     qte() { tone({ freq: 880, dur: 0.08, type: 'sine', gain: 0.35 }); tone({ freq: 1320, dur: 0.06, delay: 0.05, gain: 0.25 }); },
+    // The QTE's clock (2026-10-22). A ticking cue needs to be HEARD: time is the one thing the eye reads
+    // badly while it is also watching a shape. The tick is deliberately quiet and dry — it is a metronome,
+    // not an event — while the beat on the target tick is the loud one, so "now" is unmistakable by ear.
+    tick() { tone({ freq: 620, dur: 0.025, type: 'square', gain: 0.1 }); },
+    beat() { tone({ freq: 1180, dur: 0.09, type: 'sine', gain: 0.32 }); tone({ freq: 1770, dur: 0.05, delay: 0.04, gain: 0.2 }); },
   };
 
   const sfx = {
@@ -202,6 +207,8 @@ export function createAudio(settings, bus) {
     ui: () => fire('ui'),
     runEnd: () => fire('runEnd'),
     qte: () => fire('qte'), // the window OPENING: synth-only, no file in the pack
+    qteTick: () => fire('tick'), // the clock stepping, once per tick
+    qteBeat: () => fire('beat'), // the moment itself: the one that has to be unmistakable
     planeEnter: () => fire('planeEnter', { rate: 1.12 }), // no dedicated plane sting; pitch-lifted power-up
     planeExit: () => fire('planeExit'),
   };
@@ -296,6 +303,8 @@ export function createAudio(settings, bus) {
   if (bus) {
     bus.on('timing:result', ({ result }) => sfx[result]?.());
     bus.on('qte:open', sfx.qte); // a window opened: cue the player to press
+    bus.on('qte:tick', sfx.qteTick);
+    bus.on('qte:beat', sfx.qteBeat);
     bus.on('tier:up', sfx.tierUp);
     bus.on('tier:down', sfx.tierDown);
     bus.on('coin:collect', sfx.coin);

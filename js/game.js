@@ -234,6 +234,21 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
         }
       }
       if (activeQte && !activeQte.resolved) {
+        // THE CLOCK (2026-10-22): the window ticks, and the moment lands on a tick. The game owns the
+        // clock and throws events; audio and the HUD listen. One step per tick, one beat at the moment —
+        // both edge-triggered on a change, so a dropped frame cannot double-fire them.
+        const ticks = Math.floor((state.runTime - activeQte.startedAt) / activeQte.tick);
+        const targetTick = Math.round((activeQte.targetAt - activeQte.startedAt) / activeQte.tick);
+        if (ticks > activeQte.ticks) {
+          activeQte.ticks = ticks;
+          // the tick landing ON the target is not a tick: the beat is the event there, and two sounds in
+          // the same millisecond would blur the one the whole cue exists to make unmistakable
+          if (ticks < targetTick) bus.emit('qte:tick', ticks);
+        }
+        if (!activeQte.beat && state.runTime >= activeQte.targetAt) {
+          activeQte.beat = true;
+          bus.emit('qte:beat', null);
+        }
         // a pending QTE owns the gate: no behind-miss until the window expires,
         // or a fast fish (6 m behind < 0.70 s) would double-resolve
         if (qteRemaining(activeQte, state.runTime) <= 0) {

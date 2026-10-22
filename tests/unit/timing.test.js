@@ -49,10 +49,15 @@ test('mouthHit: inside / boundary / outside, on both axes', () => {
   assert.equal(mouthHit(gate(), { x: 0, y: -2.1, z: 100 }), 'inside'); // vertical axis too
 });
 
-test('config: the QTE window is CENTRED (lead / halves) and perfectRadius is retired', () => {
-  assert.equal(QTE.targetLead, 0.62);
-  assert.equal(QTE.perfectHalf, 0.16);
+test('config: the QTE window is CENTRED on a tick-aligned target, and perfectRadius is retired', () => {
+  assert.equal(QTE.tick, 0.16, 'the tick is the clock step and the target unit');
+  assert.ok(QTE.tick >= 0.15, 'and it must stay above the aliasing floor at ~11 fps');
+  assert.equal(QTE.targetTicks.min, 4);
+  assert.equal(QTE.targetTicks.max, 6);
+  assert.equal(QTE.targetTicks.min * QTE.tick, 0.64, 'the earliest moment is 4 ticks out');
+  assert.equal(QTE.perfectHalf, 0.16, 'Perfect is exactly one tick');
   assert.equal(QTE.goodHalf, 0.38);
+  assert.equal('targetLead' in QTE, false, 'the fixed lead is gone: the target moves per trigger');
   assert.equal('perfectWindow' in QTE, false, 'the old from-the-crossing window is gone');
   assert.equal('goodWindow' in QTE, false);
   assert.equal(GATE.mouthRadius, 3.0);
@@ -61,7 +66,7 @@ test('config: the QTE window is CENTRED (lead / halves) and perfectRadius is ret
 
 test('createQte: the centred window comes from config; assist widens the halves by windowScale', () => {
   const q = createQte(gate(), 10);
-  assert.equal(q.targetAt, 10 + QTE.targetLead);
+  assert.equal(q.targetAt, 10 + QTE.targetTicks.min * QTE.tick);
   assert.equal(q.perfectHalf, QTE.perfectHalf);
   assert.equal(q.goodHalf, QTE.goodHalf);
   assert.equal(q.deadline, q.targetAt + QTE.goodHalf);
@@ -70,7 +75,7 @@ test('createQte: the centred window comes from config; assist widens the halves 
   const a = createQte(gate(), 10, { assist: true });
   assert.ok(Math.abs(a.perfectHalf - QTE.perfectHalf * ASSIST.windowScale) < 1e-9);
   assert.ok(Math.abs(a.goodHalf - QTE.goodHalf * ASSIST.windowScale) < 1e-9);
-  assert.equal(a.targetAt, 10 + QTE.targetLead, 'the moment does not move');
+  assert.equal(a.targetAt, 10 + QTE.targetTicks.min * QTE.tick, 'the moment does not move');
 });
 
 test('createQte stamps qteOpened: one QTE per gate', () => {
@@ -80,7 +85,7 @@ test('createQte stamps qteOpened: one QTE per gate', () => {
 });
 
 test('evaluatePress: the moment is perfect, either side is good, beyond is a miss; idempotent', () => {
-  const T = 10 + QTE.targetLead;
+  const T = 10 + QTE.targetTicks.min * QTE.tick;
   assert.equal(evaluatePress(createQte(gate(), 10), T), 'perfect');
   assert.equal(evaluatePress(createQte(gate(), 10), T - QTE.perfectHalf - 0.01), 'good');
   assert.equal(evaluatePress(createQte(gate(), 10), T + QTE.perfectHalf + 0.01), 'good');
@@ -242,7 +247,7 @@ test('config: gate clearance margin is 0.8 (accepted planes clear mouth+margin)'
 // The grade VOCABULARY is unchanged — perfect / good / miss, and everything downstream of applyResult
 // (+8/+4, chain, cuts, scoring) is untouched. What changed is WHEN a press counts: the window is
 // CENTRED on the moment the cue resolves, so pressing the instant you cross is now a Miss. The two
-// styles (closing / sweeping) share the window: the style is presentation, not difficulty.
+// styles (closing / clock) share the window: the style is presentation, not difficulty.
 
 test('style roster: deterministic per rng, difficulty-gated, and never the same twice in a row', () => {
   const seq = (vals) => { let i = 0; return () => vals[i++ % vals.length]; };
@@ -261,60 +266,115 @@ test('style roster: deterministic per rng, difficulty-gated, and never the same 
     last = s;
   }
 
-  for (let i = 0; i < 20; i++) {
-    assert.equal(pickStyle(seq([0.0, 0.5, 0.99]), 0, i > 0 ? 'closing' : null), 'closing',
-      'at difficulty 0 only the closing ring may be picked');
-  }
+  // BOTH styles are available from the first ring (2026-10-22): holding one back made the opening fifth
+  // of every run the same style, which is the opposite of varied where it is felt. The difficulty GATE
+  // mechanism is still exercised below through the roster's own shape.
+  const atZero = new Set();
+  for (let i = 0; i < 40; i++) atZero.add(pickStyle(mulberry32(i * 7919), 0, null));
+  assert.deepEqual([...atZero].sort(), ['clock', 'closing'], 'both styles reachable from the first ring');
   const seen = new Set();
   for (let i = 0; i < 40; i++) seen.add(pickStyle(mulberry32(i * 7919), 1, null));
-  assert.deepEqual([...seen].sort(), ['closing', 'sweeping'], 'both styles must be reachable at full difficulty');
+  assert.deepEqual([...seen].sort(), ['clock', 'closing'], 'both styles must be reachable at full difficulty');
+});
+
+// ---- the tick model (2026-10-22, "cannot tell when to press") --------------------------------
+// The fix for an unreadable moment is a STATIC target plus a beat, and the variation the user asked for
+// ("the perfect, good, miss placement should be different every trigger") is delivered by moving the
+// TARGET while the window keeps a constant width. Moving the window itself would randomly change the
+// difficulty of each ring, which is variation in difficulty, not in timing.
+
+test('the target is a whole number of ticks inside the drawn range', () => {
+  assert.ok(QTE.tick >= 0.15, `the tick must stay above the aliasing floor at ~11 fps (${QTE.tick})`);
+  assert.ok(QTE.targetTicks.min >= 2 && QTE.targetTicks.max > QTE.targetTicks.min,
+    'the target range must be a real range');
+  const leads = new Set();
+  for (let i = 0; i < 200; i++) {
+    const lead = pickLead(mulberry32(i * 2654435761));
+    const ticks = lead / QTE.tick;
+    assert.ok(Math.abs(ticks - Math.round(ticks)) < 1e-9,
+      `the target must land ON a tick, so "press within one tick of the notch" is literally true (${lead})`);
+    assert.ok(Math.round(ticks) >= QTE.targetTicks.min && Math.round(ticks) <= QTE.targetTicks.max,
+      `the tick count must stay inside the range (${Math.round(ticks)})`);
+    leads.add(Math.round(ticks));
+  }
+  assert.deepEqual([...leads].sort((a, b) => a - b),
+    [QTE.targetTicks.min, QTE.targetTicks.min + 1, QTE.targetTicks.max],
+    'every tick count in the range must actually be drawn, or the variation is not real');
+});
+
+test('the OPPORTUNITY is identical wherever the target lands — only the timing moves', () => {
+  const atMin = createQte({ id: 1, style: 'clock', qteLead: QTE.targetTicks.min * QTE.tick }, 0, {});
+  const atMax = createQte({ id: 2, style: 'clock', qteLead: QTE.targetTicks.max * QTE.tick }, 0, {});
+  const width = (q) => (q.targetAt + q.goodHalf) - (q.targetAt - q.goodHalf);
+  assert.equal(atMin.perfectHalf, atMax.perfectHalf, 'the bands do not resize');
+  assert.equal(atMin.goodHalf, atMax.goodHalf);
+  assert.ok(Math.abs(width(atMin) - width(atMax)) < 1e-9,
+    'every ring must offer the same seconds to press in, however far out the moment is');
+  assert.notEqual(atMin.targetAt, atMax.targetAt, 'but the moment itself must move');
+  assert.ok(atMax.targetAt > atMin.targetAt);
+});
+
+test('no drawn target can let a fresh press be a Good — jumping the gun stays a Miss for every ring', () => {
+  for (let i = 0; i < 120; i++) {
+    const lead = pickLead(mulberry32(i * 40503 + 7));
+    const q = createQte({ id: 3, style: 'closing', qteLead: lead }, 0, {});
+    assert.equal(evaluatePress(q, 0.05), 'miss',
+      `an early-target ring would teach the wrong input if 0.05 s could score (lead ${lead.toFixed(2)})`);
+  }
 });
 
 test('createQte: the window is CENTRED on the moment, and the deadline closes the good half', () => {
   const q = createQte({ id: 1, style: 'closing' }, 10, {});
   assert.equal(q.style, 'closing');
-  assert.equal(q.targetAt, 10 + QTE.targetLead, 'the cue resolves one lead after the crossing');
+  assert.equal(q.targetAt, 10 + QTE.targetTicks.min * QTE.tick, 'the cue resolves one lead after the crossing');
   assert.equal(q.perfectHalf, QTE.perfectHalf);
   assert.equal(q.goodHalf, QTE.goodHalf);
   assert.equal(q.deadline, q.targetAt + QTE.goodHalf, 'the deadline is target + the good half, not target + lead');
   assert.ok(Math.abs(qteRemaining(q, q.targetAt) - QTE.goodHalf) < 1e-9, 'the clock counts down to the deadline');
 
-  // a per-gate lead is used when the gate carries one, and every drawn lead stays inside the band
-  const jittered = createQte({ id: 2, style: 'closing', qteLead: 0.71 }, 10, {});
-  assert.equal(jittered.targetAt, 10.71, 'the gate provides the moment, so it varies per ring');
+  // a per-gate lead is used when the gate carries one, and EVERY drawn lead is a whole tick count in range
+  const jittered = createQte({ id: 2, style: 'closing', qteLead: 5 * QTE.tick }, 10, {});
+  assert.equal(jittered.targetAt, 10 + 5 * QTE.tick, 'the gate provides the moment, so it varies per ring');
+  // the clock's counters must exist at birth, or the tick and the beat never edge-trigger (game.js reads
+  // them before writing them, and `0 > undefined` is false: the cue would be silent)
+  assert.equal(jittered.ticks, 0, 'the tick counter starts at zero');
+  assert.equal(jittered.beat, false, 'the beat starts unfired');
+  assert.equal(jittered.tick, QTE.tick,
+    'the window carries its own tick unit, so the cue, the sounds and the tests never re-read config');
   for (let i = 0; i < 200; i++) {
     const lead = pickLead(mulberry32(i * 104729));
-    assert.ok(lead >= QTE.targetLead - QTE.targetJitter - 1e-9 && lead <= QTE.targetLead + QTE.targetJitter + 1e-9,
-      `a per-ring lead must stay inside the jitter band (${lead})`);
+    const ticks = Math.round(lead / QTE.tick);
+    assert.ok(Math.abs(lead - ticks * QTE.tick) < 1e-9 && ticks >= QTE.targetTicks.min && ticks <= QTE.targetTicks.max,
+      `every drawn lead is a whole tick count inside the range (${lead})`);
   }
 
   // assist widens the two HALVES — timing, never geometry, and never the moment itself
-  const a = createQte({ id: 3, style: 'sweeping' }, 10, { assist: true });
+  const a = createQte({ id: 3, style: 'clock' }, 10, { assist: true });
   assert.ok(Math.abs(a.perfectHalf - QTE.perfectHalf * 1.6) < 1e-9, 'assist widens the perfect half');
   assert.ok(Math.abs(a.goodHalf - QTE.goodHalf * 1.6) < 1e-9, 'assist widens the good half');
-  assert.equal(a.targetAt, 10 + QTE.targetLead, 'assist does not move the moment');
+  assert.equal(a.targetAt, 10 + QTE.targetTicks.min * QTE.tick, 'assist does not move the moment');
 });
 
 test('grading is centred: Perfect on the moment, Good either side, Miss beyond — and a Miss if you jump the gun', () => {
   const mk = (style = 'closing') => createQte({ id: 4, style }, 0, {});
   assert.equal(evaluatePress(mk(), 0), 'miss', 'pressing the instant you cross is now a MISS — the skill is inverted');
-  assert.equal(evaluatePress(mk(), QTE.targetLead), 'perfect', 'the moment itself is Perfect');
-  assert.equal(evaluatePress(mk(), QTE.targetLead - QTE.perfectHalf), 'perfect', 'the perfect half is inclusive early');
-  assert.equal(evaluatePress(mk(), QTE.targetLead + QTE.perfectHalf), 'perfect', '... and inclusive late');
-  assert.equal(evaluatePress(mk(), QTE.targetLead - QTE.perfectHalf - 0.01), 'good', 'just outside it is still a Good');
-  assert.equal(evaluatePress(mk(), QTE.targetLead + QTE.perfectHalf + 0.01), 'good');
-  assert.equal(evaluatePress(mk(), QTE.targetLead + QTE.goodHalf + 0.01), 'miss', 'past the good half is a Miss');
-  assert.equal(evaluatePress(mk(), QTE.targetLead - QTE.goodHalf - 0.01), 'miss', 'and so is far too early');
-  assert.equal(evaluatePress(mk('sweeping'), QTE.targetLead), 'perfect', 'both styles grade identically');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick), 'perfect', 'the moment itself is Perfect');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick - QTE.perfectHalf), 'perfect', 'the perfect half is inclusive early');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick + QTE.perfectHalf), 'perfect', '... and inclusive late');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick - QTE.perfectHalf - 0.01), 'good', 'just outside it is still a Good');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick + QTE.perfectHalf + 0.01), 'good');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick + QTE.goodHalf + 0.01), 'miss', 'past the good half is a Miss');
+  assert.equal(evaluatePress(mk(), QTE.targetTicks.min * QTE.tick - QTE.goodHalf - 0.01), 'miss', 'and so is far too early');
+  assert.equal(evaluatePress(mk('clock'), QTE.targetTicks.min * QTE.tick), 'perfect', 'both styles grade identically');
 });
 
 test('a press is final — mashing cannot upgrade a centred window, and it cannot double-grade', () => {
   const q = createQte({ id: 6, style: 'closing' }, 0, {});
-  assert.equal(evaluatePress(q, QTE.targetLead + QTE.perfectHalf + 0.05), 'good');
-  assert.equal(evaluatePress(q, QTE.targetLead), 'good', 'a later, better-timed press must not upgrade the grade');
-  const q2 = createQte({ id: 7, style: 'sweeping' }, 0, {});
+  assert.equal(evaluatePress(q, QTE.targetTicks.min * QTE.tick + QTE.perfectHalf + 0.05), 'good');
+  assert.equal(evaluatePress(q, QTE.targetTicks.min * QTE.tick), 'good', 'a later, better-timed press must not upgrade the grade');
+  const q2 = createQte({ id: 7, style: 'clock' }, 0, {});
   assert.equal(evaluatePress(q2, 0.05), 'miss', 'an early mash is a Miss...');
-  assert.equal(evaluatePress(q2, QTE.targetLead), 'miss', '... and it stays a Miss');
+  assert.equal(evaluatePress(q2, QTE.targetTicks.min * QTE.tick), 'miss', '... and it stays a Miss');
 });
 
 // ---- ring corridor (2026-10-22 spec, stage A) ----------------------------------------------
@@ -404,3 +464,5 @@ test('resolveGatePlacement: fuzz — capsules, in bounds, shifts land only on le
     assert.deepEqual(resolveGatePlacement(gx, 100, discs, { minZ: 100, maxZ: 120 }), r, 'deterministic');
   }
 });
+
+
