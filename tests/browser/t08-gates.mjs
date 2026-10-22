@@ -27,7 +27,15 @@ await page.evaluate(() => {
 await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 90000 });
 const g0 = await page.evaluate(() => window.__FFM_API.gate());
 assert(g0 && g0.z > 0, `gate spawns ahead (z=${g0?.z})`);
-assert(Math.abs(g0.x) <= 4, `gate placed inside the corridor (x=${g0.x.toFixed(2)})`);
+// The SPAWN corridor is ±GATE.corridorX, but this x is read AFTER resolveGatePlacement, whose lateral
+// rescue searches the whole LANE by design (stage A: a ring boxed in by hulls takes the clearest x at a
+// legal plane, and its own comment calls a lane-edge move the last resort). So the honest bound here is the
+// lane. This assertion read `<= 4` and passed for weeks only because the gate stream was seeded from a
+// fixed literal — the first gate never needed a rescue. Re-seeding per run (2026-10-22) exposed it: on one
+// run the first gate was rescued to x=4.86. NOT a code change: the spawn bound is still ±4 in config and
+// still enforced at the draw (js/timing.js createGate), which is what `corridorX` describes.
+const laneHalf = await page.evaluate(() => window.__FFM_API.debugGateLaneHalf().laneHalfWidth);
+assert(Math.abs(g0.x) <= laneHalf + 1e-9, `gate placed inside the lane (x=${g0.x.toFixed(2)}, lane ±${laneHalf})`);
 
 // 2. crossing the mouth opens exactly one QTE; an early press -> PERFECT
 // (read + press in one evaluate: a separate CDP round trip could cross the
@@ -211,9 +219,9 @@ const cue = await page.evaluate(() => {
     beat: el.dataset.beat,
     fill: document.querySelector('.ffm-qte-key').style.getPropertyValue('--fill'),
     // a static target must be marked BEFORE the moment exists, whichever style the roster drew: the
-    // closing style draws a ring, the clock style's gold band IS its target
+    // closing style draws a ring, the clock style paints its windows on the dial
     targetShown: document.querySelector('#ffm-qte-target').style.display !== 'none'
-      || document.querySelector('#ffm-qte-zone').style.display !== 'none',
+      || document.querySelector('#ffm-qte-perfect').getAttribute('d') !== '',
     label: el.textContent,
   };
 });
@@ -302,11 +310,13 @@ assert(closing.deadline > closing.lead, 'and a tail after it before the auto-mis
 const closeCue = await page.evaluate(() => ({
   r: Number(document.querySelector('#ffm-qte-close').getAttribute('r')),
   targetShown: document.querySelector('#ffm-qte-target').style.display !== 'none',
-  dotHidden: document.querySelector('#ffm-qte-dot').style.display === 'none',
+  dialHidden: document.querySelector('#ffm-qte-dial').style.display === 'none',
+  dotHidden: document.querySelector('#ffm-qte-hand').style.display === 'none',
 }));
 assert(closeCue.r > 44, `the closing ring starts OUTSIDE the marked target and shrinks in (r=${closeCue.r})`);
 assertEqual(closeCue.targetShown, true, 'the target it will land on is drawn from the first frame');
-assertEqual(closeCue.dotHidden, true, 'the clock hand is not drawn for a closing ring');
+assertEqual(closeCue.dotHidden, true, 'the needle is not drawn for a closing ring');
+assertEqual(closeCue.dialHidden, true, 'and the painted dial belongs to the clock style only');
 
 // the meeting is real, AND the moment carries a second channel (2026-10-22). The report was "can't tell
 // when to press", so the moment is now: the ring landing exactly on a marked target, the target lighting,
@@ -374,33 +384,81 @@ const late = await page.evaluate(async () => {
 });
 assertEqual(late, 'miss', 'letting the moment pass un-pressed is a Miss');
 
-// (3) CLOCK: a hand that TICKS (discrete steps, not a smooth sweep — a countable beat is readable where
-//     smooth motion is only feelable), a gold band one tick wide whose width IS the Perfect window, and
-//     a static target mark. This is the style the user asked to have REPLACE the old sweep.
+// (3) CLOCK: the dial PAINTED in window time — white Miss, yellow Good, red Perfect — with a NEEDLE that
+//     steps in ticks at a constant speed, so it is the painted MOMENT that moves per trigger. This is the
+//     style the user asked to REPLACE the old sweep, and the paint/zones/needle are what they then asked
+//     for by name ("red area(perfect, small) yellow area(good, medium) white area(miss, large)", "a stick
+//     indicator like clock needle").
 const clock = await crossWithStyle('clock');
 assertEqual(clock.style, 'clock', 'crossing a clock ring opens the clock cue');
 assertEqual(clock.mode, 'clock', 'the prompt reports the clock style');
-const clockCue = await page.evaluate(() => ({
-  dotShown: document.querySelector('#ffm-qte-dot').style.display !== 'none',
-  zoneShown: document.querySelector('#ffm-qte-zone').style.display !== 'none',
-  closeHidden: document.querySelector('#ffm-qte-close').style.display === 'none',
-  dash: document.querySelector('#ffm-qte-zone').getAttribute('stroke-dasharray'),
-  zoneTransform: document.querySelector('#ffm-qte-zone').getAttribute('transform'),
-}));
-assertEqual(clockCue.dotShown, true, 'the hand is drawn for a clock ring');
-assertEqual(clockCue.zoneShown, true, 'and so is the gold band — the static target');
+const clockCue = await page.evaluate(() => {
+  const shown = (sel) => {
+    const el = document.querySelector(sel);
+    return !!el && el.style.display !== 'none';
+  };
+  // measure each zone's angular extent FROM ITS DRAWN PATH, so a styling-only change cannot pass this
+  const arc = (sel) => {
+    const d = document.querySelector(sel).getAttribute('d') || '';
+    const m = /M ([\d.-]+) ([\d.-]+) A 44 44 0 ([01]) 1 ([\d.-]+) ([\d.-]+)/.exec(d);
+    if (!m) return null;
+    const ang = (x, y) => Math.atan2(Number(y) - 50, Number(x) - 50) * 180 / Math.PI + 90;
+    const a0 = ang(Number(m[1]), Number(m[2]));
+    const a1 = ang(Number(m[4]), Number(m[5]));
+    return +((((a1 - a0) % 360) + 360) % 360).toFixed(2);
+  };
+  return {
+    handShown: shown('#ffm-qte-hand'),
+    dialShown: shown('#ffm-qte-dial'),
+    needleShown: shown('.ffm-qte-needle'),
+    closeHidden: document.querySelector('#ffm-qte-close').style.display === 'none',
+    perfectDeg: arc('#ffm-qte-perfect'),
+    goodDeg: arc('#ffm-qte-good'),
+    perfectD: document.querySelector('#ffm-qte-perfect').getAttribute('d'),
+  };
+});
+assertEqual(clockCue.dialShown, true, 'the dial is painted for a clock ring (the white miss field)');
+assertEqual(clockCue.handShown, true, 'and so is the hand');
+assertEqual(clockCue.needleShown, true, 'the hand is a NEEDLE — the player asked for a stick, not a bare dot');
 assertEqual(clockCue.closeHidden, true, 'the closing ring is not drawn for a clock ring');
-assert(/^[\d.]+ 276\.5$/.test(clockCue.dash), `the band is an arc on the dial, not a full circle (dash ${clockCue.dash})`);
-// the band must be CENTRED on the top, in the same convention as the hand. Checked against the band's own
-// width, so an edit that moves one and not the other fails: the dash is the Perfect window (2 ticks), so
-// its centre sits half its width counter-clockwise of the path start (3 o'clock) brought to 12.
-{
-  const dashDeg = Number(clockCue.dash.split(' ')[0]) / 276.5 * 360;
-  const zoneDeg = Number((/rotate\(([-\d.]+)/.exec(clockCue.zoneTransform) || [])[1]);
-  const centred = ((-90 - dashDeg / 2 - zoneDeg) % 360 + 360) % 360;
-  assert(centred < 0.2 || centred > 359.8,
-    `the band must be centred at 12 o'clock, where the hand's origin is (off by ${centred.toFixed(2)} deg)`);
-}
+// the three zones as asked: red (perfect) small, yellow (good) medium, white (miss) large
+assert(clockCue.perfectDeg !== null && clockCue.goodDeg !== null, `both zones drawn (${clockCue.perfectD})`);
+assert(clockCue.perfectDeg > 0 && clockCue.perfectDeg < clockCue.goodDeg,
+  `red (${clockCue.perfectDeg} deg) must read smaller than yellow (${clockCue.goodDeg} deg)`);
+assert(clockCue.goodDeg < 360 - clockCue.goodDeg,
+  `and yellow (${clockCue.goodDeg} deg) must read smaller than the miss field (${(360 - clockCue.goodDeg).toFixed(1)} deg)`);
+// a needle that actually reaches the rim: a stick, not a dot parked near the middle
+const needle = await page.evaluate(() => {
+  const l = document.querySelector('.ffm-qte-needle');
+  return { y1: Number(l.getAttribute('y1')), y2: Number(l.getAttribute('y2')), x1: Number(l.getAttribute('x1')) };
+});
+assertEqual(needle.x1, 50, 'the needle is drawn from the dial hub');
+assert(needle.y1 - needle.y2 > 30, `and reaches out to the rim (length ${needle.y1 - needle.y2} viewBox units)`);
+// THE PAINT IS WHERE THE MOMENT IS. Sampled on the first frame after the moment — when the needle has
+// landed on the target tick — and compared directly against the red zone's own centre: no dial arithmetic
+// in the test, so the two drawn things are being compared to each other, not to a third opinion.
+const aligned = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const q = api.qte();
+  const until = performance.now() + 60000;
+  while (api.qte() === q && performance.now() < until) {
+    if (document.querySelector('#ffm-qte').dataset.phase === 'late') break; // the needle has landed
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  const m = /M ([\d.-]+) ([\d.-]+) A 44 44 0 [01] 1 ([\d.-]+) ([\d.-]+)/
+    .exec(document.querySelector('#ffm-qte-perfect').getAttribute('d'));
+  const ang = (x, y) => Math.atan2(Number(y) - 50, Number(x) - 50) * 180 / Math.PI + 90;
+  const a0 = ang(Number(m[1]), Number(m[2]));
+  const a1 = ang(Number(m[3]), Number(m[4]));
+  const span = (((a1 - a0) % 360) + 360) % 360;
+  const wrap = (v) => ((v % 360) + 360) % 360;
+  const centre = wrap(a0 + span / 2);
+  const hand = wrap(Number((/rotate\(([-\d.]+)/.exec(document.querySelector('#ffm-qte-hand').getAttribute('transform')) || [])[1]));
+  const off = Math.min(Math.abs(centre - hand), 360 - Math.abs(centre - hand));
+  return { centre, hand, off, span };
+});
+assert(aligned.off < 0.75,
+  `the red zone must be centred where the needle lands (zone ${aligned.centre.toFixed(1)} deg, needle ${aligned.hand.toFixed(1)} deg)`);
 // the hand must arrive ON the band exactly at the moment, and its steps must be DISCRETE: the angle only
 // ever changes on tick boundaries, so a smooth sweep (the old cue) fails this by construction. WHERE the
 // hand lands is checked in RENDERED POSITION, not angle — an angle-only assertion passed while the hand
@@ -408,36 +466,49 @@ assert(/^[\d.]+ 276\.5$/.test(clockCue.dash), `the band is an arc on the dial, n
 const arrived = await page.evaluate(async () => {
   const api = window.__FFM_API;
   const q = api.qte();
-  let landed = null, angles = new Set(), bestAngle = null;
+  let landed = null, angles = new Set();
+  const wrap = (v) => ((v % 360) + 360) % 360;
   const deadline = performance.now() + 30000;
   while (api.qte() === q && performance.now() < deadline) {
     const el = document.querySelector('#ffm-qte');
-    const m = /rotate\(([-\d.]+)/.exec(document.querySelector('#ffm-qte-dot').getAttribute('transform') || '');
-    if (m) {
-      const a = Number(m[1]);
-      angles.add(a.toFixed(2));
-      if (bestAngle === null || Math.abs(a) < Math.abs(bestAngle)) bestAngle = a;
-    }
+    const m = /rotate\(([-\d.]+)/.exec(document.querySelector('#ffm-qte-hand').getAttribute('transform') || '');
+    if (m) angles.add(Number(m[1]).toFixed(2));
     if (!landed && el.dataset.phase === 'late') {
+      // WHERE the tip IS on screen, and where the red zone's centre is DRAWN — same frame, one convention.
+      // The zone is no longer pinned at 12 o'clock (that was the bug the user reported), so the check is
+      // "the tip is on the zone", not "the tip is at the top".
       const ring = document.querySelector('.ffm-qte-ring').getBoundingClientRect();
       const dot = document.querySelector('#ffm-qte-dot').getBoundingClientRect();
-      const r = ring.width / 2; // the cue box is square, so this is the dial's radius on screen
+      const r = ring.width / 2;
+      const cx = ring.left + r, cy = ring.top + r;
+      const tx = dot.left + dot.width / 2 - cx, ty = dot.top + dot.height / 2 - cy;
+      const a = /M ([\d.-]+) ([\d.-]+) A 44 44 0 [01] 1 ([\d.-]+) ([\d.-]+)/
+        .exec(document.querySelector('#ffm-qte-perfect').getAttribute('d'));
+      const ang = (x, y) => Math.atan2(Number(y) - 50, Number(x) - 50) * 180 / Math.PI + 90;
+      const a0 = ang(Number(a[1]), Number(a[2]));
+      const a1 = ang(Number(a[3]), Number(a[4]));
+      const span = (((a1 - a0) % 360) + 360) % 360;
       landed = {
-        dx: +((dot.left + dot.width / 2 - (ring.left + r)) / r).toFixed(3),
-        dy: +((dot.top + dot.height / 2 - (ring.top + r)) / r).toFixed(3),
+        tipDeg: wrap(Math.atan2(ty, tx) * 180 / Math.PI + 90),
+        bandDeg: wrap(a0 + span / 2),
+        radius: Math.hypot(tx, ty) / r,
       };
     }
     await new Promise((r) => requestAnimationFrame(r));
   }
-  return { landed, bestAngle, distinctAngles: angles.size, ticks: q.ticks };
+  return { landed, distinctAngles: angles.size, ticks: q.ticks };
 });
-assert(arrived.landed, 'the hand must be sampled in the frame after the moment');
-assert(Math.abs(arrived.landed.dx) < 0.1,
-  `the hand must sit horizontally centred ON the gold band at the moment (dx ${arrived.landed.dx})`);
-assert(arrived.landed.dy < -0.75,
-  `and ABOVE the dial's centre — the top, where the band is drawn (dy ${arrived.landed.dy})`);
+assert(arrived.landed, 'the tip must be sampled in the frame after the moment');
+{
+  const off = Math.min(Math.abs(arrived.landed.tipDeg - arrived.landed.bandDeg),
+    360 - Math.abs(arrived.landed.tipDeg - arrived.landed.bandDeg));
+  assert(off < 1.5,
+    `the tip must land ON the red zone wherever it is painted (tip ${arrived.landed.tipDeg.toFixed(1)} deg, zone ${arrived.landed.bandDeg.toFixed(1)} deg)`);
+  assert(Math.abs(arrived.landed.radius - 0.88) < 0.08,
+    `and at the dial's own radius rather than floating off it (${arrived.landed.radius.toFixed(3)} of 0.88)`);
+}
 assert(arrived.distinctAngles <= arrived.ticks + 2,
-  `the hand STEPS rather than sweeping: ${arrived.distinctAngles} distinct angles over ${arrived.ticks} ticks`);
+  `the needle STEPS rather than sweeping: ${arrived.distinctAngles} distinct angles over ${arrived.ticks} ticks`);
 await crossWithStyle('clock');
 assertEqual(await pressAtOffset(0), 'perfect', 'the clock style grades identically: the moment is a Perfect');
 

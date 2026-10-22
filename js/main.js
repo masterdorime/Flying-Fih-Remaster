@@ -15,7 +15,7 @@ import { createAudio } from './audio.js';
 import { createAdaptiveMusicController } from './adaptive-music.js';
 import { normalizeSpeed } from './momentum.js';
 import { loadSkyfinModel } from './fish.js';
-import { MOMENTUM, FLIGHT, ATMOSPHERE } from './config.js';
+import { MOMENTUM, FLIGHT, ATMOSPHERE, WORLD } from './config.js';
 import { QTE } from './config.js';
 import { bus } from './event-bus.js';
 import { createClouds } from './clouds.js';
@@ -551,6 +551,10 @@ window.__FFM_API = {
   debugPress: () => game.debugPress(),
   debugPressAt: (t) => game.debugPressAt(t),
   debugGateFlash: () => gateView.debugInfo(),
+  // the lane's half-width: what bounds a RESOLVED gate laterally (GATE.corridorX bounds only the spawn
+  // draw). Exposed for t08, which used to assert the spawn bound against a resolved x and passed for weeks
+  // only because the gate stream was a fixed literal.
+  debugGateLaneHalf: () => ({ laneHalfWidth: WORLD.laneHalfWidth }),
   debugTeleportToRing: (offX = 0, offY = 0) => game.debugTeleportToRing(offX, offY),
   debugObstacleCount: () => game.debugObstacleCount(),
   debugModelFailures: () => game.debugModelFailures(),

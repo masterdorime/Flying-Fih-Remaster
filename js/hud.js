@@ -1,4 +1,5 @@
 import { GAUGE, GAMEOVER, FLIGHT } from './config.js';
+import { dialAngles } from './timing.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
 // Also carries the ring-triggered QTE cue. The cue is a VIEW only: the clock (start, target,
@@ -24,15 +25,24 @@ export function createHud(root) {
       <div id="ffm-qte" class="ffm-qte hidden">
         <svg class="ffm-qte-ring" viewBox="0 0 100 100" aria-hidden="true">
           <circle class="ffm-qte-track" cx="50" cy="50" r="44"></circle>
-          <!-- THE TARGET: where the moment is, marked BEFORE anything moves (closing style). The clock
-               style marks it with the gold band instead, which is also static. -->
+          <!-- THE PAINTED DIAL (clock style). The whole turn is white = Miss, with the Good (yellow) and
+               Perfect (red) windows painted on top in window TIME at a fixed degrees-per-second, so the
+               zones keep their size at every ring and the GROUP's position is what moves per trigger.
+               The edge is wider than the zones: plain white would vanish against the sky/sea the cue sits
+               on, and the dial would stop reading as a band. -->
+          <circle id="ffm-qte-dial-edge" class="ffm-qte-dial-edge" cx="50" cy="50" r="44"></circle>
+          <circle id="ffm-qte-dial" class="ffm-qte-dial" cx="50" cy="50" r="44"></circle>
+          <path id="ffm-qte-good" class="ffm-qte-good" d=""></path>
+          <path id="ffm-qte-perfect" class="ffm-qte-perfect" d=""></path>
+          <!-- THE NEEDLE: a stick from behind the key out to the rim, with a tip dot that sits ON the band
+               exactly at the moment. One group, one rotation, one convention (0 deg = 12 o'clock). -->
+          <g id="ffm-qte-hand" class="ffm-qte-hand">
+            <line class="ffm-qte-needle" x1="50" y1="50" x2="50" y2="8"></line>
+            <circle id="ffm-qte-dot" class="ffm-qte-dot" cx="50" cy="6" r="4.5"></circle>
+          </g>
+          <!-- CLOSING style: an inner ring shrinks onto the marked target and lands on it at the moment -->
           <circle id="ffm-qte-target" class="ffm-qte-target" cx="50" cy="50" r="44"></circle>
-          <!-- CLOSING: an inner ring shrinks onto the marked target and lands on it at the moment -->
           <circle id="ffm-qte-close" class="ffm-qte-close" cx="50" cy="50" r="44"></circle>
-          <!-- CLOCK: a hand TICKS around the dial; the gold band is one tick wide, so it IS the Perfect
-               window, and the tick count to it is drawn per ring -->
-          <circle id="ffm-qte-zone" class="ffm-qte-zone" cx="50" cy="50" r="44"></circle>
-          <circle id="ffm-qte-dot" class="ffm-qte-dot" cx="50" cy="6" r="4.5"></circle>
         </svg>
         <div class="ffm-qte-key">SPACE</div>
       </div>
@@ -88,15 +98,25 @@ export function createHud(root) {
     /* CLOSING: the inner ring starts outside the marked target and lands exactly on it */
     .ffm-qte-close { fill: none; stroke: #4dd2ff; stroke-width: 3;
       filter: drop-shadow(0 0 6px rgba(77, 210, 255, .6)); }
-    /* CLOCK: the gold band (the Perfect window) and the ticking hand. No CSS transform here — the
-       rotation is set per frame, in the SAME convention as the hand, so "the hand is on the band" cannot
-       drift between two coordinate systems (it did: the band sat a full tick clockwise of the hand). */
-    .ffm-qte-zone { fill: none; stroke: #ffd54a; stroke-width: 8; stroke-linecap: butt;
-      filter: drop-shadow(0 0 6px rgba(255, 213, 74, .6)); }
-    .ffm-qte-dot { fill: #ffffff; stroke: rgba(8, 30, 46, .85); stroke-width: 1.5; }
+    /* THE PAINTED DIAL (clock style): white = Miss, yellow = Good, red = Perfect, all measured in window
+       time at one rate, so the zones cannot disagree with the grading. */
+    .ffm-qte-dial-edge { fill: none; stroke: rgba(8, 30, 46, .72); stroke-width: 11; }
+    .ffm-qte-dial { fill: none; stroke: rgba(246, 250, 255, .94); stroke-width: 8; }
+    .ffm-qte-good { fill: none; stroke: #ffd54a; stroke-width: 8; stroke-linecap: butt; }
+    .ffm-qte-perfect { fill: none; stroke: #ff5e5b; stroke-width: 8; stroke-linecap: butt;
+      filter: drop-shadow(0 0 4px rgba(255, 94, 91, .55)); }
+    /* THE NEEDLE: dark, because the zones under it are white/yellow/red — a white hand would vanish on
+       its own dial — with a white tip dot for the point that has to sit on the band. */
+    .ffm-qte-needle { stroke: #0b2029; stroke-width: 2.6; stroke-linecap: round; }
+    .ffm-qte-dot { fill: #ffffff; stroke: rgba(8, 30, 46, .9); stroke-width: 1.5; }
+    /* the beat lights the Perfect zone, the tip and the key — the moment on three channels at once */
+    .ffm-qte.beat .ffm-qte-perfect { filter: drop-shadow(0 0 11px rgba(255, 94, 91, .95)); }
+    .ffm-qte.beat .ffm-qte-dot { fill: #ffd54a; stroke: #10222e; }
     /* past the moment: the cue must not keep claiming the moment (a late press still scores Good) */
     .ffm-qte.late .ffm-qte-target { stroke: rgba(234, 246, 255, .16); }
-    .ffm-qte.late .ffm-qte-close, .ffm-qte.late .ffm-qte-dot, .ffm-qte.late .ffm-qte-zone { opacity: .4; }
+    .ffm-qte.late .ffm-qte-dial, .ffm-qte.late .ffm-qte-dial-edge, .ffm-qte.late .ffm-qte-good,
+    .ffm-qte.late .ffm-qte-perfect, .ffm-qte.late .ffm-qte-needle, .ffm-qte.late .ffm-qte-hand,
+    .ffm-qte.late .ffm-qte-close, .ffm-qte.late .ffm-qte-dot { opacity: .4; }
     .ffm-qte-key { position: relative; color: #eaf6ff; font-size: 14px; font-weight: 700;
       letter-spacing: .22em; text-indent: .22em; text-transform: uppercase;
       text-shadow: 0 2px 8px rgba(0,0,0,.55); border-radius: 7px; padding: 3px 7px;
@@ -121,8 +141,12 @@ export function createHud(root) {
   const keyEl = root.querySelector('.ffm-qte-key');
   const targetEl = root.querySelector('#ffm-qte-target');
   const closeEl = root.querySelector('#ffm-qte-close');
-  const zoneEl = root.querySelector('#ffm-qte-zone');
-  const dotEl = root.querySelector('#ffm-qte-dot');
+  // the painted dial (clock style) and its needle
+  const dialEls = ['#ffm-qte-dial-edge', '#ffm-qte-dial', '#ffm-qte-good', '#ffm-qte-perfect', '#ffm-qte-hand']
+    .map((sel) => root.querySelector(sel));
+  const goodEl = root.querySelector('#ffm-qte-good');
+  const perfectEl = root.querySelector('#ffm-qte-perfect');
+  const handEl = root.querySelector('#ffm-qte-hand');
   const WING_GLYPH = '✦'; // one per remaining wing; lost wings dim out
   const TIER_LABEL = { none: 'SWIMMING', low: 'LOW FLIGHT', medium: 'MEDIUM FLIGHT', high: 'HIGH FLIGHT', max: 'MAX FLIGHT' };
 
@@ -161,18 +185,38 @@ export function createHud(root) {
     }
   }
 
-  // THE QTE CUE (2026-10-22, second pass). The player's report was "can't tell when to press", and the
-  // cause was that the moment existed ONLY as motion converging. So:
-  //   - the TARGET is marked statically, before anything moves (the clock's gold band, or a ring the
-  //     closing circle lands on);
-  //   - the beat is a SECOND channel at the moment (target lights, key goes solid, and a sound fires from
-  //     game.js) — motion is never the only feedback;
-  //   - the hand TICKS in discrete steps, because a countable beat is readable where smooth motion is only
-  //     feelable, and the tick count to the target is drawn per ring;
-  //   - the drain arc is GONE: it said "hurry" while the cue says "wait".
-  const QTE_ARC = 276.5; // 2πr for the r-44 ring
-  const SWEEP_DEG = 300; // how far the hand travels across the whole window
+  // THE QTE CUE (2026-10-22, third pass). The player's reports, in order: first "can't tell when to
+  // press", then "the perfect, good, miss is not randomize they also need to have red area(perfect, small)
+  // yellow area(good, medium) white area(miss, large) ... i dont see any stick indicator like clock
+  // needle". So:
+  //   - the CLOCK style PAINTS its windows: the turn is white (Miss) with the Good (yellow) and Perfect
+  //     (red) windows on top, sized in window TIME at one rate (js/timing.js dialAngles), so the paint
+  //     cannot disagree with the grading;
+  //   - the ZONES keep their size and the MOMENT's position on the dial moves per trigger. The old cue
+  //     did the opposite — bands pinned at 12 o'clock, needle speed varying — so every ring looked
+  //     identical and the drawn variation was invisible;
+  //   - a NEEDLE: a stick out to the rim with a tip dot that sits on the band (a bare dot read as no
+  //     pointer at all);
+  //   - the beat is a SECOND channel at the moment (the red zone lights, the tip lights, the key goes
+  //     solid, and a sound fires from game.js) — motion is never the only feedback;
+  //   - past the moment the draw dims: a STATE change, not motion, because a moving element there reads
+  //     as "still going" or "hurry", which is the mistake the drain arc made;
+  //   - the drain arc is GONE for that reason.
   const CLOSE_SPAN = 26; // how far outside the target the closing ring starts (r units)
+  const DIAL_R = 44;     // the dial's radius, in viewBox units
+  const dialPt = (deg) => {
+    const rad = (deg - 90) * Math.PI / 180; // -90 puts 0 deg at 12 o'clock; positive runs clockwise
+    return [50 + DIAL_R * Math.cos(rad), 50 + DIAL_R * Math.sin(rad)];
+  };
+  // Arcs as EXPLICIT geometry, in one stated convention. This replaced stroke-dasharray + dashoffset,
+  // which carries a second one (the circle path starts at 3 o'clock and the pattern's phase comes from the
+  // offset) — that is how the band once ended up a full tick clockwise of the hand.
+  const arcPath = (a0, a1) => {
+    const [x0, y0] = dialPt(a0), [x1, y1] = dialPt(a1);
+    const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
+    return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${DIAL_R} ${DIAL_R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  };
+  const showDial = (on) => { for (const el of dialEls) el.style.display = on ? '' : 'none'; };
   function updateQte(qte, runTime) {
     if (!qte) { qteEl.classList.add('hidden'); qteEl.classList.remove('beat', 'late'); qteEl.dataset.mode = ''; qteEl.dataset.phase = ''; return; }
     qteEl.classList.remove('hidden');
@@ -181,7 +225,6 @@ export function createHud(root) {
 
     const elapsed = runTime - qte.startedAt;
     const lead = Math.max(1e-6, qte.targetAt - qte.startedAt);
-    const ticks = Math.max(1, Math.round(lead / qte.tick)); // the drawn tick count to the target
     const toMoment = Math.min(1, Math.max(0, elapsed / lead));
 
     // the key IS the surface: it fills toward the moment, so the cue lives on the thing you press
@@ -193,7 +236,7 @@ export function createHud(root) {
     qteEl.classList.toggle('beat', atMoment);
     qteEl.dataset.beat = atMoment ? '1' : '0';
     // AFTER the moment the cue must stop claiming the moment: a late press still scores Good for another
-    // 0.38 s, and a cue frozen on the target reads as "perfect". The mark dims — a STATE change, not
+    // 0.38 s, and a cue frozen on the target reads as "perfect". The draw dims — a STATE change, not
     // motion, because a moving element here would read as "still going" or "hurry", which is exactly the
     // mistake the drain arc made.
     const late = elapsed > lead + qte.tick / 2;
@@ -202,29 +245,22 @@ export function createHud(root) {
 
     if (mode === 'clock') {
       closeEl.style.display = 'none';
-      targetEl.style.display = 'none'; // the gold band IS this style's static target
-      zoneEl.style.display = '';
-      dotEl.style.display = '';
-      // the hand moves in DISCRETE ticks and holds still between them
+      targetEl.style.display = 'none'; // the painted dial IS this style's target
+      showDial(true);
+      const d = dialAngles(qte, elapsed);
+      // the two windows, painted where they actually are in TIME — so they sit somewhere new each ring
+      goodEl.setAttribute('d', arcPath(d.centre - d.goodHalfDeg, d.centre + d.goodHalfDeg));
+      perfectEl.setAttribute('d', arcPath(d.centre - d.perfectHalfDeg, d.centre + d.perfectHalfDeg));
+      // the needle steps in whole ticks at a CONSTANT degrees-per-second, so its speed is the same every
+      // ring and it is the PAINTED MOMENT that moves. The tip is authored at 12 o'clock, so 0 deg IS the
+      // band's centre — do NOT offset it (a -90, from the path's 3-o'clock start, put the hand at 9
+      // o'clock while the band sat at 12; an angle-only assertion could not see that, the still did).
       const idx = Math.floor(elapsed / qte.tick);
-      const degPerTick = SWEEP_DEG / (ticks + Math.ceil(qte.goodHalf / qte.tick));
-      // The dot is AUTHORED at (50, 6) — 12 o'clock — and the band is centred there, so theta 0 IS the
-      // band. Do NOT add an offset here: a -90 (the value an earlier sweep used, derived from the path's
-      // default 3-o'clock start) lands the hand at 9 o'clock while the band sits at 12, so the cue times
-      // the wrong moment. An ANGLE-ONLY assertion could not see that — the acceptance still caught it.
-      dotEl.setAttribute('transform', `rotate(${(degPerTick * (idx - ticks)).toFixed(1)} 50 50)`);
-      const halfDeg = degPerTick; // the half-width is one tick, so the band IS the Perfect window (±1 tick)
-      zoneEl.setAttribute('stroke-dasharray', `${(2 * halfDeg) / 360 * QTE_ARC} ${QTE_ARC}`);
-      zoneEl.setAttribute('stroke-dashoffset', '0');
-      // The circle's path starts at 3 o'clock, so -90 brings the dash's start to 12; -halfDeg more centres
-      // the dash there. Expressed as a rotation of the element, in the SAME convention as the hand above,
-      // so the two cannot disagree — which they did: the band began AT the hand and ran a tick clockwise.
-      zoneEl.setAttribute('transform', `rotate(${(-90 - halfDeg).toFixed(1)} 50 50)`);
+      handEl.setAttribute('transform', `rotate(${(idx * qte.tick * d.degPerSec).toFixed(2)} 50 50)`);
       return;
     }
 
-    zoneEl.style.display = 'none';
-    dotEl.style.display = 'none';
+    showDial(false);
     closeEl.style.display = '';
     targetEl.style.display = '';
     // the closing ring travels in and lands exactly ON the marked target at the moment

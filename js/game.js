@@ -4,8 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX } from './timing.js';
-import { mulberry32 } from './worldgen.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX, gateRngFor } from './timing.js';import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
 import { createFish, animateFish, setTrailColor } from './fish.js';
@@ -519,6 +518,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     activeGate = null;
     activeQte = null;
     gateCooldown = 0;
+    // The gate stream is re-seeded from the RUN seed (2026-10-22). It used to be the fixed literal 0x9a7e,
+    // so gates varied within a run but EVERY RUN played the same sequence — which is what the player
+    // noticed ("the game called random seed"). `?seed=` still reproduces a run exactly.
+    gateRng = gateRngFor(state.runSeed);
     world.reset(state.runSeed);
     coins.reset();
     player.setLocomotion('swim');

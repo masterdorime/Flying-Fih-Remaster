@@ -156,6 +156,13 @@ export const QTE = {
   targetTicks: { min: 4, max: 6 },  // the moment is N ticks after the crossing — a different question every ring
   perfectHalf: 0.16,                // ±1 tick
   goodHalf: 0.38,                   // ±0.38 s, kept so the opportunity is unchanged by the tick model
+  // THE PAINTED DIAL (2026-10-22). The clock cue paints its three zones in window TIME at a constant
+  // degrees-per-second, so the red zone IS the Perfect window and the yellow IS the Good window at every
+  // ring, and the moment's POSITION on the dial is what varies per trigger. This is the scale: one full
+  // turn of window time. At 2.0 s the three read as the user asked — red 0.32 s = 58° (small), yellow
+  // 0.76 s = 137° (medium), the miss field 165° (large). Raise it and all three shrink together; the
+  // point is that the RATIO is honest and the needle's speed never changes between rings.
+  dialSeconds: 2.0,
   styles: {
     closing: { weight: 1.0, minD: 0 },
     // both styles from the FIRST ring: holding one back meant the opening fifth of every run was the

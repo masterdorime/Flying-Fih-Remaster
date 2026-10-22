@@ -8,6 +8,7 @@
 
 import { GATE, ASSIST, QTE, WORLD, COLLISION } from './config.js';
 import { surfaceHeight } from './wave.js';
+import { mulberry32 } from './worldgen.js';
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
@@ -101,6 +102,42 @@ export function evaluatePress(qte, pressAt) {
 // overlay's clock and the auto-miss fire on exactly the same deadline.
 export function qteRemaining(qte, now) {
   return Math.max(0, qte.deadline - now);
+}
+
+// THE PAINTED DIAL (2026-10-22, user-directed: "red area(perfect, small) yellow area(good, medium) white
+// area(miss, large)").
+//
+// Pure geometry, so the cue cannot lie about the window: the zones are DERIVED from the same two numbers
+// the grading uses (`perfectHalf` / `goodHalf`, assist already folded in), converted at ONE rate — degrees
+// per second of window time. Two consequences, both deliberate:
+//
+//   * the zones keep their SIZE at every ring (sizes are the fairness contract; randomising them would
+//     randomise difficulty, which the user explicitly did not choose), and
+//   * the needle runs at a CONSTANT speed, so what varies per trigger is where the moment SITS on the
+//     dial. The previous cue did the opposite — bands pinned at 12 o'clock, needle speed varying — so
+//     every ring looked identical and the drawn variation was invisible.
+//
+// Convention, stated once: 0° is 12 o'clock and positive degrees run CLOCKWISE (SVG's own rotate
+// direction). Anything drawn from this must use that one convention — the band that sat a full tick
+// clockwise of the hand was a second convention for the same point on the dial.
+export function dialAngles(qte, elapsed) {
+  const degPerSec = 360 / QTE.dialSeconds;
+  const target = qte.targetAt - qte.startedAt; // the drawn moment, in seconds after the crossing
+  return {
+    degPerSec,
+    needle: Math.max(0, elapsed) * degPerSec,
+    centre: target * degPerSec,
+    perfectHalfDeg: qte.perfectHalf * degPerSec,
+    goodHalfDeg: qte.goodHalf * degPerSec,
+  };
+}
+
+// The gate stream, seeded from the RUN seed. It was the fixed literal 0x9a7e, so within a run the gates
+// varied but EVERY RUN PLAYED THE SAME SEQUENCE — which is what the user noticed ("the game called random
+// seed"). The xor keeps the old stream's character while making it run-specific; a `?seed=` run still
+// reproduces exactly, which the suite depends on.
+export function gateRngFor(runSeed) {
+  return mulberry32(((runSeed >>> 0) ^ 0x9a7e) >>> 0);
 }
 
 // Pick a style for a newly spawned gate: weighted, difficulty-gated, and never the same as the

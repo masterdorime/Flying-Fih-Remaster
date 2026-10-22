@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt, pickStyle, pickLead } from '../../js/timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt, pickStyle, pickLead, dialAngles, gateRngFor } from '../../js/timing.js';
 import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -419,6 +419,95 @@ test('ring corridor: a plane whose corridor is already clear does not move at al
   const discs = [{ x: 0.5, z: 300, radius: 1.5, rz: 2 }];
   assert.deepEqual(resolveGatePlacement(0, 100, discs, { minZ: 40, maxZ: 120 }), { x: 0, z: 100 });
 });
+
+// ---- the painted dial + the per-run gate stream (2026-10-22, user-directed) -------------------------
+// The user, on the clock cue: "the perfect, good, miss is not randomize they also need to have red
+// area(perfect, small) yellow area(good, medium) white area(miss, large) so everytime player pass through
+// that ring the game called random seed".
+//
+// Two things were wrong, and both are contracts here:
+//   1. The cue PINNED its bands at 12 o'clock and varied only the needle's speed, so every ring looked
+//      identical — the drawn variation was invisible, and the same 0.32 s Perfect window was painted at a
+//      different angular size per ring (dishonest).
+//   2. The gate stream was seeded from the fixed literal 0x9a7e, so every RUN played identical gates.
+//
+// The chosen contract (user-approved): the zones keep their true SIZES and the moment MOVES. Sizes are
+// the fairness contract — randomising them would randomise difficulty, which was explicitly not chosen.
+
+test('the dial paints the windows at a constant degrees-per-second', () => {
+  assert.ok(QTE.dialSeconds > 0, 'the dial needs a scale');
+  const a = createQte({ id: 1, style: 'clock', qteLead: 4 * QTE.tick }, 0, {});
+  const b = createQte({ id: 2, style: 'clock', qteLead: 6 * QTE.tick }, 0, {});
+  const da = dialAngles(a, 0.1), db = dialAngles(b, 0.1);
+  assert.equal(da.degPerSec, db.degPerSec,
+    'a constant needle speed is what makes the moment POSITION the variable');
+  assert.ok(Math.abs(da.degPerSec - 360 / QTE.dialSeconds) < 1e-9);
+  // red IS the Perfect window and yellow IS the Good window, in degrees, at every ring
+  assert.ok(Math.abs(da.perfectHalfDeg - QTE.perfectHalf * da.degPerSec) < 1e-9);
+  assert.ok(Math.abs(da.goodHalfDeg - QTE.goodHalf * da.degPerSec) < 1e-9);
+  // the user's read of the three zones: red small, yellow medium, white large
+  const red = 2 * da.perfectHalfDeg;
+  const yellow = 2 * da.goodHalfDeg;
+  const white = 360 - yellow;
+  assert.ok(red < yellow, `red (${red.toFixed(0)}°) must read smaller than yellow (${yellow.toFixed(0)}°)`);
+  assert.ok(yellow < white, `yellow (${yellow.toFixed(0)}°) must read smaller than the miss field (${white.toFixed(0)}°)`);
+});
+
+test('the moment moves every trigger while the zones keep their size', () => {
+  const centres = new Set();
+  const sizes = new Set();
+  for (let i = 0; i < 120; i++) {
+    const q = createQte({ id: 3, style: 'clock', qteLead: pickLead(mulberry32(i * 7919 + 11)) }, 0, {});
+    const d = dialAngles(q, 0);
+    centres.add(d.centre.toFixed(3));
+    sizes.add(d.perfectHalfDeg.toFixed(3));
+  }
+  assert.ok(centres.size >= 3, `the band must sit somewhere different each trigger (${centres.size} positions)`);
+  assert.equal(sizes.size, 1, '...and the zone SIZES must never change: that is the fairness contract');
+});
+
+test('the needle is inside the red zone exactly when that press would grade Perfect', () => {
+  // The drawn geometry and the grader express the same boundary two ways — (target - half) * degPerSec
+  // versus target * degPerSec - half * degPerSec — which differ by ~1e-15 in IEEE-754. evaluatePress
+  // carries a 1e-9 slack for the same reason, so the contract is stated with THAT slack rather than an
+  // exact comparison: the zone edge is where the grader's window edge is, to within the grader's own
+  // tolerance.
+  const SLACK = 1e-9;
+  const inside = (deg, centre, half) => deg >= centre - half - SLACK && deg <= centre + half + SLACK;
+  for (let i = 0; i < 60; i++) {
+    const q = createQte({ id: 4, style: 'clock', qteLead: pickLead(mulberry32(i * 104729 + 3)) }, 100, {});
+    const target = q.targetAt - q.startedAt;
+    for (const off of [-0.9, -0.38, -0.16, -0.01, 0, 0.01, 0.16, 0.38, 0.9]) {
+      const d = dialAngles(q, target + off);
+      const graded = evaluatePress({ ...q, resolved: false, result: null }, q.startedAt + target + off);
+      assert.equal(inside(d.needle, d.centre, d.perfectHalfDeg), graded === 'perfect',
+        `the red zone must BE Perfect (off ${off}s graded ${graded})`);
+      assert.equal(inside(d.needle, d.centre, d.goodHalfDeg), graded !== 'miss',
+        `the yellow zone must BE pressable (off ${off}s graded ${graded})`);
+    }
+  }
+});
+
+test('assist widens the painted zones and never the moment', () => {
+  const plain = createQte({ id: 5, style: 'clock', qteLead: 5 * QTE.tick }, 0, {});
+  const assisted = createQte({ id: 6, style: 'clock', qteLead: 5 * QTE.tick }, 0, { assist: true });
+  const a = dialAngles(plain, 0), b = dialAngles(assisted, 0);
+  assert.equal(a.centre, b.centre, 'the moment itself never moves for assist');
+  assert.ok(b.perfectHalfDeg > a.perfectHalfDeg && b.goodHalfDeg > a.goodHalfDeg,
+    'but the zones it rides in are wider, so the cue shows assist honestly');
+});
+
+test('the gate stream is seeded from the RUN seed: a fresh run differs, a pinned seed reproduces', () => {
+  const leads = (seed) => {
+    const rng = gateRngFor(seed);
+    return Array.from({ length: 5 }, () => pickLead(rng));
+  };
+  assert.deepEqual(leads(1337), leads(1337), 'a pinned seed must reproduce its gates exactly');
+  const differing = [1337, 4242, 99, 7].map((s) => leads(s).join(','));
+  assert.ok(new Set(differing).size >= 3,
+    `different runs must not play identical gates (${differing.join(' | ')})`);
+});
+
 
 test('ring corridor: a hull that clears the circle but stands in the lane is still in the way', () => {
   // lateral edge 2.4 m from the ring centre: inside the mouth's own span, and NOT flagged by the
