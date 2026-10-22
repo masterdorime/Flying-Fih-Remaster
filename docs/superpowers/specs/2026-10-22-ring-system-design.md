@@ -137,46 +137,53 @@ this document. **C has since shipped — see §8, which is its authority.**
   jitter the lead (×0.85–1.15) and the cooldown (0.4–1.0 s) while keeping the 45 m minimum, so two
   rings can never stack. Fairness floors untouched.
 
-## 8. Stage C — two QTE styles, SHIPPED 2026-10-22 (`b05fcdf`)
+## 8. Stage C — two timing styles, SHIPPED 2026-10-22 (`c7734de`, replacing `b05fcdf`)
 
 **The anchoring rule: the grade vocabulary and everything downstream are UNCHANGED.** Perfect / Good /
 Miss, +8 / +4, the chain rules, the speed cuts, `applyResult` and scoring are exactly as they were.
-Only **how** a grade is earned differs. That is what keeps a change to frozen QTE territory small
-enough to be safe.
+Only **how** a grade is earned differs.
 
-| | timing ring (as before) | smash ring (new) |
+**The mechanic changed shape.** The user first asked for a smash (mash SPACE) and then, on seeing it,
+rejected it: *"i dont want smash space qte, i want another type of timing qte."* Both styles are now
+**centred timing** — the cue resolves at a moment and the window sits *around* it, so **pressing the
+instant you cross is a Miss**. The skill inverted: it is no longer "press as fast as you can".
+
+| | closing ring | sweeping marker |
 |---|---|---|
-| what you do | press once, on time | mash SPACE to fill the bar |
-| Perfect | within `perfectWindow` 0.30 s | `smashTarget` 5 presses inside `smashWindow` 1.4 s |
-| Good | within `goodWindow` 0.70 s | `smashGood` 3 presses when the window expires |
-| Miss | late, or never | fewer than 3 presses, or none |
-| anti-cheat | first press grades, and only once | presses closer than `smashMinGap` 0.08 s are IGNORED, not graded |
-| assist | both windows × `ASSIST.windowScale` | the smash clock × the same scale — timing, never geometry |
-| your cue | the ring prompt **drains** (gold in the perfect zone) | the same prompt **fills** (violet, gold once the Good is banked) |
-| in the world | cyan ring | **violet ring with a second inner ring** |
+| the cue | an inner ring shrinks onto the track and **meets it exactly at the moment** | a marker orbits and **enters a lit zone exactly at the moment** |
+| in the world | the plain cyan ring | a violet ring with a second inner ring |
+| your input | press as they meet | press as it enters the zone |
 
-**The player learns the style from the ring itself** (the user's explicit choice): the world ring is
-tinted and doubled for a smash, so the input is known before committing, and the bottom-centre prompt
-confirms it. It is never a surprise.
+Both use the **same window**, so the style is presentation, not difficulty:
 
-**Roster:** `QTE.styles` — `ring { weight 1.0, minD 0 }`, `smash { weight 1.0, minD 0.25 }` — weighted,
-difficulty-gated, and **never the same style twice in a row** while a second is unlocked. Same shape as
-`FORMATIONS`. The style draw happens LAST in `createGate`, so no existing draw moves and gate layouts
-for a given seed are unchanged.
+- the moment is **`targetLead` 0.62 s ± `targetJitter` 0.16 s** after the crossing — jittered **per ring**
+  so a fixed rhythm cannot be memorised (the user's "so its not predictable")
+- **Perfect** = within `perfectHalf` 0.16 s either side (a 0.32 s window)
+- **Good** = within `goodHalf` 0.38 s (0.76 s), then the QTE expires as a Miss
+- **assist** widens the two halves ×1.6 — timing, never geometry, and never the moment itself
 
-**One entry point:** `evaluateQtePress` routes by style, and both the keyboard and `debugPressAt` go
-through it. Found by wiring the test first: the debug hook graded presses **directly**, so a smash ring
-would have been graded as a timing ring *through the test seam* — the test would have measured a rule
-the game does not follow.
+**Widths are deliberately comparable to what they replace** (0.32 / 0.76 s against the old 0.30 / 0.70
+measured from the crossing), so the change is *when* the window sits, not how forgiving it is.
 
-**Verification:** unit **138/138** (6 new style tests: roster determinism/gating/no-repeat, both
-windows, press counting, the anti-turbo gap, expiry-to-Good, and that a timing ring is still graded by
-its first press). `t08` gains four live checks: a forced smash ring opens with the longer clock and the
-smash cue mode, its prompt **fills** with presses, mashing it is a **Perfect**, a part-filled one
-expires as **Good** and keeps the chain, and an ignored one is a **Miss** that clears the prompt.
-`t15`/`t17` pin the timing style — they test the flow, not the styles. Screenshot: the two rings from
-the same distance, visibly different.
+**The zone is the window, by construction:** the lit arc's width is derived from `perfectHalf` and the
+marker's speed from the same clock, so "dot in the zone" and "Perfect" cannot disagree. Likewise the
+closing ring's radius reaches exactly the track radius at `targetAt`.
 
-**Known limits, recorded not hidden:** the numbers above are starting values chosen for this stage, not
-playtested; the tutorial still cannot finish and now teaches only the timing ring (it is deferred by
-the user); and stage B (spacing) is still unbuilt.
+**Roster:** `QTE.styles` — `closing { weight 1.0, minD 0 }`, `sweeping { weight 1.0, minD 0.2 }` —
+weighted, difficulty-gated, never twice in a row while a second is unlocked. Same shape as
+`FORMATIONS`. The style AND the per-gate lead are drawn LAST in `createGate`, so no existing draw moves.
+
+**Verification:** unit **136/136**; the **full browser gate 19/19** (a change to the QTE core earns the
+whole gate, not a slice). `t08` gained live checks for both styles: `closing` starts outside the track
+and **meets** it at the moment (sampled), `sweeping`'s marker **arrives in the lit zone** at the moment
+(sampled), pressing at the moment is Perfect, ±0.24 s is Good, an instant press is a Miss, an un-pressed
+moment is a Miss, and each style draws only its own cue. `t15`/`t17` press at `targetAt`.
+
+**Trap found while wiring it (recorded because only a browser boot catches this class):** renaming the
+config keys left the F3 debug overlay reading `QTE.perfectWindow`, which no longer existed —
+`undefined.toFixed()` threw during boot and the page never became ready. `probe-boot2.mjs` named it
+immediately.
+
+**Known limits:** the numbers are starting values, not playtested; the tutorial still teaches the old
+mechanic (and still cannot finish — deferred by the user); and the smash's code was removed rather than
+left dormant.
