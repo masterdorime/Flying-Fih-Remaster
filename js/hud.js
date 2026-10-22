@@ -82,14 +82,15 @@ export function createHud(root) {
       background: rgba(8, 30, 46, .72); border: 1px solid rgba(255, 140, 120, .55); overflow: hidden; }
     .ffm-charge-fill { height: 100%; width: 0%; border-radius: 6px;
       background: linear-gradient(90deg, #ffd54a, #ff9430, #ff4d6d); transition: width .08s linear; }
-    /* The cue sits UPPER-MIDDLE, not at the bottom (2026-10-22, user: "the qte page currently sitting on
-       bottom which is not ergonomical, player need to divide the focus to diffrent part of screen
-       everytime"). The bottom already carries the gauge and the charge meter, and the gaze during play is
-       on the fish and the water ahead — centre and up toward the horizon — so the cue was in the one busy
-       corner the eye is not in. 12% puts it in the sky band the eye already scans for the next ring,
-       ABOVE the horizon (≈45%) and clear of the grade popups (fixed at top: 34%, 44px tall), which also
-       keeps it out of the way of the water being steered through. */
-    #ffm-qte { position: fixed; left: 50%; top: 12%; transform: translateX(-50%);
+    /* The cue sits JUST ABOVE THE FISH (2026-10-22, user: "the qte page currently sitting on bottom which is
+       not ergonomical, player need to divide the focus to diffrent part of screen everytime", then, after
+       trying the upper-middle: "i think its better to put the qte above the fish so player can focus").
+       The fish's body sits at ~55%..77% of the view (measured from the full-frame stills), so 39% puts the
+       cue (112px tall) at 39%..56% — immediately above the fish, one glance holding both the cue and the
+       avatar. It is also BELOW the grade popups (fixed at top: 34%, 44px tall ≈ 30%..38%), so a COIN or
+       PERFECT popup firing mid-window appears above the cue rather than on top of it. The bottom edge stays
+       clear for the gauge and charge meter. */
+    #ffm-qte { position: fixed; left: 50%; top: 39%; transform: translateX(-50%);
       width: 112px; height: 112px; display: flex; align-items: center; justify-content: center;
       pointer-events: none; }
     .ffm-qte-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
