@@ -209,13 +209,31 @@ than feeling one, and nothing on screen stated it.
 | opportunity | **CONSTANT** — Perfect ±0.16 s, Good ±0.38 s around the target (0.32 s / 0.76 s, unchanged from §8) at **every** ring |
 | the target | **DRAWN per trigger**: `targetTicks` ∈ {4, 5, 6} × `tick` 0.16 s after the crossing ⇒ the moment lands **0.64–0.96 s** out |
 | the tick | the clock's step **and** the unit the target is drawn in, so *"press within one tick of the notch"* is literally the Perfect band. Hard floor ≥ 0.15 s — finer aliases into noise at this rig's ~11 fps |
-| static target | the clock's gold band (one tick wide) / the marked ring the closing ring lands on |
-| the beat | at the moment: the target lights, `SPACE` fills solid, and `qte:tick` / `qte:beat` sound |
-| past the moment | the mark **dims** (`dataset.phase = 'late'`) |
+| the dial | **PAINTED in window time** at one rate (`360 / QTE.dialSeconds`, 2.0 s ⇒ 180°/s): **red = Perfect (58°)**, **yellow = Good (137°, drawn under it)**, and the rest **white = Miss (165°)** — the user's *"red area(perfect, small) yellow area(good, medium) white area(miss, large)"*. The zones keep their SIZE at every ring; the **moment's position on the dial is the variation** |
+| the needle | a **stick** from the hub out to the rim with a tip dot, stepping in whole ticks — *"a stick indicator like clock needle"*; the tip is authored at 12 o'clock, so 0° **is** the band's centre |
+| static target | the painted dial (clock) / the marked ring the closing ring lands on |
+| the beat | at the moment: the red zone lights, the tip lights, `SPACE` fills solid, and `qte:tick` / `qte:beat` sound |
+| past the moment | the draw **dims** (`dataset.phase = 'late'`) |
 | the key | the surface itself: it fills toward the moment |
+| the gate stream | **seeded from the RUN seed** (`gateRngFor`, the run seed xor the old literal) ⇒ a fresh run draws a fresh gate sequence and a `?seed=` run reproduces exactly. It was the fixed literal `0x9a7e`, so every RUN replayed identical gates |
 | deleted | the drain arc and `dataset.progress` |
 | roster | `closing { weight 1.0, minD 0 }`, `clock { weight 1.0, minD 0 }` — **both from the first ring** |
 | names | `closing`, **`clock`** (was `sweeping`) |
+
+**Why the zones keep their size and the moment moves (user-approved, 2026-10-22).** Two readings of *"the
+perfect, good, miss is not randomize"* were offered and the user chose this one: randomising the zone
+*sizes* would randomise difficulty — a smaller red zone is a harder ring — whereas moving the moment inside a
+fixed window is variation in *timing*, which is what was asked for. A press the instant you cross stays a
+Miss at every drawn target.
+
+**Why the needle's speed is constant, and the zones are explicit arcs.** A constant rate is what makes "the
+band moved" mean anything: a varying rate (the previous cue compressed the whole sweep per ring and always
+arrived at 12 o'clock) keeps every ring looking the same and painted the same 0.32 s window at a different
+angular size each time. The zones are drawn as explicit `<path>` arcs rather than
+`stroke-dasharray`/`stroke-dashoffset` because that pair carries a *second* convention for the same point on
+the dial — the circle path starts at 3 o'clock and the pattern's phase comes from the offset — and that is
+precisely how a previous band ended up a full tick clockwise of the hand.
+
 
 **Why the target moves and the window does not.** The user asked for the placement to differ every trigger.
 Moving the *window* is a difficulty lottery — a ring could randomly be more forgiving. Moving the target
