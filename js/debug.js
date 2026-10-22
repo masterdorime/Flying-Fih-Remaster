@@ -16,7 +16,7 @@ export function createDebug(root) {
   const el = root.querySelector('#ffm-debug');
 
   function update(state, timing, fps, extra = '') {
-    const windows = timing?.windows ?? { perfect: 0, good: 0 };
+    const windows = timing?.windows ?? { lead: 0, perfect: 0, good: 0 };
     const lines = [
       `phase      ${state.phase}`,
       `speed      ${state.speed.toFixed(1)}`,
@@ -24,7 +24,7 @@ export function createDebug(root) {
       `tier       ${state.tier}`,
       `loco       ${state.locomotion}`,
       `last       ${state.lastResult ?? '-'}`,
-      `qte        P${windows.perfect.toFixed(2)}s G${windows.good.toFixed(2)}s`,
+      `qte        at+${windows.lead.toFixed(2)}s  P+-${windows.perfect.toFixed(2)} G+-${windows.good.toFixed(2)}`,
       `chain      ${state.chain}`,
       `distance   ${state.distance.toFixed(1)}m`,
       `runTime    ${state.runTime.toFixed(1)}s`,

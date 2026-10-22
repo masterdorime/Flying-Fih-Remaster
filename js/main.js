@@ -342,7 +342,7 @@ function loop(now) {
     + (musicDbg.failed.length ? ` missing:${musicDbg.failed.join(',')}` : '')
     + ` vol:${settings.music}${musicDbg.muted ? ' MUTED' : ''}`
     + ` ctx:${musicDbg.contextState ?? '?'} bus:${musicDbg.busGain ?? '?'} m:${settings.master}/s:${settings.sfx}`;
-  debug.update(game.state, { windows: { perfect: QTE.perfectWindow, good: QTE.goodWindow } }, Math.round(fps), musicLine);
+  debug.update(game.state, { windows: { lead: QTE.targetLead, perfect: QTE.perfectHalf, good: QTE.goodHalf } }, Math.round(fps), musicLine);
 
   // speed lines scale with speed and the post-FX setting (PRD §18.2)
   const sim = game.state;

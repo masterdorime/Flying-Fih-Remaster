@@ -16,25 +16,25 @@ export function createGateView(scene) {
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x4dd2ff, transparent: true, opacity: 0.9, depthWrite: false });
   const innerMat = new THREE.MeshBasicMaterial({ color: 0x1e6fd9, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
   const discMat = new THREE.MeshBasicMaterial({ color: 0x7dd3ff, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false });
-  // SMASH rings get their own colour and a second concentric ring (2026-10-22 stage C). The player
-  // must know which input is coming BEFORE committing to the ring — that was the user's explicit
-  // choice — so the difference is in the world, not only in the prompt that appears after crossing.
-  const smashMat = new THREE.MeshBasicMaterial({ color: 0xc77dff, transparent: true, opacity: 0.85, depthWrite: false });
+  // SWEEPING rings get their own colour and a second concentric ring (2026-10-22). The player must know
+  // which cue is coming BEFORE committing to the ring — the user's explicit choice — so the difference
+  // is in the world, not only in the prompt that appears after crossing. CLOSING keeps the plain cyan.
+  const sweepMat = new THREE.MeshBasicMaterial({ color: 0xc77dff, transparent: true, opacity: 0.85, depthWrite: false });
 
   const torus = new THREE.Mesh(new THREE.TorusGeometry(GATE.outerRadius, 0.18, 16, 48), ringMat);
   const highlight = new THREE.Mesh(new THREE.RingGeometry(GATE.outerRadius - 0.34, GATE.outerRadius - 0.1, 48), innerMat);
   const disc = new THREE.Mesh(new THREE.CircleGeometry(GATE.mouthRadius, 48), discMat);
-  const smashRing = new THREE.Mesh(new THREE.TorusGeometry(GATE.outerRadius * 0.64, 0.14, 12, 40), smashMat);
-  smashRing.visible = false;
+  const sweepRing = new THREE.Mesh(new THREE.TorusGeometry(GATE.outerRadius * 0.64, 0.14, 12, 40), sweepMat);
+  sweepRing.visible = false;
 
   const spin = new THREE.Group();
-  spin.add(highlight, smashRing);
+  spin.add(highlight, sweepRing);
   group.add(torus, spin, disc);
   group.traverse(o => { o.renderOrder = 998; o.frustumCulled = false; });
 
-  const RING = 0x4dd2ff, GOLD = 0xffd54a, GOOD = 0x7dff9a, BAD = 0xff5e5b, SMASH = 0xc77dff;
+  const RING = 0x4dd2ff, GOLD = 0xffd54a, GOOD = 0x7dff9a, BAD = 0xff5e5b, SWEEP = 0xc77dff;
   const baseRing = new THREE.Color(RING);
-  const baseSmash = new THREE.Color(SMASH);
+  const baseSweep = new THREE.Color(SWEEP);
   const FLASH_SECONDS = 0.25;
   let flashLeft = 0;
 
@@ -48,9 +48,9 @@ export function createGateView(scene) {
       return;
     }
     group.visible = true;
-    const isSmash = gate.style === 'smash';
-    smashRing.visible = isSmash;
-    disc.material.opacity = isSmash ? 0.2 : 0.12;
+    const isSweep = gate.style === 'sweeping';
+    sweepRing.visible = isSweep;
+    disc.material.opacity = isSweep ? 0.2 : 0.12;
     // swim gates ride the wave so the portal never floats detached from the sea
     const flying = locomotion === 'fly' || locomotion === 'leap';
     const y = flying ? gate.y : surfaceHeight(gate.x, gate.z, runTime) + GATE.swimLift;
@@ -61,7 +61,7 @@ export function createGateView(scene) {
     if (playerPos && flashLeft <= 0) {
       const d = Math.hypot(playerPos.x - gate.x, playerPos.y - y);
       const near = Math.max(0, 1 - d / (GATE.mouthRadius + 2));
-      torus.material.color.copy(isSmash ? baseSmash : baseRing).lerp(GOLD, near * 0.8);
+      torus.material.color.copy(isSweep ? baseSweep : baseRing).lerp(GOLD, near * 0.8);
       const pulse = 1 + Math.sin(runTime * 3) * 0.02;
       torus.scale.setScalar(pulse);
     }
@@ -87,3 +87,5 @@ export function createGateView(scene) {
 
   return { group, update, flash, resetColors, debugInfo };
 }
+
+

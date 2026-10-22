@@ -28,11 +28,12 @@ export function createGate(rng, { locomotion, playerPos, runTime, speed = 25, di
   const y = flying
     ? clamp(playerPos.y + reach, GATE.flightMin, GATE.flightMax)
     : surfaceHeight(x, z, runTime) + GATE.swimLift;
-  // The style is drawn LAST so every existing draw keeps its position — reordering them would move
-  // gate layouts for a given seed (AGENTS §3). `forceStyle` overrides the PICK but the draw still
-  // happens, so a forced-style test run sees the same stream as a normal one.
+  // The style and the QTE lead are drawn LAST so every existing draw keeps its position — reordering
+  // them would move gate layouts for a given seed (AGENTS §3). `forceStyle` overrides the PICK but the
+  // draw still happens, so a forced-style test run sees the same stream as a normal one.
   const picked = pickStyle(rng, difficulty, lastStyle);
-  return { id: nextGateId++, x, y, z, locomotion, style: forceStyle ?? picked, resolved: false, result: null };
+  const qteLead = pickLead(rng);
+  return { id: nextGateId++, x, y, z, locomotion, style: forceStyle ?? picked, qteLead, resolved: false, result: null };
 }
 
 // Where the player crossed the gate's plane this frame, linearly interpolated
@@ -55,75 +56,45 @@ export function mouthHit(gate, sample) {
 // Open the one QTE for this gate. `now` is state.runTime (never wall-clock, so pause/time-scale
 // can't skew the deadline). Stamps gate.qteOpened so a gate can never open a second window.
 //
-// The STYLE comes from the gate (picked at spawn, 2026-10-22 stage C). Both styles share ONE deadline
-// concept — `goodWindow` IS the deadline and `qteRemaining` reads it — so the HUD cue still drains on
-// exactly the clock the auto-miss fires on. A smash's arc FILLS with presses instead of draining, and
-// `perfectWindow` stays meaningful only for the timing ring (the HUD colours the gold zone from it).
+// CENTRED (2026-10-22, user-directed): the cue resolves at `targetAt` and the window is centred on it,
+// so the grade is how close to that MOMENT the press lands. `deadline` is when the QTE gives up
+// (target + the good half); `qteRemaining` reads it, so the HUD and the auto-miss share one clock.
+//
+// `closing` (an inner ring shrinks onto the track) and `sweeping` (a marker orbits into a lit zone) use
+// the SAME window — the style is presentation, not difficulty. The lead is per-gate (`gate.qteLead`,
+// drawn at spawn) so it varies ring to ring; assist widens the two HALVES, never the geometry.
 export function createQte(gate, now, { assist = false } = {}) {
   const scale = assist ? ASSIST.windowScale : 1;
-  const style = gate.style ?? 'ring';
+  const style = gate.style ?? 'closing';
   gate.qteOpened = true;
-  const window = style === 'smash' ? QTE.smashWindow * scale : QTE.goodWindow * scale;
+  const lead = gate.qteLead ?? QTE.targetLead;
   return {
     gateId: gate.id, startedAt: now, style,
-    perfectWindow: style === 'smash' ? window : QTE.perfectWindow * scale,
-    goodWindow: window,
-    presses: 0, lastPressAt: -Infinity,
+    targetAt: now + lead,
+    perfectHalf: QTE.perfectHalf * scale,
+    goodHalf: QTE.goodHalf * scale,
+    deadline: now + lead + QTE.goodHalf * scale,
     resolved: false, result: null,
   };
 }
 
-// Grade one press against the window. Idempotent — once resolved, the stored
-// result wins, so mash-tapping can't double-grade. The 1e-9 slack keeps the
-// inclusive boundaries exact in IEEE-754: (startedAt + perfectWindow) -
-// startedAt can land one ULP past the window (e.g. 10.30 - 10), and a press
-// that close to the boundary belongs to the nearer grade, not a whole grade
-// down.
+// Grade one press against the CENTRED window. Idempotent — once resolved, the stored result wins, so
+// mash-tapping can't double-grade. The 1e-9 slack keeps the inclusive boundaries exact in IEEE-754.
 const WINDOW_SLACK = 1e-9;
 export function evaluatePress(qte, pressAt) {
   if (qte.resolved) return qte.result;
-  const elapsed = pressAt - qte.startedAt;
-  const result = elapsed < -WINDOW_SLACK || elapsed > qte.goodWindow + WINDOW_SLACK ? 'miss'
-    : elapsed <= qte.perfectWindow + WINDOW_SLACK ? 'perfect' : 'good';
+  const err = Math.abs(pressAt - qte.targetAt);
+  const result = err <= qte.perfectHalf + WINDOW_SLACK ? 'perfect'
+    : err <= qte.goodHalf + WINDOW_SLACK ? 'good' : 'miss';
   qte.resolved = true;
   qte.result = result;
-  return result;
+  return result;;
 }
 
-// Seconds left on the window at `now` (state.runTime). Shared with the HUD cue,
-// so the overlay drains on exactly the deadline the auto-miss fires on.
+// Seconds left before the QTE gives up at `now` (state.runTime). Shared with the HUD cue, so the
+// overlay's clock and the auto-miss fire on exactly the same deadline.
 export function qteRemaining(qte, now) {
-  return Math.max(0, qte.startedAt + qte.goodWindow - now);
-}
-
-// Grade one press against the gate's OWN style: a timing ring is graded by the FIRST press (exactly
-// as it always was), a smash ring ACCUMULATES presses and stays open until the bar fills.
-//
-// Returns the grade when the QTE resolves, or null while a smash is still open — so a caller must
-// only resolve on a non-null answer. This is the ONE entry point the game uses for a press: routing by
-// style here means the two styles cannot drift apart in the wiring.
-export function evaluateQtePress(qte, pressAt) {
-  if (qte.resolved) return qte.result;
-  if (qte.style !== 'smash') return evaluatePress(qte, pressAt);
-  // Anti-turbo: a press inside the minimum gap is IGNORED, never graded as a miss, so a held or
-  // auto-repeating key can neither clear the bar nor punish a genuine double-tap.
-  if (pressAt - qte.lastPressAt < QTE.smashMinGap) return null;
-  qte.lastPressAt = pressAt;
-  qte.presses += 1;
-  if (qte.presses >= QTE.smashTarget) {
-    qte.resolved = true;
-    qte.result = 'perfect';
-  }
-  return qte.result;
-}
-
-// What the window resolves to when it EXPIRES with no further press. A timing ring can never be a Good
-// this way (a press is what grades it, and a late one is a miss); a smash is Good if the bar got
-// part-filled — which is the whole point of the second style.
-export function expiryResult(qte) {
-  if (qte.resolved) return qte.result;
-  if (qte.style === 'smash') return qte.presses >= QTE.smashGood ? 'good' : 'miss';
-  return 'miss';
+  return Math.max(0, qte.deadline - now);
 }
 
 // Pick a style for a newly spawned gate: weighted, difficulty-gated, and never the same as the
@@ -132,7 +103,8 @@ export function expiryResult(qte) {
 // (AGENTS §4 row 8); the caller draws LAST in createGate so existing draws keep their positions.
 export function pickStyle(rng, difficulty, lastStyle = null) {
   const unlocked = Object.entries(QTE.styles).filter(([, s]) => difficulty >= s.minD);
-  const pool = unlocked.length ? unlocked : [['ring', QTE.styles.ring]];
+  const fallback = Object.entries(QTE.styles)[0];
+  const pool = unlocked.length ? unlocked : [fallback];
   const fresh = pool.filter(([name]) => name !== lastStyle);
   const use = fresh.length ? fresh : pool;
   const total = use.reduce((sum, [, s]) => sum + s.weight, 0);
@@ -142,6 +114,14 @@ export function pickStyle(rng, difficulty, lastStyle = null) {
     if (r <= 0) return name;
   }
   return use[use.length - 1][0];
+}
+
+// The moment the cue resolves, per gate: the base lead with a symmetric per-ring jitter, so a player
+// cannot learn one rhythm and stop watching the rings (the user's "so its not predictable and less
+// repetitive"). Drawn at spawn from the gate's own stream.
+export function pickLead(rng) {
+  const j = (rng() * 2 - 1) * QTE.targetJitter;
+  return Math.max(0.25, QTE.targetLead + j);
 }
 
 // Place a freshly spawned gate in clear water (Phase 3 + 2026-10-17 overlap

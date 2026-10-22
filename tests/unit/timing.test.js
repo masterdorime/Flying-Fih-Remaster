@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt, pickStyle, evaluateQtePress, expiryResult } from '../../js/timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, corridorGapAt, pickStyle, pickLead } from '../../js/timing.js';
 import { GATE, ASSIST, QTE } from '../../js/config.js';
 import { mulberry32 } from '../../js/worldgen.js';
 import { surfaceHeight } from '../../js/wave.js';
@@ -49,22 +49,28 @@ test('mouthHit: inside / boundary / outside, on both axes', () => {
   assert.equal(mouthHit(gate(), { x: 0, y: -2.1, z: 100 }), 'inside'); // vertical axis too
 });
 
-test('config: QTE windows are 0.30 / 0.70 and perfectRadius is retired', () => {
-  assert.equal(QTE.perfectWindow, 0.30);
-  assert.equal(QTE.goodWindow, 0.70);
+test('config: the QTE window is CENTRED (lead / halves) and perfectRadius is retired', () => {
+  assert.equal(QTE.targetLead, 0.62);
+  assert.equal(QTE.perfectHalf, 0.16);
+  assert.equal(QTE.goodHalf, 0.38);
+  assert.equal('perfectWindow' in QTE, false, 'the old from-the-crossing window is gone');
+  assert.equal('goodWindow' in QTE, false);
   assert.equal(GATE.mouthRadius, 3.0);
   assert.equal('perfectRadius' in GATE, false);
 });
 
-test('createQte: windows from config; assist widens both by windowScale', () => {
+test('createQte: the centred window comes from config; assist widens the halves by windowScale', () => {
   const q = createQte(gate(), 10);
-  assert.equal(q.perfectWindow, QTE.perfectWindow);
-  assert.equal(q.goodWindow, QTE.goodWindow);
+  assert.equal(q.targetAt, 10 + QTE.targetLead);
+  assert.equal(q.perfectHalf, QTE.perfectHalf);
+  assert.equal(q.goodHalf, QTE.goodHalf);
+  assert.equal(q.deadline, q.targetAt + QTE.goodHalf);
   assert.equal(q.startedAt, 10);
   assert.equal(q.resolved, false);
   const a = createQte(gate(), 10, { assist: true });
-  assert.ok(Math.abs(a.perfectWindow - QTE.perfectWindow * ASSIST.windowScale) < 1e-9);
-  assert.ok(Math.abs(a.goodWindow - QTE.goodWindow * ASSIST.windowScale) < 1e-9);
+  assert.ok(Math.abs(a.perfectHalf - QTE.perfectHalf * ASSIST.windowScale) < 1e-9);
+  assert.ok(Math.abs(a.goodHalf - QTE.goodHalf * ASSIST.windowScale) < 1e-9);
+  assert.equal(a.targetAt, 10 + QTE.targetLead, 'the moment does not move');
 });
 
 test('createQte stamps qteOpened: one QTE per gate', () => {
@@ -73,22 +79,25 @@ test('createQte stamps qteOpened: one QTE per gate', () => {
   assert.equal(g.qteOpened, true);
 });
 
-test('evaluatePress: early perfect, mid good, late miss; idempotent', () => {
-  assert.equal(evaluatePress(createQte(gate(), 10), 10.30), 'perfect');
-  assert.equal(evaluatePress(createQte(gate(), 10), 10.31), 'good');
-  assert.equal(evaluatePress(createQte(gate(), 10), 10.69), 'good');
-  assert.equal(evaluatePress(createQte(gate(), 10), 10.71), 'miss');
-  assert.equal(evaluatePress(createQte(gate(), 10), 9.99), 'miss'); // press predates the window
+test('evaluatePress: the moment is perfect, either side is good, beyond is a miss; idempotent', () => {
+  const T = 10 + QTE.targetLead;
+  assert.equal(evaluatePress(createQte(gate(), 10), T), 'perfect');
+  assert.equal(evaluatePress(createQte(gate(), 10), T - QTE.perfectHalf - 0.01), 'good');
+  assert.equal(evaluatePress(createQte(gate(), 10), T + QTE.perfectHalf + 0.01), 'good');
+  assert.equal(evaluatePress(createQte(gate(), 10), T + QTE.goodHalf + 0.01), 'miss');
+  assert.equal(evaluatePress(createQte(gate(), 10), T - QTE.goodHalf - 0.01), 'miss'); // far too early
+  assert.equal(evaluatePress(createQte(gate(), 10), 10), 'miss', 'jumping the gun is a miss now');
   const q = createQte(gate(), 10);
-  evaluatePress(q, 10.1);
-  assert.equal(evaluatePress(q, 10.9), 'perfect'); // stored result wins
+  evaluatePress(q, T + 0.3); // a Good
+  assert.equal(evaluatePress(q, T), 'good', 'the stored result wins: a later press cannot upgrade it');
   assert.equal(q.resolved, true);
 });
 
-test('qteRemaining: exact before the deadline, 0 after', () => {
+test('qteRemaining: counts down to the deadline, 0 after', () => {
   const q = createQte(gate(), 10);
-  assert.ok(Math.abs(qteRemaining(q, 10.25) - 0.45) < 1e-9);
-  assert.equal(qteRemaining(q, 11), 0);
+  const toDeadline = q.deadline - 10.25;
+  assert.ok(Math.abs(qteRemaining(q, 10.25) - toDeadline) < 1e-9);
+  assert.equal(qteRemaining(q, 12), 0);
 });
 
 test('gateBehind + gateCadence', () => {
@@ -229,24 +238,22 @@ test('config: gate clearance margin is 0.8 (accepted planes clear mouth+margin)'
   assert.equal(GATE.clearanceMargin, 0.8);
 });
 
-// ---- two QTE styles, varying per ring (2026-10-22 spec stage C) ------------------------------
+// ---- centred QTE timing, two styles (2026-10-22, user-directed) ------------------------------
 // The grade VOCABULARY is unchanged — perfect / good / miss, and everything downstream of applyResult
-// (+8/+4, chain, cuts, scoring) is untouched. Only how a grade is EARNED differs. These tests pin the
-// pure core of that: the roster, and the smash's press-counting state machine.
+// (+8/+4, chain, cuts, scoring) is untouched. What changed is WHEN a press counts: the window is
+// CENTRED on the moment the cue resolves, so pressing the instant you cross is now a Miss. The two
+// styles (closing / sweeping) share the window: the style is presentation, not difficulty.
 
 test('style roster: deterministic per rng, difficulty-gated, and never the same twice in a row', () => {
-  // a stream that always returns the same value lets us drive the weighted pick deterministically
   const seq = (vals) => { let i = 0; return () => vals[i++ % vals.length]; };
 
-  // every seeded run is reproducible
   for (const seed of [1, 7, 1234]) {
     const a = []; const b = [];
-    for (let i = 0; i < 12; i++) { a.push(pickStyle(mulberry32(seed * 31 + i), 1, a[i - 1] ?? null)); }
-    for (let i = 0; i < 12; i++) { b.push(pickStyle(mulberry32(seed * 31 + i), 1, b[i - 1] ?? null)); }
+    for (let i = 0; i < 12; i++) a.push(pickStyle(mulberry32(seed * 31 + i), 1, a[i - 1] ?? null));
+    for (let i = 0; i < 12; i++) b.push(pickStyle(mulberry32(seed * 31 + i), 1, b[i - 1] ?? null));
     assert.deepEqual(a, b, 'the same seed must give the same style sequence');
   }
 
-  // no immediate repeat while more than one option is unlocked
   let last = null;
   for (let i = 0; i < 40; i++) {
     const s = pickStyle(seq([0.99, 0.5, 0.1]), 1, last);
@@ -254,91 +261,60 @@ test('style roster: deterministic per rng, difficulty-gated, and never the same 
     last = s;
   }
 
-  // difficulty gates the roster: at d = 0 the smash must be unavailable
   for (let i = 0; i < 20; i++) {
-    assert.equal(pickStyle(seq([0.0, 0.5, 0.99]), 0, i > 0 ? 'ring' : null), 'ring',
-      'at difficulty 0 only the timing ring may be picked');
+    assert.equal(pickStyle(seq([0.0, 0.5, 0.99]), 0, i > 0 ? 'closing' : null), 'closing',
+      'at difficulty 0 only the closing ring may be picked');
   }
-  // and at d = 1 both are reachable
   const seen = new Set();
   for (let i = 0; i < 40; i++) seen.add(pickStyle(mulberry32(i * 7919), 1, null));
-  assert.deepEqual([...seen].sort(), ['ring', 'smash'], 'both styles must be reachable at full difficulty');
+  assert.deepEqual([...seen].sort(), ['closing', 'sweeping'], 'both styles must be reachable at full difficulty');
 });
 
-test('createQte: a smash ring gets the smash clock; a timing ring keeps 0.30 / 0.70', () => {
-  const ring = { id: 1, style: 'ring' };
-  const q1 = createQte(ring, 10, {});
-  assert.equal(q1.style, 'ring');
-  assert.equal(q1.perfectWindow, 0.30);
-  assert.equal(q1.goodWindow, 0.70);
-  assert.ok(Math.abs(qteRemaining(q1, 10.3) - 0.4) < 1e-9, 'the deadline for both styles is qteRemaining');
+test('createQte: the window is CENTRED on the moment, and the deadline closes the good half', () => {
+  const q = createQte({ id: 1, style: 'closing' }, 10, {});
+  assert.equal(q.style, 'closing');
+  assert.equal(q.targetAt, 10 + QTE.targetLead, 'the cue resolves one lead after the crossing');
+  assert.equal(q.perfectHalf, QTE.perfectHalf);
+  assert.equal(q.goodHalf, QTE.goodHalf);
+  assert.equal(q.deadline, q.targetAt + QTE.goodHalf, 'the deadline is target + the good half, not target + lead');
+  assert.ok(Math.abs(qteRemaining(q, q.targetAt) - QTE.goodHalf) < 1e-9, 'the clock counts down to the deadline');
 
-  const smash = { id: 2, style: 'smash' };
-  const q2 = createQte(smash, 10, {});
-  assert.equal(q2.style, 'smash');
-  assert.equal(q2.goodWindow, QTE.smashWindow);
-  assert.equal(q2.presses, 0);
-  assert.ok(Math.abs(qteRemaining(q2, 10) - QTE.smashWindow) < 1e-9, 'a fresh smash window has its whole clock');
-
-  // assist widens TIMING only, for both styles (never geometry)
-  const q3 = createQte({ id: 3, style: 'smash' }, 10, { assist: true });
-  assert.ok(Math.abs(q3.goodWindow - QTE.smashWindow * 1.6) < 1e-9, 'assist scales the smash clock too');
-  const q4 = createQte({ id: 4, style: 'ring' }, 10, { assist: true });
-  assert.ok(Math.abs(q4.perfectWindow - 0.48) < 1e-9, 'assist widens the timing window as it always did');
-});
-
-test('smash: presses count, a full bar resolves Perfect immediately, and it stays open until then', () => {
-  const gate = { id: 9, style: 'smash' };
-  const q = createQte(gate, 0, {});
-  let t = 0;
-  for (let i = 1; i < QTE.smashTarget; i++) {
-    t += 0.15; // comfortably past the anti-turbo gap
-    const r = evaluateQtePress(q, t);
-    assert.equal(r, null, `the window stays open at ${i} press(es)`);
-    assert.equal(q.presses, i);
-    assert.equal(q.resolved, false);
+  // a per-gate lead is used when the gate carries one, and every drawn lead stays inside the band
+  const jittered = createQte({ id: 2, style: 'closing', qteLead: 0.71 }, 10, {});
+  assert.equal(jittered.targetAt, 10.71, 'the gate provides the moment, so it varies per ring');
+  for (let i = 0; i < 200; i++) {
+    const lead = pickLead(mulberry32(i * 104729));
+    assert.ok(lead >= QTE.targetLead - QTE.targetJitter - 1e-9 && lead <= QTE.targetLead + QTE.targetJitter + 1e-9,
+      `a per-ring lead must stay inside the jitter band (${lead})`);
   }
-  t += 0.15;
-  assert.equal(evaluateQtePress(q, t), 'perfect', 'filling the bar is a Perfect');
-  assert.equal(q.resolved, true);
-  // and it is final: more presses cannot change it
-  assert.equal(evaluateQtePress(q, t + 0.15), 'perfect');
-  assert.equal(q.presses, QTE.smashTarget, 'presses do not accumulate after resolution');
+
+  // assist widens the two HALVES — timing, never geometry, and never the moment itself
+  const a = createQte({ id: 3, style: 'sweeping' }, 10, { assist: true });
+  assert.ok(Math.abs(a.perfectHalf - QTE.perfectHalf * 1.6) < 1e-9, 'assist widens the perfect half');
+  assert.ok(Math.abs(a.goodHalf - QTE.goodHalf * 1.6) < 1e-9, 'assist widens the good half');
+  assert.equal(a.targetAt, 10 + QTE.targetLead, 'assist does not move the moment');
 });
 
-test('smash: presses inside the anti-turbo gap are ignored, not graded', () => {
-  const q = createQte({ id: 10, style: 'smash' }, 0, {});
-  evaluateQtePress(q, 0.10);
-  assert.equal(q.presses, 1);
-  assert.equal(evaluateQtePress(q, 0.10 + QTE.smashMinGap / 2), null, 'too soon: ignored');
-  assert.equal(q.presses, 1, 'an ignored press must not count');
-  assert.equal(evaluateQtePress(q, 0.10 + QTE.smashMinGap + 1e-6), null, 'just past the gap: counted');
-  assert.equal(q.presses, 2);
+test('grading is centred: Perfect on the moment, Good either side, Miss beyond — and a Miss if you jump the gun', () => {
+  const mk = (style = 'closing') => createQte({ id: 4, style }, 0, {});
+  assert.equal(evaluatePress(mk(), 0), 'miss', 'pressing the instant you cross is now a MISS — the skill is inverted');
+  assert.equal(evaluatePress(mk(), QTE.targetLead), 'perfect', 'the moment itself is Perfect');
+  assert.equal(evaluatePress(mk(), QTE.targetLead - QTE.perfectHalf), 'perfect', 'the perfect half is inclusive early');
+  assert.equal(evaluatePress(mk(), QTE.targetLead + QTE.perfectHalf), 'perfect', '... and inclusive late');
+  assert.equal(evaluatePress(mk(), QTE.targetLead - QTE.perfectHalf - 0.01), 'good', 'just outside it is still a Good');
+  assert.equal(evaluatePress(mk(), QTE.targetLead + QTE.perfectHalf + 0.01), 'good');
+  assert.equal(evaluatePress(mk(), QTE.targetLead + QTE.goodHalf + 0.01), 'miss', 'past the good half is a Miss');
+  assert.equal(evaluatePress(mk(), QTE.targetLead - QTE.goodHalf - 0.01), 'miss', 'and so is far too early');
+  assert.equal(evaluatePress(mk('sweeping'), QTE.targetLead), 'perfect', 'both styles grade identically');
 });
 
-test('smash: expiry gives Good for a part-filled bar and Miss for a bare one', () => {
-  const partial = createQte({ id: 11, style: 'smash' }, 0, {});
-  for (let i = 0; i < QTE.smashGood; i++) evaluateQtePress(partial, i * 0.2);
-  assert.equal(partial.presses, QTE.smashGood);
-  assert.equal(expiryResult(partial), 'good', 'a part-filled bar is a Good at the deadline');
-
-  const bare = createQte({ id: 12, style: 'smash' }, 0, {});
-  evaluateQtePress(bare, 0.1);
-  assert.equal(expiryResult(bare), 'miss', 'one stray press is not a Good');
-
-  const none = createQte({ id: 13, style: 'smash' }, 0, {});
-  assert.equal(expiryResult(none), 'miss', 'no press at all is a Miss');
-
-  // and the timing ring keeps its own expiry rule: never Good on expiry (a press is what grades it)
-  assert.equal(expiryResult(createQte({ id: 14, style: 'ring' }, 0, {})), 'miss');
-});
-
-test('a timing ring is still graded by the FIRST press alone (evaluateQtePress routes by style)', () => {
-  const q = createQte({ id: 15, style: 'ring' }, 0, {});
-  assert.equal(evaluateQtePress(q, 0.1), 'perfect');
-  assert.equal(evaluateQtePress(q, 0.2), 'perfect', 'idempotent, and a second press still cannot upgrade');
-  const late = createQte({ id: 16, style: 'ring' }, 0, {});
-  assert.equal(evaluateQtePress(late, 0.5), 'good');
+test('a press is final — mashing cannot upgrade a centred window, and it cannot double-grade', () => {
+  const q = createQte({ id: 6, style: 'closing' }, 0, {});
+  assert.equal(evaluatePress(q, QTE.targetLead + QTE.perfectHalf + 0.05), 'good');
+  assert.equal(evaluatePress(q, QTE.targetLead), 'good', 'a later, better-timed press must not upgrade the grade');
+  const q2 = createQte({ id: 7, style: 'sweeping' }, 0, {});
+  assert.equal(evaluatePress(q2, 0.05), 'miss', 'an early mash is a Miss...');
+  assert.equal(evaluatePress(q2, QTE.targetLead), 'miss', '... and it stays a Miss');
 });
 
 // ---- ring corridor (2026-10-22 spec, stage A) ----------------------------------------------

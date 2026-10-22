@@ -36,7 +36,7 @@ await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
 await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
 await page.evaluate(() => {
   const q = window.__FFM_API.qte();
-  if (q) window.__FFM_API.debugPressAt(q.startedAt + 0.001);
+  if (q) window.__FFM_API.debugPressAt(q.targetAt);
 });
 await page.waitForFunction(() => window.__FFM_API.state().lastResult === 'perfect', null, { timeout: 60000 });
 let s = await page.evaluate(() => window.__FFM_API.state());
@@ -53,7 +53,7 @@ await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
 await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 60000 });
 await page.evaluate(() => {
   const q = window.__FFM_API.qte();
-  window.__FFM_API.debugPressAt(q.startedAt + q.perfectWindow + 0.05);
+  window.__FFM_API.debugPressAt(q.targetAt + q.perfectHalf + 0.05);
 });
 await page.waitForFunction(() => window.__FFM_API.state().lastResult === 'good', null, { timeout: 60000 });
 s = await page.evaluate(() => window.__FFM_API.state());
@@ -70,7 +70,7 @@ await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeou
 // could never observe "past the window" — it would just time out
 const deadline = await page.evaluate(() => {
   const q = window.__FFM_API.qte();
-  return q ? q.startedAt + q.goodWindow : null;
+  return q ? q.deadline : null;
 });
 assert(deadline !== null, 'window opened with a deadline to poll');
 await page.waitForFunction((d) => window.__FFM_API.state().runTime > d, deadline, { timeout: 60000 });
@@ -98,7 +98,7 @@ assert(await page.evaluate(() => window.__FFM_API.qte() !== null),
 const p14 = await page.evaluate(() => window.__FFM_API.state().counts.perfect);
 await page.evaluate(() => {
   const q = window.__FFM_API.qte();
-  if (q) window.__FFM_API.debugPressAt(q.startedAt + 0.001);
+  if (q) window.__FFM_API.debugPressAt(q.targetAt);
 });
 await page.waitForFunction((p) => window.__FFM_API.state().counts.perfect > p, p14, { timeout: 60000 });
 
@@ -164,7 +164,7 @@ const double = await page.evaluate(() => {
   const api = window.__FFM_API;
   const before = api.state().counts.perfect;
   const q = api.qte();
-  api.debugPressAt(q.startedAt + 0.001);
+  api.debugPressAt(q.targetAt);
   api.debugPressAt(q.startedAt + 0.5); // must no-op: window already resolved
   return { before, after: api.state().counts.perfect };
 });
@@ -220,91 +220,133 @@ assertEqual(postEnd.qte, null, 'ending a run clears a pending QTE');
 assertEqual(postEnd.phase, 'results', 'run ended');
 assertEqual(await page.evaluate(() => document.querySelector('#ffm-qte').classList.contains('hidden')), true, 'the cue hides when the run ends');
 
-// ---- two QTE styles, varying per ring (2026-10-22 spec stage C) ------------------------------
-// The grade vocabulary and everything downstream (applyResult, +8/+4, chain, cuts) is unchanged:
-// only how the grade is EARNED differs. Forced via the inert seam so the test is deterministic
-// instead of depending on the roster's draw.
+// ---- centred QTE timing, two styles (2026-10-22, user-directed) -------------------------------
+// The grade vocabulary and everything downstream (applyResult, +8/+4, chain, cuts) is unchanged. What
+// changed is WHEN a press counts: the window is centred on the cue's target moment, so pressing the
+// instant you cross is now a Miss. Styles forced via the inert seam, not the roster's draw.
 
-// (1) a SMASH ring: the world ring looks different, the prompt switches, and mashing fills the bar
-await page.evaluate(() => {
-  window.__FFM_API.debugForceStyle('smash');
-  window.__FFM_API.debugRestart();
-});
-await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
-const smoke = await page.evaluate(() => ({ style: window.__FFM_API.gate()?.style, last: window.__FFM_API.debugLastStyle() }));
-assertEqual(smoke.style, 'smash', 'the forced style reaches the spawned gate');
-assertEqual(smoke.last, 'smash', 'and the no-repeat guard is fed the style that actually spawned');
+// a crossing helper: force a style, spawn, teleport onto the ring, and hand back the live QTE
+async function crossWithStyle(style) {
+  await page.evaluate((s) => { window.__FFM_API.debugForceStyle(s); window.__FFM_API.debugRestart(); }, style);
+  await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
+  await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
+  await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
+  return page.evaluate(() => {
+    const api = window.__FFM_API;
+    const q = api.qte();
+    return {
+      style: q.style, mode: document.querySelector('#ffm-qte').dataset.mode,
+      lead: q.targetAt - q.startedAt, perfect: q.perfectHalf, good: q.goodHalf,
+      deadline: q.deadline - q.startedAt,
+    };
+  });
+}
+// press `offset` seconds from the target moment and report the grade. Returns '<no-window>' when no
+// QTE is open — a stale grade read after the fact would look like a pass for the wrong reason.
+async function pressAtOffset(offset) {
+  return page.evaluate((off) => {
+    const api = window.__FFM_API;
+    const q = api.qte();
+    if (!q) return '<no-window>';
+    api.debugPressAt(q.targetAt + off);
+    return api.state().lastResult;
+  }, offset);
+}
 
-await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
-await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
-const smashOpen = await page.evaluate(() => {
-  const q = window.__FFM_API.qte();
-  return {
-    style: q?.style,
-    window: q?.goodWindow,
-    cueMode: document.querySelector('#ffm-qte').dataset.mode,
-    fill: Number(document.querySelector('#ffm-qte-drain').dataset.progress),
-  };
-});
-assertEqual(smashOpen.style, 'smash', 'crossing a smash ring opens a smash QTE');
-assert(smashOpen.window > 0.7, `a smash window is longer than a timing window (${smashOpen.window})`);
-assertEqual(smashOpen.cueMode, 'smash', 'the prompt switches to the smash mode');
-assertEqual(smashOpen.fill, 0, 'the smash prompt starts EMPTY and fills (a timing ring drains)');
+// (1) CLOSING: the plain cyan ring; the prompt says closing; the inner ring starts outside the track
+//     and MEETS it at the target moment; pressing that moment is a Perfect.
+const closing = await crossWithStyle('closing');
+assertEqual(closing.style, 'closing', 'the forced style reaches the spawned gate');
+assertEqual(await page.evaluate(() => window.__FFM_API.debugLastStyle()), 'closing', 'the no-repeat guard sees the real style');
+assertEqual(closing.mode, 'closing', 'the prompt reports the closing style');
+assert(closing.lead > 0.3, `there is a moment to time (lead ${closing.lead.toFixed(2)}s)`);
+assert(closing.deadline > closing.lead, 'and a tail after it before the auto-miss');
+const closeCue = await page.evaluate(() => ({
+  r: Number(document.querySelector('#ffm-qte-close').getAttribute('r')),
+  dotHidden: document.querySelector('#ffm-qte-dot').style.display === 'none',
+}));
+assert(closeCue.r > 44, `the closing ring starts OUTSIDE the track and shrinks in (r=${closeCue.r})`);
+assertEqual(closeCue.dotHidden, true, 'the sweeping marker is not drawn for a closing ring');
 
-const mashed = await page.evaluate(async () => {
+// the meeting is real: sample the radius as the moment arrives
+const meeting = await page.evaluate(async () => {
   const api = window.__FFM_API;
   const q = api.qte();
-  const seen = [];
-  for (let i = 0; i < 8; i++) {
-    api.debugPressAt(q.startedAt + 0.1 + i * 0.15); // 0.15 s apart: past the anti-turbo gap
-    await new Promise(r => setTimeout(r, 40));       // let the HUD RENDER the press before reading it
-    seen.push(Number(document.querySelector('#ffm-qte-drain').dataset.progress));
+  let best = null;
+  const deadline = performance.now() + 30000;
+  while (api.qte() === q && performance.now() < deadline) {
+    if (Math.abs(api.state().runTime - q.targetAt) < 0.06) best = Number(document.querySelector('#ffm-qte-close').getAttribute('r'));
+    await new Promise((r) => requestAnimationFrame(r));
   }
-  return { result: api.state().lastResult, seen, presses: q.presses };
+  return best;
 });
-assertEqual(mashed.result, 'perfect', 'filling the bar is a Perfect — the same grade a timing ring gives');
-assert(mashed.seen[0] > 0 && mashed.seen[1] > mashed.seen[0], `the smash prompt FILLS with presses (${mashed.seen.join(', ')})`);
+assert(meeting !== null && Math.abs(meeting - 44) < 8,
+  `the ring must MEET the track at the target moment (r=${meeting} at the moment)`);
 
-// (2) a part-filled smash, left to expire, must be a GOOD and must grant the chain (not a reset)
-await page.evaluate(() => { window.__FFM_API.debugRestart(); });
-await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
-await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
-await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
-const partial = await page.evaluate(async () => {
+// (2) the grade follows the MOMENT, and jumping the gun is a Miss — the skill is inverted.
+//     NOTE: the sampling loop above runs until the QTE resolves, so every press needs its own crossing.
+await crossWithStyle('closing');
+assertEqual(await pressAtOffset(0), 'perfect', 'pressing at the moment is a Perfect');
+await crossWithStyle('closing');
+assertEqual(await pressAtOffset(0.24), 'good', 'slightly late is a Good');
+await crossWithStyle('closing');
+assertEqual(await pressAtOffset(-0.24), 'good', 'slightly early is a Good');
+await crossWithStyle('closing');
+const jumped = await page.evaluate(() => {
   const api = window.__FFM_API;
   const q = api.qte();
-  const chainBefore = api.state().chain;
-  for (let i = 0; i < 3; i++) api.debugPressAt(q.startedAt + 0.1 + i * 0.15); // exactly smashGood
-  await new Promise(r => setTimeout(r, 60));
-  const presses = q.presses;
-  // let the window expire: the auto-miss must resolve it to Good, not Miss
-  const deadline = performance.now() + 30000;
-  while (api.qte() !== null && performance.now() < deadline) await new Promise(r => setTimeout(r, 50));
-  return { presses, result: api.state().lastResult, chainBefore, chainAfter: api.state().chain };
+  api.debugPressAt(q.startedAt + 0.001); // the OLD "press as fast as you can" input
+  return api.state().lastResult;
 });
-assertEqual(partial.presses, 3, 'the anti-turbo gap did not swallow spaced presses');
-assertEqual(partial.result, 'good', 'a part-filled smash expires as a Good');
-assertEqual(partial.chainAfter, partial.chainBefore + 1, 'a Good keeps the chain — only a Miss resets it');
-
-// (3) an IGNORED smash ring must still be a Miss, and it must clear the prompt
-await page.evaluate(() => { window.__FFM_API.debugRestart(); });
-await page.waitForFunction(() => window.__FFM_API.gate() !== null, null, { timeout: 60000 });
-await page.evaluate(() => window.__FFM_API.debugTeleportToRing());
-await page.waitForFunction(() => window.__FFM_API.qte() !== null, null, { timeout: 120000 });
-const ignored = await page.evaluate(async () => {
+assertEqual(jumped, 'miss', 'pressing the instant you cross is now a MISS');
+await crossWithStyle('closing');
+const late = await page.evaluate(async () => {
   const api = window.__FFM_API;
-  const deadline = performance.now() + 30000;
-  while (api.qte() !== null && performance.now() < deadline) await new Promise(r => setTimeout(r, 50));
-  return { result: api.state().lastResult, cueHidden: document.querySelector('#ffm-qte').classList.contains('hidden') };
+  const deadline = api.qte().deadline;
+  while (api.state().runTime <= deadline + 0.05) await new Promise((r) => requestAnimationFrame(r));
+  return api.state().lastResult;
 });
-assertEqual(ignored.result, 'miss', 'not pressing a smash ring is still a Miss');
-assertEqual(ignored.cueHidden, true, 'and the smash prompt clears with the window');
+assertEqual(late, 'miss', 'letting the moment pass un-pressed is a Miss');
+
+// (3) SWEEPING: its own prompt, a lit zone whose width IS the perfect window, and a marker that
+//     arrives in the centre of it exactly at the moment
+const sweeping = await crossWithStyle('sweeping');
+assertEqual(sweeping.style, 'sweeping', 'crossing a sweeping ring opens the sweeping cue');
+assertEqual(sweeping.mode, 'sweeping', 'the prompt reports the sweeping style');
+const sweepCue = await page.evaluate(() => ({
+  dotShown: document.querySelector('#ffm-qte-dot').style.display !== 'none',
+  zoneShown: document.querySelector('#ffm-qte-zone').style.display !== 'none',
+  closeHidden: document.querySelector('#ffm-qte-close').style.display === 'none',
+  dash: document.querySelector('#ffm-qte-zone').getAttribute('stroke-dasharray'),
+}));
+assertEqual(sweepCue.dotShown, true, 'the marker is drawn for a sweeping ring');
+assertEqual(sweepCue.zoneShown, true, 'and so is the lit zone');
+assertEqual(sweepCue.closeHidden, true, 'the closing ring is not drawn for a sweeping ring');
+assert(/^[\d.]+ 276\.5$/.test(sweepCue.dash), `the zone is an arc on the track, not a full circle (dash ${sweepCue.dash})`);
+const arrived = await page.evaluate(async () => {
+  const api = window.__FFM_API;
+  const q = api.qte();
+  let angle = null;
+  const deadline = performance.now() + 30000;
+  while (api.qte() === q && performance.now() < deadline) {
+    if (Math.abs(api.state().runTime - q.targetAt) < 0.06) {
+      const m = /rotate\(([-\d.]+)/.exec(document.querySelector('#ffm-qte-dot').getAttribute('transform') || '');
+      if (m) angle = Number(m[1]);
+    }
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  return angle;
+});
+assert(arrived !== null && Math.abs(arrived + 90) < 10,
+  `the marker must reach the lit zone (at the top, -90 deg) at the moment — got ${arrived}`);
+await crossWithStyle('sweeping');
+assertEqual(await pressAtOffset(0), 'perfect', 'the sweeping style grades identically: the moment is a Perfect');
 
 // (4) the roster is free to pick again once the style seam is released
-await page.evaluate(() => window.__FFM_API.debugForceStyle(null));
 assertEqual(await page.evaluate(() => window.__FFM_API.debugForceStyle(null)), null, 'the force seam releases');
 
 if (consoleErrors.length) throw new Error('console errors: ' + consoleErrors.join(' | '));
 console.log('PASS  t08-gates');
 await closePage(browser);
 await stopServer(server);
+

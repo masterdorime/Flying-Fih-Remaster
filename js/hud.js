@@ -1,4 +1,4 @@
-import { GAUGE, GAMEOVER, FLIGHT, QTE } from './config.js';
+import { GAUGE, GAMEOVER, FLIGHT } from './config.js';
 import { qteRemaining } from './timing.js';
 
 // In-run HUD (PRD §17): gauge with tier ticks, tier label, speed, distance, coins, chain.
@@ -26,6 +26,11 @@ export function createHud(root) {
         <svg class="ffm-qte-ring" viewBox="0 0 100 100" aria-hidden="true">
           <circle class="ffm-qte-track" cx="50" cy="50" r="44"></circle>
           <circle id="ffm-qte-drain" class="ffm-qte-arc" cx="50" cy="50" r="44"></circle>
+          <!-- CLOSING style: an inner ring shrinks onto the track; press as they meet -->
+          <circle id="ffm-qte-close" class="ffm-qte-close" cx="50" cy="50" r="44"></circle>
+          <!-- SWEEPING style: a lit zone on the track and a marker that orbits into it -->
+          <circle id="ffm-qte-zone" class="ffm-qte-zone" cx="50" cy="50" r="44"></circle>
+          <circle id="ffm-qte-dot" class="ffm-qte-dot" cx="50" cy="6" r="4.5"></circle>
         </svg>
         <div class="ffm-qte-key">SPACE</div>
       </div>
@@ -74,6 +79,14 @@ export function createHud(root) {
       stroke-dasharray: 276.5; transform: rotate(-90deg); transform-origin: 50% 50%;
       transition: stroke-dashoffset .06s linear;
       filter: drop-shadow(0 0 7px rgba(77, 210, 255, .5)); }
+    /* CLOSING: the inner ring starts outside the track and shrinks onto it at the target moment */
+    .ffm-qte-close { fill: none; stroke: #4dd2ff; stroke-width: 3;
+      filter: drop-shadow(0 0 6px rgba(77, 210, 255, .6)); }
+    /* SWEEPING: the lit zone on the track (drawn with a dash), and the orbiting marker */
+    .ffm-qte-zone { fill: none; stroke: #ffd54a; stroke-width: 8; stroke-linecap: butt;
+      transform: rotate(-90deg); transform-origin: 50% 50%;
+      filter: drop-shadow(0 0 6px rgba(255, 213, 74, .6)); }
+    .ffm-qte-dot { fill: #ffffff; stroke: rgba(8, 30, 46, .85); stroke-width: 1.5; }
     .ffm-qte-key { position: relative; color: #eaf6ff; font-size: 14px; font-weight: 700;
       letter-spacing: .22em; text-indent: .22em; text-transform: uppercase;
       text-shadow: 0 2px 8px rgba(0,0,0,.55); }
@@ -95,6 +108,9 @@ export function createHud(root) {
   const chargeLabel = root.querySelector('#ffm-charge-label');
   const qteEl = root.querySelector('#ffm-qte');
   const drainEl = root.querySelector('#ffm-qte-drain');
+  const closeEl = root.querySelector('#ffm-qte-close');
+  const zoneEl = root.querySelector('#ffm-qte-zone');
+  const dotEl = root.querySelector('#ffm-qte-dot');
   const WING_GLYPH = '✦'; // one per remaining wing; lost wings dim out
   const TIER_LABEL = { none: 'SWIMMING', low: 'LOW FLIGHT', medium: 'MEDIUM FLIGHT', high: 'HIGH FLIGHT', max: 'MAX FLIGHT' };
 
@@ -133,40 +149,60 @@ export function createHud(root) {
     }
   }
 
-  // QTE cue: shows only while a press window is open, draining on the same
-  // runTime clock the auto-miss uses. Gold while the perfect zone is still
-  // live, then the HUD's cyan for the remainder of the good window.
+  // QTE cue (2026-10-22, CENTRED timing). The arc is the window CLOCK — a neutral drain on the same
+  // runTime deadline the auto-miss fires on. The gold, and the timing itself, belong to the style cue:
+  // a closing ring that meets the track at the target moment, or a marker that enters a lit zone then.
   const QTE_ARC = 276.5; // 2πr for the r-44 prompt ring
+  // CENTRED timing cursor (2026-10-22). Both styles resolve at qte.targetAt; the window is centred
+  // there, so `progress` is now "how far through the window" for reference, while the CUE that carries
+  // the timing is style-specific:
+  //   closing  — an inner ring shrinks onto the track and MEETS it exactly at targetAt
+  //   sweeping — a marker orbits and ENTERS the lit zone exactly at targetAt, where the zone's width is
+  //              the perfect window, so "marker in the zone" and "Perfect" are the same thing by
+  //              construction rather than by two pieces of code agreeing.
+  const C = QTE_ARC;              // circumference of the r-44 track
+  const SWEEP_DEG = 300;          // marker travel across the whole window
+  const ZONE_CENTRE = -90;        // the zone sits at the top of the ring
+  const CLOSE_SPAN = 26;          // how far outside the track the closing ring starts (r units)
   function updateQte(qte, runTime) {
     if (!qte) { qteEl.classList.add('hidden'); qteEl.dataset.mode = ''; return; }
     qteEl.classList.remove('hidden');
-    const mode = qte.style ?? 'ring';
-    qteEl.dataset.mode = mode; // the prompt says which input it is (tests read this too)
+    const mode = qte.style ?? 'closing';
+    qteEl.dataset.mode = mode;
 
-    // SMASH (2026-10-22 stage C): the same circle FILLS with presses instead of draining with time,
-    // so one prompt still reads as "this ring's window" for both styles while the motion says which.
-    // Violet until the bar would score a Good (smashGood), gold after — the player can see the Good
-    // already banked and is pushing for the Perfect.
-    if (mode === 'smash') {
-      const fill = Math.min(1, qte.presses / QTE.smashTarget);
-      const good = qte.presses >= QTE.smashGood;
-      drainEl.style.strokeDashoffset = (QTE_ARC * (1 - fill)).toFixed(1);
-      drainEl.dataset.progress = (fill * 100).toFixed(1);
-      drainEl.style.stroke = good ? '#ffd54a' : '#c77dff';
-      drainEl.style.filter = good
-        ? 'drop-shadow(0 0 7px rgba(255, 213, 74, .55))'
-        : 'drop-shadow(0 0 7px rgba(199, 125, 255, .55))';
+    const span = Math.max(1e-6, qte.deadline - qte.startedAt);
+    const elapsed = runTime - qte.startedAt;
+    const lead = Math.max(1e-6, qte.targetAt - qte.startedAt);
+    const tail = Math.max(1e-6, qte.deadline - qte.targetAt);
+
+    // the arc is now only the window CLOCK (a neutral drain on the deadline, no gold zone — the gold
+    // belongs to the style cue, which is what actually times the press). It reads 1 - qteRemaining/span
+    // so it keeps proving the HUD and the auto-miss share one clock.
+    const frac = Math.min(1, Math.max(0, 1 - qteRemaining(qte, runTime) / span));
+    drainEl.style.strokeDashoffset = (QTE_ARC * frac).toFixed(1);
+    drainEl.dataset.progress = (frac * 100).toFixed(1);
+    drainEl.style.stroke = '#4dd2ff';
+    drainEl.style.filter = 'drop-shadow(0 0 7px rgba(77, 210, 255, .5))';
+
+    if (mode === 'sweeping') {
+      closeEl.style.display = 'none';
+      zoneEl.style.display = '';
+      dotEl.style.display = '';
+      const degPerSec = SWEEP_DEG / span;
+      dotEl.setAttribute('transform', `rotate(${(ZONE_CENTRE + degPerSec * (elapsed - lead)).toFixed(1)} 50 50)`);
+      const half = degPerSec * qte.perfectHalf;               // the zone IS the perfect window
+      zoneEl.setAttribute('stroke-dasharray', `${((2 * half) / 360 * QTE_ARC).toFixed(1)} ${QTE_ARC}`);
+      zoneEl.setAttribute('stroke-dashoffset', `${(-((ZONE_CENTRE - half) + 90) / 360 * QTE_ARC).toFixed(1)}`);
       return;
     }
 
-    const t = Math.min(1, Math.max(0, 1 - qteRemaining(qte, runTime) / qte.goodWindow));
-    drainEl.style.strokeDashoffset = (QTE_ARC * t).toFixed(1);
-    drainEl.dataset.progress = (t * 100).toFixed(1);
-    const inPerfect = t <= qte.perfectWindow / qte.goodWindow;
-    drainEl.style.stroke = inPerfect ? '#ffd54a' : '#4dd2ff';
-    drainEl.style.filter = inPerfect
-      ? 'drop-shadow(0 0 7px rgba(255, 213, 74, .55))'
-      : 'drop-shadow(0 0 7px rgba(77, 210, 255, .5))';
+    zoneEl.style.display = 'none';
+    dotEl.style.display = 'none';
+    closeEl.style.display = '';
+    // r = 44 + CLOSE_SPAN at the crossing, EXACTLY 44 (the track) at targetAt, then on inward
+    closeEl.setAttribute('r', (elapsed <= lead
+      ? 44 + CLOSE_SPAN * (1 - elapsed / lead)
+      : 44 - 18 * Math.min(1, (elapsed - lead) / tail)).toFixed(2));
   }
 
   return { update, updateQte };

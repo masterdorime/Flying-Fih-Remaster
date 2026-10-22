@@ -4,7 +4,7 @@ const server = await startServer();
 const { browser, page, consoleErrors } = await openPage();
 // This file tests momentum + coin chaining, not the QTE styles: pin the timing ring so a smash ring
 // cannot turn a scripted perfect into a Good (2026-10-22 stage C). Styles are covered by t08.
-await page.evaluate(() => window.__FFM_API.debugForceStyle('ring'));
+await page.evaluate(() => window.__FFM_API.debugForceStyle('closing'));
 
 // 1. Skyfin model is the player (not the procedural fallback)
 const fish = await page.evaluate(() => window.__FFM_API.debugFish());
@@ -54,7 +54,7 @@ const result = await page.evaluate(async () => {
       const q = api.qte();
       // deterministic grade: press inside the perfect window no matter how slow
       // the frames are (CDP latency at 4x sim would otherwise eat perfects)
-      if (q) api.debugPressAt(q.startedAt + 0.05);
+      if (q) api.debugPressAt(q.targetAt); // the centred moment, not the instant of crossing
     } else {
       dodge(); // cooldown gaps: stay in clear water so chains survive to MAX
     }

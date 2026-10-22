@@ -5,7 +5,7 @@ const { browser, page, consoleErrors } = await openPage();
 // This file tests the FLOW (gates, dodging, chaining), not the QTE styles: pin the single-press
 // timing ring so a smash ring cannot turn a scripted perfect into a Good (2026-10-22 stage C). The
 // styles have their own coverage in t08.
-await page.evaluate(() => window.__FFM_API.debugForceStyle('ring'));
+await page.evaluate(() => window.__FFM_API.debugForceStyle('closing'));
 
 // PRD §28.1 acceptance 10: continuous 60-90s run while chaining momentum.
 // Scripted by parking the fish on each gate's center the moment it appears,
@@ -51,7 +51,9 @@ const summary = await page.evaluate(async () => {
     coins = s.coins; perfects = s.counts.perfect;
     if (api.gate()) {
       api.debugTeleportToRing(); // park on the portal's center axis
-      if (api.qte()) api.debugPress(); // only once the window is open — never into the charge spam
+      // deterministic centred press: debugPressAt grades at an explicit run-time and returns null with
+      // no window open, so it can never fall into the launch-charge spam the old guard was avoiding
+      if (api.qte()) api.debugPressAt(api.qte().targetAt);
     } else {
       dodge(); // cooldown gaps: stay in clear water, don't feed the rocks
     }

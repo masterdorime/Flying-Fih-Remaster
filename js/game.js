@@ -4,7 +4,7 @@ import { applyTimingResult, integrateSpeed } from './momentum.js';
 import { tierForGauge, applyFill, applyMissDrain, drainFlying, tierTransition } from './gauge.js';
 import { profileFor } from './flight-state.js';
 import { timingScore, coinScore } from './scoring.js';
-import { createGate, crossingSample, mouthHit, createQte, evaluatePress, evaluateQtePress, expiryResult, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX } from './timing.js';
+import { createGate, crossingSample, mouthHit, createQte, evaluatePress, qteRemaining, gateBehind, gateCadence, reseatSwimGate, resolveGatePlacement, clearGateX } from './timing.js';
 import { mulberry32 } from './worldgen.js';
 import { createPlayer } from './player.js';
 import { bus } from './event-bus.js';
@@ -237,9 +237,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
         // a pending QTE owns the gate: no behind-miss until the window expires,
         // or a fast fish (6 m behind < 0.70 s) would double-resolve
         if (qteRemaining(activeQte, state.runTime) <= 0) {
-          // expiryResult, not a flat 'miss': a part-filled SMASH is a Good (stage C). A timing ring
-          // can never be a Good this way — a press is what grades it.
-          resolveQte(expiryResult(activeQte));
+          resolveQte('miss'); // auto-miss on expiry (shared helper — same clock as the HUD)
         }
       } else if (gateBehind(activeGate, pos)) {
         resolveGateResult('miss'); // sailed past the portal without entering it
@@ -255,12 +253,10 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     // clock (it would grade a moment that never happened). It lives here, not
     // in the keydown, because debug hooks press through queuePress too.
     if (state.phase === 'paused') return;
-    // A pending window grades on the press. A timing ring resolves on its FIRST press (as it always
-    // did — evaluatePress is idempotent, so mash-tapping can't score twice); a smash ACCUMULATES and
-    // stays open, so it is only resolved when the evaluator returns a grade.
+    // one press grades the window, whichever style drew it (both are centred timing), and
+    // evaluatePress is idempotent so mash-tapping cannot score twice
     if (activeQte && !activeQte.resolved) {
-      const graded = evaluateQtePress(activeQte, state.runTime);
-      if (graded) resolveQte(graded);
+      resolveQte(evaluatePress(activeQte, state.runTime));
       return;
     }
     // SPACE keeps exactly one job outside a window: the launch spam lever
@@ -551,12 +547,7 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     // for the same reason as queuePress: a frozen runTime must not grade.
     debugPressAt: (t) => {
       if (state.phase === 'paused') return null;
-      if (!activeQte || activeQte.resolved) return null;
-      // MUST route through the same style-aware entry point a real press uses: calling evaluatePress
-      // here graded a SMASH ring as if it were a timing ring, so the browser test would have measured
-      // a rule the game does not follow.
-      const graded = evaluateQtePress(activeQte, t);
-      return graded ? resolveQte(graded) : null;
+      return (activeQte && !activeQte.resolved ? resolveQte(evaluatePress(activeQte, t)) : null);
     },
     // test hook: park the fish on the live gate's plane at ±offsets from its
     // center, so the next crossing resolves deterministically
