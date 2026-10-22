@@ -130,16 +130,53 @@ clearance sampler).
 ## 7. Stages B and C — direction only, NOT settled
 
 Recorded so the intent is not lost; neither has approved numbers and neither may be implemented from
-this document.
+this document. **C has since shipped — see §8, which is its authority.**
 
 - **B — spacing that is not a metronome.** Today: next ring spawns 0.6 s after the previous resolves,
   45–90 m ahead ⇒ at a steady speed a ~4.5 s metronome, which the user noticed unprompted. Direction:
   jitter the lead (×0.85–1.15) and the cooldown (0.4–1.0 s) while keeping the 45 m minimum, so two
   rings can never stack. Fairness floors untouched.
-- **C — two QTE styles, telegraphed by the ring's look.** Timing ring (today) and a **smash** ring
-  (mash SPACE to fill a frame). User decisions: styles vary per ring; **the ring's look tells you
-  which**, the bottom-centre prompt confirms; grades stay Perfect/Good/Miss with unchanged scoring, so
-  only *how the grade is earned* changes. Needs: a weighted no-repeat roster, a per-style window
-  (the smash needs a longer one), an anti-turbo guard (presses closer than ~80 ms ignored), a second
-  ring look in `gate-view.js`, a second HUD prompt, and a plan for the tutorial, which already cannot
-  finish and is deferred.
+
+## 8. Stage C — two QTE styles, SHIPPED 2026-10-22 (`b05fcdf`)
+
+**The anchoring rule: the grade vocabulary and everything downstream are UNCHANGED.** Perfect / Good /
+Miss, +8 / +4, the chain rules, the speed cuts, `applyResult` and scoring are exactly as they were.
+Only **how** a grade is earned differs. That is what keeps a change to frozen QTE territory small
+enough to be safe.
+
+| | timing ring (as before) | smash ring (new) |
+|---|---|---|
+| what you do | press once, on time | mash SPACE to fill the bar |
+| Perfect | within `perfectWindow` 0.30 s | `smashTarget` 5 presses inside `smashWindow` 1.4 s |
+| Good | within `goodWindow` 0.70 s | `smashGood` 3 presses when the window expires |
+| Miss | late, or never | fewer than 3 presses, or none |
+| anti-cheat | first press grades, and only once | presses closer than `smashMinGap` 0.08 s are IGNORED, not graded |
+| assist | both windows × `ASSIST.windowScale` | the smash clock × the same scale — timing, never geometry |
+| your cue | the ring prompt **drains** (gold in the perfect zone) | the same prompt **fills** (violet, gold once the Good is banked) |
+| in the world | cyan ring | **violet ring with a second inner ring** |
+
+**The player learns the style from the ring itself** (the user's explicit choice): the world ring is
+tinted and doubled for a smash, so the input is known before committing, and the bottom-centre prompt
+confirms it. It is never a surprise.
+
+**Roster:** `QTE.styles` — `ring { weight 1.0, minD 0 }`, `smash { weight 1.0, minD 0.25 }` — weighted,
+difficulty-gated, and **never the same style twice in a row** while a second is unlocked. Same shape as
+`FORMATIONS`. The style draw happens LAST in `createGate`, so no existing draw moves and gate layouts
+for a given seed are unchanged.
+
+**One entry point:** `evaluateQtePress` routes by style, and both the keyboard and `debugPressAt` go
+through it. Found by wiring the test first: the debug hook graded presses **directly**, so a smash ring
+would have been graded as a timing ring *through the test seam* — the test would have measured a rule
+the game does not follow.
+
+**Verification:** unit **138/138** (6 new style tests: roster determinism/gating/no-repeat, both
+windows, press counting, the anti-turbo gap, expiry-to-Good, and that a timing ring is still graded by
+its first press). `t08` gains four live checks: a forced smash ring opens with the longer clock and the
+smash cue mode, its prompt **fills** with presses, mashing it is a **Perfect**, a part-filled one
+expires as **Good** and keeps the chain, and an ignored one is a **Miss** that clears the prompt.
+`t15`/`t17` pin the timing style — they test the flow, not the styles. Screenshot: the two rings from
+the same distance, visibly different.
+
+**Known limits, recorded not hidden:** the numbers above are starting values chosen for this stage, not
+playtested; the tutorial still cannot finish and now teaches only the timing ring (it is deferred by
+the user); and stage B (spacing) is still unbuilt.
