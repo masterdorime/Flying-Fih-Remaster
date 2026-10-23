@@ -619,6 +619,7 @@ window.__FFM_API = {
   debugSetWaterLook: (o) => water.setLook(o),
   debugSetDecalOpacity: (v) => contactDecals.setOpacity(v),
   debugSetDecalScale: (v) => contactDecals.setScale(v),
+  debugOceanLeak: () => game.debugOceanLeak(),
   debugForceStyle: (s) => game.debugForceStyle(s),
   debugLastStyle: () => game.debugLastStyle(),
   // test-only: disable the bloom PASS while leaving the rest of the chain (RenderPass +

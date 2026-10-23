@@ -617,14 +617,28 @@ export async function createGame({ scene, camera, renderer, water, settings, sto
     debugSetDistance: (m) => { state.distance = m; },
     // shared accessor (not debug): the render path needs the nearest hulls so the SEA can
     // paint contact foam around them. world.js already collects them during its own walk.
-    nearHulls: () => world.nearHulls(),
+    // While the sky owns the view the ocean is hidden, so "the nearest hulls" is an empty question — and
+    // returning them would ground contact decals under INVISIBLE hulls, which is one of the ways the ocean
+    // leaked into the sky (2026-10-23).
+    nearHulls: () => (world.isVisible() ? world.nearHulls() : []),
     debugForceFlight: () => enterFlight(), // the real transition: also fires plane:enter
     debugSpam: () => spamPress(),
-    // hide the ocean world (obstacles + ocean shrimp) while the fish is in the sky
+    // Hide the ocean world while the fish is in the sky. THE SPAWNERS HONOUR IT: this used to be a one-shot
+    // loop over the chunks that existed at the crossing, but the ocean keeps streaming up there and a fresh
+    // Group defaults to visible — so every chunk and coin created afterwards was drawn in the sky. That is
+    // the user's "you can still see water environment here": ocean hulls, which are ship models, floating in
+    // the cloud.
     setOceanVisible: (v) => {
-      for (const chunk of world.chunks.values()) chunk.group.visible = v;
-      for (const coin of coins.active) coin.group.visible = v;
+      world.setVisible(v);
+      coins.setVisible(v);
     },
+    // the leak's evidence surface: how many ocean objects are still DRAWN while the sky owns the view. The
+    // spawners keep working up there, so this is how a test tells "hidden once" from "hidden by construction".
+    debugOceanLeak: () => ({
+      oceanVisible: world.isVisible(),
+      visibleChunks: world.debugVisibleChunks(),
+      visibleCoins: coins.debugVisible(),
+    }),
   };
 
   return gameApi;

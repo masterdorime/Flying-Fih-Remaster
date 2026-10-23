@@ -36,6 +36,16 @@ export function createCoins(scene, coinTemplate) {
   let elapsed = 0;
   let nextTrailZ = 20;
 
+  // OCEAN VISIBILITY IS A STATE (2026-10-23): coins spawn continuously, so hiding the ones that exist at
+  // the curtain crossing (the old one-shot poke in game.js) left every later trail drawn in the sky. The
+  // spawner honours this instead, so whatever is created while flying starts hidden.
+  let coinsVisible = true;
+  function setVisible(v) {
+    coinsVisible = !!v;
+    for (const coin of active) coin.group.visible = coinsVisible;
+  }
+  function isVisible() { return coinsVisible; }
+
   function spawnTrail(z0, high, time, queryDiscs) {
     // swim trails start on the clearest lateral line through their span
     // (obstacle discs from the live world); airborne trails keep the free pick
@@ -65,6 +75,7 @@ export function createCoins(scene, coinTemplate) {
       const group = coinTemplate.clone(true);
       group.position.set(x, y, z);
       scene.add(group);
+      group.visible = coinsVisible; // a trail spawned while the sky owns the view starts hidden (see setVisible)
       active.push({ group, z, phase: Math.random() * Math.PI * 2, low });
     }
   }
@@ -165,5 +176,8 @@ export function createCoins(scene, coinTemplate) {
     return pos;
   }
 
-  return { update, reset, debugInfo, debugTeleport, active };
+  return {
+    update, reset, debugInfo, debugTeleport, active, setVisible, isVisible: () => coinsVisible,
+    debugVisible: () => { let n = 0; for (const c of active) if (c.group.visible) n++; return n; },
+  };
 }

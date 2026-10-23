@@ -31,6 +31,22 @@ export function createWorld(scene, templates) {
   // historical pin for callers that reset without an argument.
   const nearHulls = []; // nearest few hulls this frame (T11 contact foam), refilled in update
 
+  // THE OCEAN'S VISIBILITY IS A STATE, NOT A POKE (2026-10-23). It used to be a one-shot loop over the
+  // chunks that existed when the fish crossed the cloud curtain — but the ocean KEEPS STREAMING up there,
+  // and a fresh THREE.Group defaults to visible, so every chunk created after the crossing was drawn in the
+  // sky. That is the user's "you can still see water environment here": ocean hulls, which are ship models,
+  // floating in the cloud. `buildChunk` now honours this flag, so hiding is inherited by whatever spawns next.
+  let oceanVisible = true;
+  function setVisible(v) {
+    oceanVisible = !!v;
+    for (const chunk of chunks.values()) chunk.group.visible = oceanVisible;
+  }
+  function debugVisibleChunks() {
+    let n = 0;
+    for (const chunk of chunks.values()) if (chunk.group.visible) n++;
+    return n;
+  }
+
   function ensureChunks(playerZ, difficulty, speed) {
     const wantFrom = Math.floor((playerZ - WORLD.chunksBehind * WORLD.chunkLength) / WORLD.chunkLength);
     const wantTo = wantFrom + WORLD.chunksAhead + WORLD.chunksBehind;
@@ -47,6 +63,7 @@ export function createWorld(scene, templates) {
     const spec = composeChunk(index, difficulty, runSeed, speed, genState);
     genState = { cursor: spec.cursorOut, prevRow: spec.prevRowState, prevSlalomSign: spec.prevSlalomSign, form: spec.formOut };
     const group = new THREE.Group();
+    group.visible = oceanVisible; // a chunk built while the sky owns the view starts hidden (see setVisible)
     const obstacles = [];
     for (const ob of spec.obstacles) {
       const tpl = templateFor(templates, ob.kind, ob.variant);
@@ -229,5 +246,6 @@ export function createWorld(scene, templates) {
     genState = null; // fresh cursor + chain state for the new run
   }
 
-  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, obstaclesNear, nearHulls: () => nearHulls };
+  return { update, reset, chunks, debugCount, debugTeleport, debugChunksValid, obstaclesNear, nearHulls: () => nearHulls,
+    setVisible, isVisible: () => oceanVisible, debugVisibleChunks };
 }

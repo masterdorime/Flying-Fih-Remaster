@@ -36,6 +36,24 @@ s = await page.evaluate(() => window.__FFM_API.state());
 assert(Math.abs(s.position[1] - 85) < 8, `flight altitude settles near 85, above the clouds (y=${s.position[1].toFixed(1)})`);
 assert(s.speed > 8, `fish keeps flying forward (speed=${s.speed.toFixed(1)})`);
 
+// 2b. THE OCEAN MUST NOT LEAK INTO THE SKY (2026-10-23). Crossing the curtain used to hide the ocean ONCE,
+// with a loop over the chunks that existed at that moment — but the ocean keeps STREAMING while you fly, and
+// a fresh THREE.Group defaults to visible, so every chunk and coin created after the crossing was drawn up
+// there. The user's report: "you can still see water environment here", with ocean hulls (ship models)
+// circled in the cloud. The fix makes visibility a state the spawners honour.
+//
+// The wait is on FLIGHT PROGRESS (z advanced well past a chunk boundary), not on `distance`: that counter is
+// cumulative for the whole run and is already past any small threshold the moment flight begins, so an
+// earlier version of this assertion passed with the leak deliberately reintroduced. Spawning new chunks is
+// the thing that makes it fail, so the test has to force spawns.
+const entry = await page.evaluate(() => window.__FFM_API.state());
+const entryZ = entry.position[2];
+await page.waitForFunction((z0) => window.__FFM_API.state().position[2] - z0 > 260, entryZ, { timeout: 180000 });
+const leak = await page.evaluate(() => window.__FFM_API.debugOceanLeak());
+assertEqual(leak.oceanVisible, false, 'the ocean is hidden while the sky owns the view');
+assertEqual(leak.visibleChunks, 0, `no ocean chunk may be visible in the sky after new ones spawned (${leak.visibleChunks} were)`);
+assertEqual(leak.visibleCoins, 0, `no ocean coin may be visible in the sky after new ones spawned (${leak.visibleCoins} were)`);
+
 // 3. W/S controls altitude in flight: climb and dive within the sky band
 const cruiseY = await page.evaluate(() => window.__FFM_API.state().position[1]);
 await page.keyboard.down('KeyW');
