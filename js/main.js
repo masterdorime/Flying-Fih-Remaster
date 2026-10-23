@@ -64,6 +64,11 @@ const scene = new THREE.Scene();
 // and read by the water shader, the sky dome and the props. createSky used to set a
 // second, identical Fog — a silent last-writer-wins duplicate; it no longer does.
 scene.fog = new THREE.Fog(ATMOSPHERE.fog.color, ATMOSPHERE.fog.near, ATMOSPHERE.fog.far);
+// The FLIGHT haze (2026-10-23, phase 4): its own colour and range, swapped in with the sky above the
+// curtain. It is what makes the cloud sea END in sky rather than at an edge — js/sky-layers.js asserts the
+// sea's field is at least twice as deep as this `far`, so the field's rim is never the thing you see.
+const oceanFog = scene.fog;
+const flightFog = new THREE.Fog(ATMOSPHERE.flight.fog.color, ATMOSPHERE.flight.fog.near, ATMOSPHERE.flight.fog.far);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1200);
 camera.position.set(0, 4, -9);
@@ -183,7 +188,7 @@ const audio = createAudio(settings, bus);
 
 // two environments: the ocean below the cloud curtain, the sky world above it
 const clouds = createClouds(scene);
-const skyWorld = createSkyWorld(scene, game.templates, game.coinTemplate);
+const skyWorld = createSkyWorld(scene, game.coinTemplate);
 skyWorld.group.visible = false; // the sky exists only above the clouds
 // The horizon layer is the OCEAN's far field: visible from the water, hidden under the sky swap
 // (updateEnvironment). Built here so it shares the same per-run seed the chunks do.
@@ -249,13 +254,16 @@ function readInput() {
   input.y = Math.max(-1, Math.min(1, y)) * settings.sensitivity;
 }
 
-// ---- two-environment swap: day sky below the clouds, space sky above ----
+// ---- two-environment swap: day sky below the clouds, the CHOSEN flight sky above ----
+// The above-cloud sky is config now (2026-10-23, phase 4). It used to be hardcoded to skybox-space.png —
+// "space sky above", the dark starfield the user asked to be rid of ("the sky also looked dark") — while
+// four brighter skyboxes sat unused in the same folder.
 let environment = 'ocean';
 const dayBg = scene.background;
-let spaceBg = null;
+let skyBg = null;
 new THREE.TextureLoader()
-  .loadAsync('assets/models/skyboxes/skybox-space.png')
-  .then(t => { t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; spaceBg = t; })
+  .loadAsync(`assets/models/skyboxes/${ATMOSPHERE.flight.skybox}`)
+  .then(t => { t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; skyBg = t; })
   .catch(() => { /* placeholder missing: the day sky simply stays */ });
 
 function updateEnvironment(y) {
@@ -263,8 +271,9 @@ function updateEnvironment(y) {
   const above = environment === 'sky' ? y > FLIGHT.cloudY - 6 : y > FLIGHT.cloudY + 6;
   if (above === (environment === 'sky')) return;
   environment = above ? 'sky' : 'ocean';
-  if (above && spaceBg) scene.background = spaceBg;
+  if (above && skyBg) scene.background = skyBg;
   if (!above) scene.background = dayBg;
+  scene.fog = above ? flightFog : oceanFog;
   water.mesh.visible = !above;
   skyWorld.group.visible = above;
   horizon.group.visible = !above; // the far field belongs to the ocean, not the sky
@@ -555,6 +564,22 @@ window.__FFM_API = {
   // draw). Exposed for t08, which used to assert the spawn bound against a resolved x and passed for weeks
   // only because the gate stream was a fixed literal.
   debugGateLaneHalf: () => ({ laneHalfWidth: WORLD.laneHalfWidth }),
+  // the flight sea's landmarks, switchable so the user can choose between towers and an open sea from
+  // RENDERED PICTURES rather than a description (phase 4, spec §7)
+  debugSetCloudTowers: (on) => { skyWorld.setTowersVisible(on); return skyWorld.debugInfo(game.player.state.position.z).towers; },
+  // pick the flight sky live ('day' | 'morning' | 'night' | 'space' | 'alien'), so the four candidate skies
+  // can be compared from RENDERED PICTURES at one frozen vantage instead of chosen from a filename
+  debugSetFlightSky: (name) => new Promise((resolve) => {
+    new THREE.TextureLoader().loadAsync(`assets/models/skyboxes/skybox-${name}.png`)
+      .then((t) => {
+        t.mapping = THREE.EquirectangularReflectionMapping;
+        t.colorSpace = THREE.SRGBColorSpace;
+        skyBg = t;
+        if (environment === 'sky') scene.background = skyBg;
+        resolve(name);
+      })
+      .catch(() => resolve(null));
+  }),
   debugTeleportToRing: (offX = 0, offY = 0) => game.debugTeleportToRing(offX, offY),
   debugObstacleCount: () => game.debugObstacleCount(),
   debugModelFailures: () => game.debugModelFailures(),

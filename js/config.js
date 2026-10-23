@@ -309,6 +309,18 @@ export const ASSIST = {
 // (main.js fog/sun, water.js palette, wake.js FADE) so nothing changes by default
 // and the AGENTS §3 "every number, one home" rule holds.
 export const ATMOSPHERE = {
+  // THE FLIGHT ENVIRONMENT (2026-10-23, phase 4): what the sky above the cloud curtain and its haze are.
+  // The user's §9.2 requirements own this: "a vast sea of cloud with no hollow on it", "the sky also looked
+  // dark", and "use skyboxes assets instead" — i.e. prefer this project's own skybox PNGs over the dark
+  // space equirect that was hardcoded in main.js. One line to change, because the look is a decision and
+  // decisions belong in config.
+  flight: {
+    skybox: 'skybox-day.png',   // assets/models/skyboxes/ — day | morning | night | space | alien
+    // The haze that makes the sea END in sky rather than at an edge. Its colour should read as the lower
+    // sky of the chosen skybox; the far plane must stay inside the sea's recycled field (js/sky-layers.js
+    // asserts SEA_AREA.z >= 2 x far), or you would see the field's rim.
+    fog: { color: 0xdbe9f6, near: 150, far: 480 },
+  },
   // key light: the sun direction is shared by the direction light, the water's
   // specular term and the sky dome's sun glow, so all three agree on where it is
   sun: { dir: [40, 80, 30], color: 0xfff2dd, intensity: 2.3 },
